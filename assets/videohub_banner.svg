@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F0F1A" />
+      <stop offset="50%" stop-color="#18142A" />
+      <stop offset="100%" stop-color="#0B0914" />
+    </linearGradient>
+
+    <!-- Logo & Accent Gradient -->
+    <linearGradient id="brandGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF007A" />
+      <stop offset="100%" stop-color="#7000FF" />
+    </linearGradient>
+
+    <!-- Glow Effect -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="60" result="blur" />
+    </filter>
+  </defs>
+
+  <!-- Background Base -->
+  <rect width="1200" height="630" fill="url(#bgGrad)" />
+
+  <!-- Decorative Glowing Orbs -->
+  <circle cx="200" cy="150" r="220" fill="#7000FF" opacity="0.25" filter="url(#glow)" />
+  <circle cx="1000" cy="480" r="250" fill="#FF007A" opacity="0.2" filter="url(#glow)" />
+
+  <!-- Logo Squircle Tile -->
+  <g transform="translate(140, 180)">
+    <rect width="180" height="180" rx="46" fill="url(#brandGrad)" />
+    <!-- White Play Triangle -->
+    <polygon points="72,55 128,90 72,125" fill="#FFFFFF" />
+  </g>
+
+  <!-- Main Title -->
+  <text x="360" y="270" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="84" font-weight="800" fill="#FFFFFF" letter-spacing="-1">VideoHub</text>
+
+  <!-- Subtitle Tagline -->
+  <text x="362" y="325" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="28" font-weight="500" fill="#A0A0C0">Premium Ad-Free Android YouTube &amp; Music Player</text>
+
+  <!-- Feature Pills Badges -->
+  <!-- Pill 1: Ad-Free -->
+  <g transform="translate(362, 365)">
+    <rect width="140" height="42" rx="21" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="1" />
+    <text x="70" y="26" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="600" fill="#FF007A" text-anchor="middle">🚫 Ad-Free</text>
+  </g>
+
+  <!-- Pill 2: Music Mode -->
+  <g transform="translate(518, 365)">
+    <rect width="165" height="42" rx="21" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="1" />
+    <text x="82.5" y="26" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="600" fill="#B366FF" text-anchor="middle">🎵 Music Mode</text>
+  </g>
+
+  <!-- Pill 3: Offline Downloads -->
+  <g transform="translate(699, 365)">
+    <rect width="185" height="42" rx="21" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="1" />
+    <text x="92.5" y="26" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="600" fill="#00E5FF" text-anchor="middle">📥 MP3 &amp; Video DL</text>
+  </g>
+
+  <!-- Pill 4: Synced Lyrics -->
+  <g transform="translate(900, 365)">
+    <rect width="160" height="42" rx="21" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="1" />
+    <text x="80" y="26" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="600" fill="#00FF87" text-anchor="middle">📜 Live Lyrics</text>
+  </g>
+
+  <!-- Footer Line & Credit -->
+  <line x1="140" y1="480" x2="1060" y2="480" stroke="#FFFFFF" stroke-opacity="0.1" stroke-width="1" />
+
+  <text x="140" y="525" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="500" fill="#8080A0">Built with Jetpack Compose &amp; Kotlin</text>
+  <text x="1060" y="525" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="end">Developed by Shubham Boghara</text>
+</svg>

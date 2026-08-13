@@ -1,0 +1,41 @@
+package com.videhub.service
+
+import android.content.Intent
+import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionService
+
+class PlaybackService : MediaSessionService() {
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+        return MediaSessionManager.getOrCreateSession(this)
+    }
+
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        // Force the service to stay in the foreground even when paused/ended
+        // This prevents ForegroundServiceStartNotAllowedException on Android 12+ when autoplaying from background
+        super.onUpdateNotification(session, true)
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val session = MediaSessionManager.getOrCreateSession(this)
+        val player = session.player
+        val exoPlayer = player as? androidx.media3.exoplayer.ExoPlayer
+
+        player.stop()
+        player.clearMediaItems()
+        exoPlayer?.setWakeMode(androidx.media3.common.C.WAKE_MODE_NONE)
+        MediaSessionManager.release()
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
+    }
+
+    override fun onDestroy() {
+        val session = MediaSessionManager.getOrCreateSession(this)
+        val player = session.player as? androidx.media3.exoplayer.ExoPlayer
+
+        session.player.stop()
+        player?.setWakeMode(androidx.media3.common.C.WAKE_MODE_NONE)
+        MediaSessionManager.release()
+        super.onDestroy()
+    }
+}

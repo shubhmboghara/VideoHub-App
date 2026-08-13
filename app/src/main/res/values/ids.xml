@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="custom_cue_listener" type="id" />
+    <item name="is_fullscreen_tag" type="id" />
+    <item name="show_captions_tag" type="id" />
+    <item name="miniplayer_player_tag" type="id" />
+    <item name="miniplayer_listener_tag" type="id" />
+</resources>

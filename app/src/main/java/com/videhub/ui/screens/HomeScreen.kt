@@ -1,0 +1,726 @@
+package com.videhub.ui.screens
+
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+
+import android.content.Context
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import com.videhub.data.AppDatabase
+import com.videhub.extractor.ExtractorHelper
+import com.videhub.ui.components.VideoCard
+import com.videhub.ui.components.VideoCardShimmer
+import com.videhub.ui.theme.ThemeManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+import org.schabi.newpipe.extractor.InfoItem
+import org.schabi.newpipe.extractor.stream.StreamInfoItem
+
+@kotlin.OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun HomeScreen(
+    sharedViewModel: com.videhub.viewmodel.MainViewModel,
+    onVideoClick: (String, String, String) -> Unit,
+    onChannelClick: (String) -> Unit = {},
+    onSearchClick: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val db = remember { AppDatabase.getDatabase(context) }
+    val isDarkMode by ThemeManager.isDarkMode.collectAsStateWithLifecycle()
+
+    // Tab colors adapt to theme
+    val tabBg = MaterialTheme.colorScheme.surface
+    val tabSelected = MaterialTheme.colorScheme.onSurface
+    val tabUnselected = MaterialTheme.colorScheme.onSurfaceVariant
+    val indicatorColor = MaterialTheme.colorScheme.onSurfaceVariant
+
+    var selectedTab by remember { mutableIntStateOf(sharedViewModel.homeSelectedTabCache) }
+
+    // Use state map directly for videos
+    val videos = sharedViewModel.homeVideosCacheMap[selectedTab] ?: emptyList()
+    var isLoading by remember { mutableStateOf(sharedViewModel.homeVideosCacheMap[selectedTab] == null) }
+    var isPaginating by remember { mutableStateOf(false) }
+    var pagingSource by remember { mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(sharedViewModel.homePagingSourceMap[selectedTab]) }
+    
+    // We remember the scroll state for each tab so we can restore it immediately.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState(
+        initialFirstVisibleItemIndex = sharedViewModel.homeScrollStateMap[selectedTab]?.first ?: 0,
+        initialFirstVisibleItemScrollOffset = sharedViewModel.homeScrollStateMap[selectedTab]?.second ?: 0
+    )
+    
+    var errorText by remember { mutableStateOf<String?>(null) }
+
+    // Save scroll state continuously or when selectedTab changes
+    LaunchedEffect(selectedTab) {
+        sharedViewModel.homeSelectedTabCache = selectedTab
+        pagingSource = sharedViewModel.homePagingSourceMap[selectedTab]
+        // We will restore the scroll state for this new tab
+        val savedScroll = sharedViewModel.homeScrollStateMap[selectedTab]
+        if (savedScroll != null) {
+            listState.scrollToItem(savedScroll.first, savedScroll.second)
+        } else {
+            listState.scrollToItem(0)
+        }
+    }
+
+    DisposableEffect(selectedTab) {
+        onDispose {
+            sharedViewModel.homeScrollStateMap[selectedTab] = Pair(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+        }
+    }
+    
+    val customTabsString by com.videhub.data.SettingsManager.getCustomTabs(context).collectAsStateWithLifecycle(initialValue = "Music,Gaming,News,Sports")
+    val channels by db.channelDao().getAll().collectAsStateWithLifecycle(initialValue = emptyList())
+    val channelMap = remember(channels) { channels.associateBy { it.channelId } }
+    val tabs = remember(customTabsString) {
+        val list = mutableStateListOf("All")
+        if (customTabsString.isNotEmpty()) {
+            list.addAll(customTabsString.split(","))
+        }
+        list
+    }
+    
+    val isOnline by remember { com.videhub.utils.NetworkUtils.getNetworkStatusFlow(context) }.collectAsStateWithLifecycle(initialValue = com.videhub.utils.NetworkUtils.isNetworkAvailable(context))
+    val offlineDownloads by db.downloadedVideoDao().getAllDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
+    
+    var showAddDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var tabToDelete by remember { mutableIntStateOf(-1) }
+    var newTabName by remember { mutableStateOf("") }
+    var playlistDialogVideo by remember { mutableStateOf<StreamInfoItem?>(null) }
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    val onError: (String) -> Unit = { message ->
+        errorText = message
+        isLoading = false
+    }
+
+    fun refresh() {
+        if (isRefreshing || isLoading || isPaginating) return
+        scope.launch {
+            // "new render": clear cache and show shimmer
+            sharedViewModel.homeVideosCacheMap[selectedTab] = emptyList()
+            sharedViewModel.homeScrollStateMap[selectedTab] = Pair(0, 0)
+            isLoading = true
+            isRefreshing = true
+            errorText = null
+            try {
+                val safeTab = if (tabs.isNotEmpty()) selectedTab.coerceIn(0, tabs.size - 1) else 0
+                val newVideos = mutableListOf<Any>()
+                when (safeTab) {
+                    0 -> {
+                        val cachedSubscribedVideos = videos.filterIsInstance<StreamInfoItem>().filter { video ->
+                            val cId = video.uploaderUrl ?: ""
+                            val uploaderName = video.uploaderName ?: ""
+                            channels.any { it.channelId == cId || it.name == uploaderName }
+                        }
+                        newVideos.addAll(com.videhub.recommendation.RecommendationEngine.getPartialRecommendedFeed(db, context, cachedSubscribedVideos))
+                        pagingSource = null
+                    }
+                    else -> {
+                        if (safeTab < tabs.size) {
+                            val source = ExtractorHelper.getSearchPagingSource(tabs[safeTab] + " trending")
+                            pagingSource = source
+                            val res = source.loadInitial()?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>() ?: emptyList()
+                            newVideos.addAll(res)
+                        }
+                    }
+                }
+                sharedViewModel.homeVideosCacheMap[selectedTab] = newVideos
+                sharedViewModel.homePagingSourceMap[selectedTab] = pagingSource
+            } catch (e: Exception) {
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    android.util.Log.e("HomeScreen", "Error loading All tab", e)
+                                onError("Error: ${e.message}")
+                }
+            } finally {
+                isLoading = false
+                isRefreshing = false
+            }
+        }
+    }
+
+    LaunchedEffect(selectedTab) {
+        if (sharedViewModel.homeVideosCacheMap[selectedTab] != null && sharedViewModel.homeVideosCacheMap[selectedTab]!!.isNotEmpty()) {
+            // Already cached and on the same tab
+            isLoading = false
+            return@LaunchedEffect
+        }
+        isLoading = true
+        errorText = null
+        try {
+            val safeTab = if (tabs.isNotEmpty()) selectedTab.coerceIn(0, tabs.size - 1) else 0
+            val newVideos = mutableListOf<Any>()
+            when (safeTab) {
+                0 -> {
+                    pagingSource = null
+                    try {
+                        val cachedFeed = db.feedCacheDao().getAll()
+                        val mixedFeed = mutableListOf<Any>()
+                        
+                        val historyVideos = db.historyDao().getAllHistoryOnce().shuffled().take(5)
+                        val watchLaterVideos = db.watchLaterDao().getAllOnce().shuffled().take(5)
+                        val likedVideos = db.likedVideoDao().getAllOnce().shuffled().take(5)
+                        val downloadedVideos = db.downloadedVideoDao().getAllDownloadsSync().shuffled().take(5)
+                        
+                        mixedFeed.addAll(historyVideos)
+                        mixedFeed.addAll(watchLaterVideos)
+                        mixedFeed.addAll(likedVideos)
+                        mixedFeed.addAll(downloadedVideos)
+                        
+                        if (cachedFeed.isNotEmpty()) {
+                            mixedFeed.addAll(cachedFeed)
+                            mixedFeed.shuffle()
+                            sharedViewModel.homeVideosCacheMap[0] = mixedFeed
+                            isLoading = false
+                        }
+                        
+                        val freshVideos = com.videhub.recommendation.RecommendationEngine.getRecommendedFeed(db, context)
+                        if (freshVideos.isNotEmpty()) {
+                            val entities = freshVideos.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>().map {
+                                com.videhub.data.entity.FeedCacheEntity(
+                                    videoId = it.url ?: "",
+                                    title = it.name ?: "",
+                                    thumbnailUrl = it.thumbnails?.firstOrNull()?.url ?: "",
+                                    channelName = it.uploaderName ?: "",
+                                    channelAvatarUrl = null,
+                                    viewCount = it.viewCount,
+                                    duration = it.duration,
+                                    publishedText = it.uploadDate?.toString() ?: it.textualUploadDate ?: ""
+                                )
+                            }
+                            db.feedCacheDao().clearAll()
+                            db.feedCacheDao().insertAll(entities)
+                            
+                            val freshMixed = mutableListOf<Any>()
+                            freshMixed.addAll(historyVideos)
+                            freshMixed.addAll(watchLaterVideos)
+                            freshMixed.addAll(likedVideos)
+                            freshMixed.addAll(downloadedVideos)
+                            freshMixed.addAll(freshVideos)
+                            freshMixed.shuffle()
+                            
+                            sharedViewModel.homeVideosCacheMap[0] = freshMixed
+                        }
+                    } catch (e: Exception) {
+                        if (e !is kotlinx.coroutines.CancellationException) {
+                            if (sharedViewModel.homeVideosCacheMap[0].isNullOrEmpty()) {
+                                android.util.Log.e("HomeScreen", "Error loading All tab", e)
+                                onError("Error: ${e.message}")
+                            }
+                        } else throw e
+                    } finally {
+                        isLoading = false
+                    }
+                }
+                else -> {
+                    if (safeTab < tabs.size) {
+                        val source = ExtractorHelper.getSearchPagingSource(tabs[safeTab] + " trending")
+                        pagingSource = source
+                        val res = source.loadInitial()?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>() ?: emptyList()
+                        newVideos.addAll(res)
+                    }
+                    isLoading = false
+                }
+            }
+            if (safeTab != 0 || newVideos.isNotEmpty()) {
+                sharedViewModel.homeVideosCacheMap[selectedTab] = newVideos
+            }
+            sharedViewModel.homePagingSourceMap[selectedTab] = pagingSource
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("HomeScreen", "Error loading All tab", e)
+                                onError("Error: ${e.message}")
+        }
+    }
+    
+    fun loadNextPage() {
+        if (isPaginating || pagingSource?.hasMore != true) return
+        scope.launch {
+            isPaginating = true
+            try {
+                val items = pagingSource?.loadNextPage() ?: emptyList()
+                val current = sharedViewModel.homeVideosCacheMap[selectedTab] ?: emptyList()
+                sharedViewModel.homeVideosCacheMap[selectedTab] = current + items.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+            } catch (e: Exception) {}
+            isPaginating = false
+        }
+    }
+
+    if (!isOnline) {
+        Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            Text(
+                text = "Offline Mode",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(16.dp),
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Text(
+                text = "Here are your downloaded videos & songs:",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                itemsIndexed(offlineDownloads, key = { index, download -> "${download.videoId}_$index" }) { index, download ->
+                    VideoCard(
+                        title = download.title,
+                        channelName = download.channelName,
+                        thumbnailUrl = download.thumbnailUrl,
+                        url = download.videoId,
+                        duration = -1L,
+                        viewCount = download.viewCount,
+                        channelAvatarUrl = null,
+                        uploadDate = download.uploadDate,
+                        onClick = { _, _, _ ->
+                            val localUri = android.net.Uri.fromFile(java.io.File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), download.fileName)).toString()
+                            onVideoClick(localUri, download.title, download.thumbnailUrl)
+                        },
+                        onChannelClick = {}
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_logo),
+                    contentDescription = "Logo",
+                    modifier = Modifier.size(40.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "VideoHub",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            }
+            
+            androidx.compose.material3.Surface(
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                onClick = onSearchClick,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Filled.Search,
+                        contentDescription = "Search",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+        }
+        
+        Row(
+            modifier = Modifier.fillMaxWidth().background(tabBg).padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val safeSelectedTab = if (tabs.isNotEmpty()) selectedTab.coerceIn(0, tabs.size - 1) else 0
+            val selectedChipBg = MaterialTheme.colorScheme.onSurface
+            val unselectedChipBg = MaterialTheme.colorScheme.surfaceVariant
+            val selectedText = MaterialTheme.colorScheme.surface
+            val unselectedText = MaterialTheme.colorScheme.onSurface
+            
+            androidx.compose.foundation.lazy.LazyRow(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                items(count = tabs.size, key = { index -> tabs[index] }) { index ->
+                    val defaultTabs = "Music,Gaming,News,Sports"
+                    val tab = tabs[index]
+                    val isSelected = safeSelectedTab == index
+                    val isCustom = tab != "All"
+                    
+                    Box(
+                        modifier = Modifier
+                            .height(36.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                            .background(if (isSelected) selectedChipBg else unselectedChipBg.copy(alpha = 0.5f))
+                            .combinedClickable(
+                                onClick = { selectedTab = index },
+                                onLongClick = {
+                                    if (isCustom) {
+                                        tabToDelete = index
+                                        showDeleteDialog = true
+                                    }
+                                }
+                            )
+                            .padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(tab, style = MaterialTheme.typography.labelLarge, fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal, color = if (isSelected) selectedText else unselectedText)
+                        }
+                    }
+                }
+                item {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                            .background(unselectedChipBg)
+                            .clickable { showAddDialog = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Add", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+        }
+
+        if (showAddDialog) {
+            AlertDialog(
+                onDismissRequest = { showAddDialog = false },
+                containerColor = MaterialTheme.colorScheme.surface,
+                titleContentColor = MaterialTheme.colorScheme.onSurface,
+                textContentColor = MaterialTheme.colorScheme.onSurface,
+                title = { Text("Add Category") },
+                text = {
+                    OutlinedTextField(
+                        value = newTabName,
+                        onValueChange = { newTabName = it },
+                        label = { Text("Category Name") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            focusedBorderColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            focusedLabelColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                        )
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            if (newTabName.isNotBlank() && !tabs.contains(newTabName.trim())) {
+                                val category = newTabName.trim()
+                                tabs.add(category)
+                                val customTabs = tabs.filter { it != "All" }.joinToString(",")
+                                scope.launch { com.videhub.data.SettingsManager.setCustomTabs(context, customTabs) }
+                                selectedTab = tabs.size - 1
+                            }
+                            newTabName = ""
+                            showAddDialog = false
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
+                    ) {
+                        Text("Add")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { 
+                            showAddDialog = false 
+                            newTabName = ""
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        if (showDeleteDialog && tabToDelete in 1 until tabs.size) {
+            val titleToDelete = tabs[tabToDelete]
+            AlertDialog(
+                onDismissRequest = { showDeleteDialog = false },
+                containerColor = MaterialTheme.colorScheme.surface,
+                titleContentColor = MaterialTheme.colorScheme.onSurface,
+                textContentColor = MaterialTheme.colorScheme.onSurface,
+                title = { Text("Delete Category") },
+                text = { Text("Are you sure you want to delete '$titleToDelete'?") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            tabs.removeAt(tabToDelete)
+                            val customTabs = tabs.filter { it != "All" }.joinToString(",")
+                            scope.launch { com.videhub.data.SettingsManager.setCustomTabs(context, customTabs) }
+                            
+                            // Adjust selected tab safely
+                            if (selectedTab >= tabs.size) {
+                                selectedTab = tabs.size - 1
+                            } else if (selectedTab == tabToDelete) {
+                                selectedTab = 0 // Reset to home if deleted tab was selected
+                            }
+                            
+                            showDeleteDialog = false
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
+                    ) {
+                        Text("Delete")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showDeleteDialog = false },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+        androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { refresh() },
+            modifier = Modifier.weight(1f).fillMaxWidth()
+        ) {
+            androidx.compose.animation.AnimatedContent(
+                targetState = Triple(selectedTab, isLoading && !isRefreshing, errorText != null),
+                transitionSpec = {
+                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)))
+                },
+                label = "HomeScreenStateTransition"
+            ) { (tab, showShimmer, hasError) ->
+                when {
+                    showShimmer -> LazyColumn {
+                        items(5) { VideoCardShimmer() }
+                    }
+                    hasError -> Column(
+                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(errorText ?: "Could not load content. Please try again.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(16.dp))
+                        Button(onClick = {
+                            isLoading = true
+                            val t = selectedTab
+                            selectedTab = -1
+                            selectedTab = t
+                        }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) { Text("Retry") }
+                    }
+                    videos.isEmpty() -> com.videhub.ui.components.EmptyState(
+                        icon = Icons.Default.Home,
+                        title = "No videos found",
+                        message = "Try exploring other categories.",
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    items(
+                        count = videos.size,
+                        key = { index -> 
+                            val v = videos[index]
+                            val id = when (v) {
+                                is StreamInfoItem -> v.url
+                                is com.videhub.data.entity.FeedCacheEntity -> v.videoId
+                                is com.videhub.data.entity.HistoryEntity -> v.videoId
+                                is com.videhub.data.entity.WatchLaterEntity -> v.videoId
+                                is com.videhub.data.entity.LikedVideoEntity -> v.videoId
+                                is com.videhub.data.entity.DownloadedVideoEntity -> v.videoId
+                                is com.videhub.data.entity.PlaylistVideoEntity -> v.videoId
+                                else -> index.toString()
+                            }
+                            "${id}_$index" 
+                        }
+                    ) { index ->
+                        val video = videos[index]
+                        
+                        if (index == videos.size - 1 && !isPaginating && pagingSource?.hasMore == true) {
+                            LaunchedEffect(Unit) {
+                                loadNextPage()
+                            }
+                        }
+                        
+                        when (video) {
+                            is StreamInfoItem -> {
+                                val cId = video.uploaderUrl ?: ""
+                                val avatarUrl = channelMap[cId]?.thumbnailUrl
+                                if (index < 3) {
+                                    LaunchedEffect(video.url) {
+                                        com.videhub.utils.PrefetchManager.prefetch(context, video.url)
+                                    }
+                                }
+                                VideoCard(
+                                    item = video,
+                                    modifier = Modifier.animateItem(),
+                                    onClick = onVideoClick,
+                                    onChannelClick = onChannelClick,
+                                    channelAvatarUrl = avatarUrl
+                                )
+                            }
+                            is com.videhub.data.entity.FeedCacheEntity -> {
+                                VideoCard(
+                                    title = video.title,
+                                    channelName = video.channelName,
+                                    thumbnailUrl = video.thumbnailUrl,
+                                    url = video.videoId,
+                                    duration = video.duration,
+                                    viewCount = video.viewCount,
+                                    channelAvatarUrl = video.channelAvatarUrl,
+                                    uploadDate = video.publishedText,
+                                    onClick = onVideoClick,
+                                    onChannelClick = onChannelClick,
+                                    modifier = Modifier.animateItem()
+                                )
+                            }
+                            is com.videhub.data.entity.HistoryEntity -> {
+                                VideoCard(
+                                    title = video.title,
+                                    channelName = video.channelName,
+                                    thumbnailUrl = video.thumbnailUrl ?: "",
+                                    url = video.videoId,
+                                    duration = -1L,
+                                    viewCount = video.viewCount,
+                                    channelAvatarUrl = null,
+                                    uploadDate = video.uploadDate,
+                                    onClick = onVideoClick,
+                                    onChannelClick = onChannelClick,
+                                    modifier = Modifier.animateItem()
+                                )
+                            }
+                            is com.videhub.data.entity.WatchLaterEntity -> {
+                                VideoCard(
+                                    title = video.title,
+                                    channelName = video.channelName,
+                                    thumbnailUrl = video.thumbnailUrl,
+                                    url = video.videoId,
+                                    duration = -1L,
+                                    viewCount = -1L,
+                                    channelAvatarUrl = null,
+                                    uploadDate = "",
+                                    onClick = onVideoClick,
+                                    onChannelClick = onChannelClick,
+                                    modifier = Modifier.animateItem()
+                                )
+                            }
+                            is com.videhub.data.entity.LikedVideoEntity -> {
+                                VideoCard(
+                                    title = video.title,
+                                    channelName = video.channelName,
+                                    thumbnailUrl = video.thumbnailUrl,
+                                    url = video.videoId,
+                                    duration = -1L,
+                                    viewCount = video.viewCount,
+                                    channelAvatarUrl = null,
+                                    uploadDate = video.uploadDate,
+                                    onClick = onVideoClick,
+                                    onChannelClick = onChannelClick,
+                                    modifier = Modifier.animateItem()
+                                )
+                            }
+                            is com.videhub.data.entity.DownloadedVideoEntity -> {
+                                VideoCard(
+                                    title = video.title,
+                                    channelName = video.channelName,
+                                    thumbnailUrl = video.thumbnailUrl,
+                                    url = video.videoId,
+                                    duration = -1L,
+                                    viewCount = video.viewCount,
+                                    channelAvatarUrl = null,
+                                    uploadDate = video.uploadDate,
+                                    onClick = { _: String, _: String, _: String ->
+                                        val localUri = android.net.Uri.fromFile(java.io.File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), video.fileName)).toString()
+                                        onVideoClick(localUri, video.title, video.thumbnailUrl)
+                                    },
+                                    onChannelClick = onChannelClick,
+                                    modifier = Modifier.animateItem()
+                                )
+                            }
+                            is com.videhub.data.entity.PlaylistVideoEntity -> {
+                                VideoCard(
+                                    title = video.title,
+                                    channelName = video.channelName,
+                                    thumbnailUrl = video.thumbnailUrl ?: "",
+                                    url = video.videoId,
+                                    duration = -1L,
+                                    viewCount = video.viewCount,
+                                    channelAvatarUrl = null,
+                                    uploadDate = video.uploadDate,
+                                    onClick = onVideoClick,
+                                    onChannelClick = onChannelClick,
+                                    modifier = Modifier.animateItem()
+                                )
+                            }
+                        }
+                    }
+                    
+                    if (isPaginating) {
+                        item {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+                } // End of when
+            } // End of AnimatedContent
+        }
+        
+        playlistDialogVideo?.let { video ->
+            com.videhub.ui.components.AddToPlaylistDialog(
+                videoUrl = video.url ?: "",
+                title = video.name ?: "",
+                thumbnailUrl = video.thumbnails?.firstOrNull()?.url ?: "",
+                channelName = video.uploaderName ?: "",
+                onDismiss = { playlistDialogVideo = null }
+            )
+        }
+    }
+}
+
+

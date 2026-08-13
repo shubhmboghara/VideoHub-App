@@ -1,0 +1,69 @@
+package com.videhub.ui.components
+
+import org.schabi.newpipe.extractor.stream.SubtitlesStream
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.MediaItem.SubtitleConfiguration
+import android.net.Uri
+
+object CaptionService {
+    fun getSubtitleConfigurations(subtitles: List<SubtitlesStream>?): List<SubtitleConfiguration> {
+        if (subtitles.isNullOrEmpty()) return emptyList()
+
+        val configs = mutableListOf<SubtitleConfiguration>()
+        for (sub in subtitles) {
+            var url = sub.url
+            if (url.isNullOrBlank()) continue
+            
+            // Force YouTube to return WebVTT by safely replacing the fmt parameter
+            // without using Uri.buildUpon() which can re-order and re-encode parameters,
+            // breaking the URL signature.
+            if (url.contains("youtube.com") || url.contains("timedtext")) {
+                url = if (url.contains("fmt=")) {
+                    url.replace(Regex("fmt=[^&]*"), "fmt=vtt")
+                } else {
+                    url + "&fmt=vtt"
+                }
+            }
+            
+            val mimeType = MimeTypes.TEXT_VTT 
+            
+            val config = SubtitleConfiguration.Builder(Uri.parse(url))
+                .setMimeType(mimeType)
+                .setLanguage(sub.languageTag)
+                .setLabel(sub.languageTag)
+                .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
+                .build()
+            configs.add(config)
+        }
+        return configs
+    }
+
+    fun createVttFile(context: android.content.Context, videoId: String, lyricsJson: String): java.io.File? {
+        try {
+            val jsonArray = org.json.JSONArray(lyricsJson)
+            val sb = java.lang.StringBuilder("WEBVTT\n\n")
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                val start = obj.getLong("startMillis")
+                val end = obj.getLong("endMillis")
+                val text = obj.getString("nativeText")
+                sb.append(formatVttTime(start)).append(" --> ").append(formatVttTime(end)).append("\n")
+                sb.append(text).append("\n\n")
+            }
+            val safeName = videoId.replace(Regex("[^a-zA-Z0-9]"), "_") + ".vtt"
+            val file = java.io.File(context.cacheDir, safeName)
+            file.writeText(sb.toString())
+            return file
+        } catch (e: Exception) {
+            return null
+        }
+    }
+    
+    private fun formatVttTime(millis: Long): String {
+        val ms = millis % 1000
+        val s = (millis / 1000) % 60
+        val m = (millis / 60000) % 60
+        val h = millis / 3600000
+        return String.format("%02d:%02d:%02d.%03d", h, m, s, ms)
+    }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "VideoHub",
+  "description": "Video player using NewPipeExtractor.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
