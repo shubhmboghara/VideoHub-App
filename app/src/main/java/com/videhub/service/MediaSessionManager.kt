@@ -153,44 +153,39 @@ object MediaSessionManager {
                     }
                 }
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    android.util.Log.e("MediaSessionManager", "Player error during background playback: ${error.message}", error)
-                    val pm = ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-                    val wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "VideHub:AutoplayErrorWakeLock")
-                    wakeLock.acquire(30000)
-                    
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                        try {
-                            val isAutoplayEnabled = com.videhub.data.SettingsManager.getAutoplay(ctx).firstOrNull() ?: true
-                            BackgroundAutoplayHandler.handleAutoplay(ctx, player!!, isAutoplayEnabled) { com.videhub.QueueManager.getNextVideo() }
-                        } finally {
-                            if (wakeLock.isHeld) wakeLock.release()
-                        }
-                    }
+                    android.util.Log.e("MediaSessionManager", "Player error during playback: ${error.message}", error)
+                    // Do NOT auto-skip to next video on player error. Let UI handle retry or stream fallback.
                 }
                 override fun onPlaybackStateChanged(state: Int) {
                     updateIsPlayingState()
                     if (state == androidx.media3.common.Player.STATE_ENDED) {
-                        val pm = ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-                        val wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "VideHub:AutoplayCheckWakeLock")
-                        wakeLock.acquire(30000)
-                        
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                            try {
-                                val isAutoplayEnabled = com.videhub.data.SettingsManager.getAutoplay(ctx).firstOrNull() ?: true
-                                val isLoopEnabled = com.videhub.data.SettingsManager.getLoopVideo(ctx).firstOrNull() ?: false
-                                
-                                if (isLoopEnabled) {
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        player!!.seekTo(0)
-                                        player!!.play()
+                        val p = player ?: return
+                        val dur = p.duration
+                        val pos = p.currentPosition
+                        // Only trigger autoplay when video actually reached the end
+                        if (dur > 0 && pos >= (dur - 3000L).coerceAtLeast(0L)) {
+                            val pm = ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+                            val wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "VideHub:AutoplayCheckWakeLock")
+                            wakeLock.acquire(30000)
+                            
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                try {
+                                    val isAutoplayEnabled = com.videhub.data.SettingsManager.getAutoplay(ctx).firstOrNull() ?: true
+                                    val isLoopEnabled = com.videhub.data.SettingsManager.getLoopVideo(ctx).firstOrNull() ?: false
+                                    
+                                    if (isLoopEnabled) {
+                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            player?.seekTo(0)
+                                            player?.play()
+                                        }
+                                        kotlinx.coroutines.delay(1500)
+                                    } else {
+                                        android.util.Log.d("MediaSessionManager", "Autoplay/Queue triggered on normal video completion!")
+                                        BackgroundAutoplayHandler.handleAutoplay(ctx, player!!, isAutoplayEnabled) { com.videhub.QueueManager.getNextVideo() }
                                     }
-                                    kotlinx.coroutines.delay(1500)
-                                } else {
-                                    android.util.Log.d("MediaSessionManager", "Autoplay/Queue triggered!")
-                                    BackgroundAutoplayHandler.handleAutoplay(ctx, player!!, isAutoplayEnabled) { com.videhub.QueueManager.getNextVideo() }
+                                } finally {
+                                    if (wakeLock.isHeld) wakeLock.release()
                                 }
-                            } finally {
-                                if (wakeLock.isHeld) wakeLock.release()
                             }
                         }
                     }

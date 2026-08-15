@@ -8,6 +8,10 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -27,20 +31,42 @@ fun PlaylistThumbnail(
     contentScale: ContentScale = ContentScale.Crop,
     contentDescription: String? = null
 ) {
-    val modelToUse: Any? = when {
-        !thumbnailUrl.isNullOrBlank() && (thumbnailUrl.startsWith("http://") || thumbnailUrl.startsWith("https://")) -> thumbnailUrl
-        !thumbnailUrl.isNullOrBlank() && File(thumbnailUrl).exists() -> File(thumbnailUrl)
-        else -> null
+    val context = LocalContext.current
+    var isError by androidx.compose.runtime.remember(thumbnailUrl) { androidx.compose.runtime.mutableStateOf(false) }
+
+    val modelToUse: Any? = androidx.compose.runtime.remember(thumbnailUrl) {
+        if (thumbnailUrl.isNullOrBlank()) null
+        else {
+            val clean = thumbnailUrl.trim()
+            when {
+                clean.startsWith("file://") -> {
+                    val path = clean.removePrefix("file://")
+                    val file = File(path)
+                    if (file.exists() && file.length() > 0) file else android.net.Uri.parse(clean)
+                }
+                clean.startsWith("content://") -> android.net.Uri.parse(clean)
+                clean.startsWith("http://") || clean.startsWith("https://") -> clean
+                clean.startsWith("/") -> {
+                    val file = File(clean)
+                    if (file.exists() && file.length() > 0) file else null
+                }
+                else -> {
+                    val file = File(clean)
+                    if (file.exists() && file.length() > 0) file else clean
+                }
+            }
+        }
     }
 
-    if (modelToUse != null) {
+    if (modelToUse != null && !isError) {
         AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
+            model = ImageRequest.Builder(context)
                 .data(modelToUse)
                 .crossfade(true)
                 .build(),
             contentDescription = contentDescription,
             contentScale = contentScale,
+            onError = { isError = true },
             modifier = modifier
         )
     } else {

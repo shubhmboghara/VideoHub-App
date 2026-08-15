@@ -83,7 +83,8 @@ fun NowPlayingScreen(
     onChannelClick: () -> Unit,
     showCaptions: Boolean = false,
     onCaptionsRequested: () -> Unit = {},
-    onVideoPlay: (String, String, String) -> Unit = { _,_,_ -> }
+    onVideoPlay: (String, String, String) -> Unit = { _,_,_ -> },
+    isAudioOnly: Boolean = false
 ) {
     var uiState by remember { 
         mutableStateOf(
@@ -288,12 +289,14 @@ fun NowPlayingScreen(
                 }
                 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onToggleMode) {
-                        Icon(
-                            imageVector = Icons.Rounded.Videocam,
-                            contentDescription = "Video Mode",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
+                    if (!isAudioOnly) {
+                        IconButton(onClick = onToggleMode) {
+                            Icon(
+                                imageVector = Icons.Rounded.Videocam,
+                                contentDescription = "Video Mode",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 }
             }

@@ -34,9 +34,17 @@ class PlaylistDownloadWorker(
         try {
             val db = AppDatabase.getDatabase(applicationContext)
 
-            // Insert Playlist Entity (REPLACE will handle if it already exists)
+            // Insert Playlist Entity with local thumbnail
+            val localPlaylistThumb = if (playlistThumbnail.isNotBlank()) {
+                com.videhub.utils.ThumbnailDownloader.downloadThumbnail(
+                    applicationContext,
+                    playlistId,
+                    playlistThumbnail
+                ) ?: playlistThumbnail
+            } else playlistThumbnail
+
             db.downloadedPlaylistDao().insertPlaylist(
-                DownloadedPlaylistEntity(playlistId, playlistTitle, playlistThumbnail)
+                DownloadedPlaylistEntity(playlistId, playlistTitle, localPlaylistThumb)
             )
 
             val isAlreadyDownloaded = db.downloadedVideoDao().isVideoDownloaded(videoUrl)

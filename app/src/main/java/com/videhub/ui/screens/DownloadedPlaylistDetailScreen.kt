@@ -44,13 +44,12 @@ fun DownloadedPlaylistDetailScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var videos by remember { mutableStateOf<List<DownloadedVideoEntity>>(emptyList()) }
-    var playlist by remember { mutableStateOf<DownloadedPlaylistEntity?>(null) }
+    val db = remember { AppDatabase.getDatabase(context) }
+    val playlist by db.downloadedPlaylistDao().getPlaylistByIdFlow(playlistId).collectAsStateWithLifecycle(initialValue = null)
     val onBackPressedDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
     val activeDownloads by com.videhub.utils.DownloadProgressTracker.activeDownloads.collectAsStateWithLifecycle(initialValue = emptyMap())
     
     LaunchedEffect(playlistId) {
-        val db = AppDatabase.getDatabase(context)
-        playlist = db.downloadedPlaylistDao().getPlaylistById(playlistId)
         db.downloadedPlaylistDao().getVideosForPlaylist(playlistId).collectLatest { list ->
             videos = list.filter { video ->
                 if (video.fileName.startsWith("PENDING_")) return@filter true

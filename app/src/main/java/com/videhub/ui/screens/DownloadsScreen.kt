@@ -81,6 +81,19 @@ fun DownloadsScreen(navController: androidx.navigation.NavController, onVideoCli
                         }
                     }
                 }
+                val oldPlaylists = db.downloadedPlaylistDao().getAllDownloadedPlaylists().first()
+                for (pl in oldPlaylists) {
+                    if (pl.thumbnailUrl?.startsWith("http") == true) {
+                        val localThumb = com.videhub.utils.ThumbnailDownloader.downloadThumbnail(
+                            context,
+                            pl.playlistId,
+                            pl.thumbnailUrl
+                        )
+                        if (localThumb != null && localThumb != pl.thumbnailUrl) {
+                            db.downloadedPlaylistDao().updatePlaylistThumbnail(pl.playlistId, localThumb)
+                        }
+                    }
+                }
             } catch (e: Exception) {}
         }
     }

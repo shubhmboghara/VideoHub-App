@@ -139,7 +139,14 @@ class PlaylistDownloadService : Service() {
                 activePlaylists[pId] = currentNotificationId
 
                 val db = AppDatabase.getDatabase(this@PlaylistDownloadService)
-                val finalPlaylistThumb = playlistThumbnail.ifBlank { thumbnails?.firstOrNull { it.isNotBlank() } ?: "" }
+                val rawPlaylistThumb = playlistThumbnail.ifBlank { thumbnails?.firstOrNull { it.isNotBlank() } ?: "" }
+                val finalPlaylistThumb = if (rawPlaylistThumb.isNotBlank()) {
+                    com.videhub.utils.ThumbnailDownloader.downloadThumbnail(
+                        this@PlaylistDownloadService,
+                        pId,
+                        rawPlaylistThumb
+                    ) ?: rawPlaylistThumb
+                } else rawPlaylistThumb
 
                 // Insert Playlist Entity
                 db.downloadedPlaylistDao().insertPlaylist(

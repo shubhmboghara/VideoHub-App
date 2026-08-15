@@ -12,10 +12,10 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface DownloadedPlaylistDao {
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPlaylist(playlist: DownloadedPlaylistEntity)
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPlaylistVideoCrossRef(crossRef: DownloadedPlaylistVideoCrossRef)
 
     @Query("SELECT * FROM downloaded_playlists ORDER BY downloadedAt DESC")
@@ -37,6 +37,9 @@ interface DownloadedPlaylistDao {
     @Query("SELECT * FROM downloaded_playlists WHERE playlistId = :playlistId")
     suspend fun getPlaylistById(playlistId: String): DownloadedPlaylistEntity?
 
+    @Query("SELECT * FROM downloaded_playlists WHERE playlistId = :playlistId")
+    fun getPlaylistByIdFlow(playlistId: String): Flow<DownloadedPlaylistEntity?>
+
     @Transaction
     @Query("""
         SELECT v.* FROM downloaded_videos v
@@ -47,6 +50,9 @@ interface DownloadedPlaylistDao {
     fun getVideosForPlaylist(playlistId: String): Flow<List<DownloadedVideoEntity>>
 
 
+
+    @Query("UPDATE downloaded_playlists SET thumbnailUrl = :thumbnailUrl WHERE playlistId = :playlistId")
+    suspend fun updatePlaylistThumbnail(playlistId: String, thumbnailUrl: String)
 
     @Query("DELETE FROM downloaded_playlists WHERE playlistId = :playlistId")
     suspend fun deletePlaylist(playlistId: String)

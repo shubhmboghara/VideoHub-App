@@ -317,9 +317,6 @@ fun MiniPlayer(
                 android.view.LayoutInflater.from(ctx).inflate(com.videhub.R.layout.mini_player_view, null, false) as androidx.media3.ui.PlayerView
             },
             update = { view ->
-                if (view.player == player && player != null) {
-                    view.player = null
-                }
                 if (view.player != player) {
                     view.player = player
                 }

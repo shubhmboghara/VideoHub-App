@@ -192,12 +192,8 @@ fun ExoPlayerView(
                     oldPlayer?.removeListener(listener)
                     mediaPlayer?.addListener(listener)
                 }
+                view.player = mediaPlayer
             }
-            // Force re-attach surface if it was stolen by MiniPlayer
-            if (view.player == mediaPlayer && mediaPlayer != null) {
-                view.player = null
-            }
-            view.player = mediaPlayer
             view.useController = !isPipActive && !isMusicMode && !isScreenLocked
             if (isPipActive) {
                 view.useController = false

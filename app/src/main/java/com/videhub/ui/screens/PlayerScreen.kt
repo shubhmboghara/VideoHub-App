@@ -183,7 +183,6 @@ fun PlayerScreen(
     }
 
     var selectedQuality by remember { mutableStateOf("Auto") }
-    var autoTargetRes by remember { mutableStateOf<String?>(null) }
     var showQualitySelector by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showPlaybackSpeedMenu by remember { mutableStateOf(false) }
@@ -317,27 +316,7 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(selectedQuality, mediaPlayer) {
-        if (selectedQuality != "Auto" || mediaPlayer == null) return@LaunchedEffect
-        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
-            val buffering = mediaPlayer.playbackState == androidx.media3.common.Player.STATE_BUFFERING
-            if (buffering) {
-                val bitrate = androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.getSingletonInstance(context).bitrateEstimate
-                val newRes = when {
-                    bitrate > 3_000_000L -> "1080p"
-                    bitrate > 1_500_000L -> "720p"
-                    bitrate > 700_000L -> "480p"
-                    else -> "360p"
-                }
-                if (autoTargetRes != newRes) {
-                    autoTargetRes = newRes
-                }
-            }
-            kotlinx.coroutines.delay(2000)
-        }
-    }
-
-    LaunchedEffect(videoUrl, streamInfo, selectedQuality, autoTargetRes, offlineStreamUri, retryTrigger) {
+    LaunchedEffect(videoUrl, streamInfo, selectedQuality, offlineStreamUri, retryTrigger) {
         val isLocal = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
         try {
             var audioUrlForMerge: String? = offlineAudioUri
@@ -355,32 +334,52 @@ fun PlayerScreen(
                     val videoOnly = (info.videoOnlyStreams ?: emptyList()).filter { !it.content.isNullOrBlank() }
                     
                     if (selectedQuality == "Auto") {
-                        val targetRes = autoTargetRes ?: run {
-                            val bitrate = androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.getSingletonInstance(context).bitrateEstimate
-                            when {
-                                bitrate <= 0L -> "720p" // Default if unknown
-                                bitrate > 3_000_000L -> "1080p"
-                                bitrate > 1_500_000L -> "720p"
-                                bitrate > 700_000L -> "480p"
-                                else -> "360p"
-                            }
-                        }
-                        
-                        val p = progressive.find { it.getResolution()?.contains(targetRes) == true }?.content 
-                            ?: progressive.maxByOrNull { it.getResolution()?.replace("p", "")?.toIntOrNull() ?: 0 }?.content
-                            
+                        val p = progressive.maxByOrNull { it.getResolution()?.replace("p", "")?.replace("fps", "")?.trim()?.toIntOrNull() ?: 0 }?.content
                         if (p != null) p else {
-                            audioUrlForMerge = audioOnly.maxByOrNull { it.averageBitrate }?.content
-                            videoOnly.find { it.getResolution()?.contains(targetRes) == true }?.content
-                                ?: videoOnly.firstOrNull()?.content ?: ""
+                            val v = videoOnly.find { it.format?.mimeType == "video/mp4" } ?: videoOnly.firstOrNull()
+                            if (v?.content != null) {
+                                val isMp4 = v.format?.mimeType == "video/mp4"
+                                val matchingAudio = if (isMp4) {
+                                    audioOnly.find { it.format?.mimeType == "audio/mp4" || it.format?.mimeType?.contains("mp4") == true }
+                                        ?: audioOnly.maxByOrNull { it.averageBitrate }
+                                } else {
+                                    audioOnly.find { it.format?.mimeType == "audio/webm" || it.format?.mimeType?.contains("webm") == true }
+                                        ?: audioOnly.maxByOrNull { it.averageBitrate }
+                                }
+                                audioUrlForMerge = matchingAudio?.content ?: audioOnly.maxByOrNull { it.averageBitrate }?.content
+                                v.content
+                            } else ""
                         }
                     } else {
-                        val v = videoOnly.find { it.getResolution() == selectedQuality }?.content
-                        if (v != null) {
-                            audioUrlForMerge = audioOnly.maxByOrNull { it.averageBitrate }?.content
-                            v
+                        val cleanSelected = selectedQuality.replace("p", "").replace("fps", "").trim()
+                        val matchedProg = progressive.find { 
+                            val res = it.getResolution() ?: ""
+                            res == selectedQuality || res.startsWith(selectedQuality) || res.replace("p", "").replace("fps", "").trim() == cleanSelected
+                        }?.content
+
+                        val matchedVideoOnlyList = videoOnly.filter { 
+                            val res = it.getResolution() ?: ""
+                            res == selectedQuality || res.startsWith(selectedQuality) || res.replace("p", "").replace("fps", "").trim() == cleanSelected
+                        }
+                        val matchedVideoOnly = matchedVideoOnlyList.find { it.format?.mimeType == "video/mp4" } 
+                            ?: matchedVideoOnlyList.firstOrNull()
+                        
+                        if (matchedProg != null) {
+                            matchedProg
+                        } else if (matchedVideoOnly?.content != null) {
+                            val isMp4 = matchedVideoOnly.format?.mimeType == "video/mp4"
+                            val matchingAudio = if (isMp4) {
+                                audioOnly.find { it.format?.mimeType == "audio/mp4" || it.format?.mimeType?.contains("mp4") == true }
+                                    ?: audioOnly.maxByOrNull { it.averageBitrate }
+                            } else {
+                                audioOnly.find { it.format?.mimeType == "audio/webm" || it.format?.mimeType?.contains("webm") == true }
+                                    ?: audioOnly.maxByOrNull { it.averageBitrate }
+                            }
+                            audioUrlForMerge = matchingAudio?.content ?: audioOnly.maxByOrNull { it.averageBitrate }?.content
+                            matchedVideoOnly.content
                         } else {
-                            progressive.find { it.getResolution() == selectedQuality }?.content ?: ""
+                            progressive.maxByOrNull { it.getResolution()?.replace("p", "")?.replace("fps", "")?.trim()?.toIntOrNull() ?: 0 }?.content
+                                ?: videoOnly.firstOrNull()?.content ?: ""
                         }
                     }
                 }
@@ -412,7 +411,7 @@ fun PlayerScreen(
                     .build()
                 
                 mediaPlayer?.let { player ->
-                    val currentPos = player.currentPosition.takeIf { it > 0 } ?: withContext(Dispatchers.IO) {
+                    val currentPos = if (player.currentPosition > 0L) player.currentPosition else withContext(Dispatchers.IO) {
                         val progress = db.watchProgressDao().get(videoUrl)
                         if (progress != null) {
                             if (progress.durationMs > 0 && progress.positionMs >= progress.durationMs - 5000L) {
@@ -427,18 +426,17 @@ fun PlayerScreen(
 
                     val currentMediaId = player.currentMediaItem?.mediaId
                     val isDifferentMedia = currentMediaId != mediaItem.mediaId
-                    val uriChanged = player.currentMediaItem?.localConfiguration?.uri?.toString() != uri
                     
                     val shouldUpdate = if (hasInitializedPlayer && isDifferentMedia && currentMediaId != null) {
                         false // Player moved on to autoplay/queue, do not interrupt
                     } else if (!hasInitializedPlayer && !isDifferentMedia && player.playbackState != androidx.media3.common.Player.STATE_IDLE) {
                         false // Player is already playing this video (e.g. from autoplay)
                     } else {
-                        !hasInitializedPlayer || isDifferentMedia || (selectedQuality != "Auto" && uriChanged)
+                        true
                     }
 
                     if (shouldUpdate) {
-                        val wasPlaying = player.isPlaying
+                        val wasPlaying = player.playWhenReady || player.isPlaying
                         val realPlayer = com.videhub.service.MediaSessionManager.player
                         
                         if (realPlayer != null) {
@@ -449,21 +447,30 @@ fun PlayerScreen(
                                 val videoSource = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dsf).createMediaSource(mediaItem)
                                 val audioMediaItem = androidx.media3.common.MediaItem.fromUri(audioUrlForMerge!!)
                                 val audioSource = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dsf).createMediaSource(audioMediaItem)
-                                val mergedSource = androidx.media3.exoplayer.source.MergingMediaSource(true, videoSource, audioSource)
+                                val mergedSource = androidx.media3.exoplayer.source.MergingMediaSource(false, videoSource, audioSource)
                                 realPlayer.setMediaSource(mergedSource)
                             } else {
                                 realPlayer.setMediaItem(mediaItem)
                             }
                             realPlayer.prepare()
                             if (currentPos > 0) realPlayer.seekTo(currentPos)
-                            if (wasPlaying || realPlayer.currentPosition == 0L) realPlayer.play()
+                            realPlayer.playWhenReady = wasPlaying || currentPos == 0L
                         } else {
                             player.stop()
                             player.clearMediaItems()
-                            player.setMediaItem(mediaItem)
+                            if (audioUrlForMerge != null && player is androidx.media3.exoplayer.ExoPlayer) {
+                                val dsf = com.videhub.service.MediaSessionManager.dataSourceFactory ?: androidx.media3.datasource.DefaultDataSource.Factory(context)
+                                val videoSource = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dsf).createMediaSource(mediaItem)
+                                val audioMediaItem = androidx.media3.common.MediaItem.fromUri(audioUrlForMerge!!)
+                                val audioSource = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dsf).createMediaSource(audioMediaItem)
+                                val mergedSource = androidx.media3.exoplayer.source.MergingMediaSource(false, videoSource, audioSource)
+                                player.setMediaSource(mergedSource)
+                            } else {
+                                player.setMediaItem(mediaItem)
+                            }
                             player.prepare()
                             if (currentPos > 0) player.seekTo(currentPos)
-                            if (wasPlaying || player.currentPosition == 0L) player.play()
+                            player.playWhenReady = wasPlaying || currentPos == 0L
                         }
                         
                         hasInitializedPlayer = true
@@ -569,19 +576,34 @@ fun PlayerScreen(
     }
     val isHandlingAutoplay = remember { com.videhub.utils.MutableRef(false) }
     
-    val initialIsMusic = remember(videoUrl, title, forceMusicMode) {
-        if (forceMusicMode) return@remember true
-        val local = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
-        if (local) {
-            com.videhub.utils.FileUtils.isAudioFile(videoUrl) || title.contains("kbps", ignoreCase = true)
-        } else {
-            false
-        }
-    }
-    val showCaptionsRef = remember { mutableStateOf(initialIsMusic) }
     val isLocalFile = remember(videoUrl) {
         videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
     }
+
+    var isAudioOnlyDownload by remember(videoUrl, forceMusicMode) {
+        mutableStateOf(
+            forceMusicMode || (isLocalFile && (com.videhub.utils.FileUtils.isAudioFile(videoUrl) || title.contains("kbps", ignoreCase = true)))
+        )
+    }
+
+    LaunchedEffect(videoUrl) {
+        if (isLocalFile) {
+            val fileName = java.io.File(videoUrl).name
+            withContext(Dispatchers.IO) {
+                val entity = db.downloadedVideoDao().getAllDownloadsSync().find {
+                    it.fileName == fileName || it.videoId == videoUrl || videoUrl.endsWith(it.fileName)
+                }
+                if (entity != null && (entity.isAudioOnly || com.videhub.utils.FileUtils.isAudio(entity, videoUrl))) {
+                    isAudioOnlyDownload = true
+                }
+            }
+        }
+    }
+
+    val initialIsMusic = remember(videoUrl, title, forceMusicMode, isAudioOnlyDownload) {
+        forceMusicMode || isAudioOnlyDownload || (isLocalFile && (com.videhub.utils.FileUtils.isAudioFile(videoUrl) || title.contains("kbps", ignoreCase = true)))
+    }
+    val showCaptionsRef = remember { mutableStateOf(initialIsMusic) }
     var showUpNext by remember { mutableStateOf(false) }
     var countdownSeconds by remember { mutableIntStateOf(0) }
     var nextVideoUrl by remember { mutableStateOf("") }
@@ -1013,6 +1035,11 @@ fun PlayerScreen(
 
     // Fix #10
     var isMusicMode by remember(videoUrl, initialIsMusic) { mutableStateOf(initialIsMusic) }
+    LaunchedEffect(isAudioOnlyDownload) {
+        if (isAudioOnlyDownload) {
+            isMusicMode = true
+        }
+    }
     androidx.compose.runtime.LaunchedEffect(isMusicMode) { showCaptionsRef.value = isMusicMode }
 
     LaunchedEffect(isMusicMode, title, channelName, thumbnailUrl) {
@@ -1206,7 +1233,11 @@ fun PlayerScreen(
                 onBack = onBack,
                 onDownloadClick = { showDownloadDialog = true },
                 onMoreClick = { showVideoActionBottomSheet = true },
-                onToggleMode = { isMusicMode = false },
+                onToggleMode = {
+                    if (!isAudioOnlyDownload) {
+                        isMusicMode = false
+                    }
+                },
                 onChannelClick = { channelId?.let { onChannelClick(it) } },
                 autoplayEnabled = autoplayEnabled,
                 isBuffering = isBuffering,
@@ -1214,7 +1245,8 @@ fun PlayerScreen(
                 onCaptionsRequested = { showCaptionSelector = true },
                 activeCaptions = activeCaptions,
                 offlineCaptions = offlineCaptions,
-                onVideoPlay = { url, t, th, musicMode -> onVideoPlay(url, t, th, musicMode, false) }
+                onVideoPlay = { url, t, th, musicMode -> onVideoPlay(url, t, th, musicMode, false) },
+                isAudioOnly = isAudioOnlyDownload
             )
         } else {
             Column(modifier = Modifier.fillMaxSize()) {

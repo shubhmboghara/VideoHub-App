@@ -49,7 +49,7 @@ A premium, feature-rich, ad-free YouTube client for Android built with modern Je
 
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/shubhmboghara/VideoHub-App.git
+   git clone https://github.com/yourusername/VideoHub.git
    cd VideoHub
    ```
 

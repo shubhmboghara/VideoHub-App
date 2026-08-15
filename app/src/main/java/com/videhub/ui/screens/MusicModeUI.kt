@@ -60,7 +60,8 @@ fun MusicModeUI(
     activeCaptions: List<CharSequence> = emptyList(),
     offlineCaptions: List<com.videhub.ui.components.CaptionLine3> = emptyList(),
     onCaptionsRequested: () -> Unit = {},
-    onVideoPlay: (String, String, String, Boolean) -> Unit = { _, _, _, _ -> }
+    onVideoPlay: (String, String, String, Boolean) -> Unit = { _, _, _, _ -> },
+    isAudioOnly: Boolean = false
 ) {
     AnimatedVisibility(
         visible = isMusicMode && !isFullscreen,
@@ -158,7 +159,8 @@ fun MusicModeUI(
                     onChannelClick = onChannelClick,
                     onVideoPlay = { url, t, thumb -> onVideoPlay(url, t, thumb, true) },
                     onCaptionsRequested = onCaptionsRequested,
-                    showCaptions = showCaptions
+                    showCaptions = showCaptions,
+                    isAudioOnly = isAudioOnly
                 )
                     }
                 
