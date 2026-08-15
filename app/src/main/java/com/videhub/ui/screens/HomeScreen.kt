@@ -137,17 +137,31 @@ fun HomeScreen(
                 val newVideos = mutableListOf<Any>()
                 when (safeTab) {
                     0 -> {
-                        val cachedSubscribedVideos = videos.filterIsInstance<StreamInfoItem>().filter { video ->
-                            val cId = video.uploaderUrl ?: ""
-                            val uploaderName = video.uploaderName ?: ""
-                            channels.any { it.channelId == cId || it.name == uploaderName }
+                        val freshVideos = com.videhub.recommendation.RecommendationEngine.getRecommendedFeed(db, context, isRefresh = true)
+                        if (freshVideos.isNotEmpty()) {
+                            val entities = freshVideos.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>().map {
+                                com.videhub.data.entity.FeedCacheEntity(
+                                    videoId = it.url ?: "",
+                                    title = it.name ?: "",
+                                    thumbnailUrl = it.thumbnails?.firstOrNull()?.url ?: "",
+                                    channelName = it.uploaderName ?: "",
+                                    channelAvatarUrl = it.uploaderAvatars?.firstOrNull()?.url,
+                                    viewCount = it.viewCount,
+                                    duration = it.duration,
+                                    publishedText = it.uploadDate?.toString() ?: it.textualUploadDate ?: ""
+                                )
+                            }
+                            db.feedCacheDao().clearAll()
+                            db.feedCacheDao().insertAll(entities)
+                            newVideos.addAll(freshVideos)
                         }
-                        newVideos.addAll(com.videhub.recommendation.RecommendationEngine.getPartialRecommendedFeed(db, context, cachedSubscribedVideos))
                         pagingSource = null
                     }
                     else -> {
                         if (safeTab < tabs.size) {
-                            val source = ExtractorHelper.getSearchPagingSource(tabs[safeTab] + " trending")
+                            val modifiers = listOf("trending", "popular", "top", "new", "viral", "latest", "hits")
+                            val queryModifier = modifiers.random()
+                            val source = ExtractorHelper.getSearchPagingSource("${tabs[safeTab]} $queryModifier")
                             pagingSource = source
                             val res = source.loadInitial()?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>() ?: emptyList()
                             newVideos.addAll(res)
@@ -159,7 +173,7 @@ fun HomeScreen(
             } catch (e: Exception) {
                 if (e !is kotlinx.coroutines.CancellationException) {
                     android.util.Log.e("HomeScreen", "Error loading All tab", e)
-                                onError("Error: ${e.message}")
+                    onError("Error: ${e.message}")
                 }
             } finally {
                 isLoading = false
@@ -184,26 +198,12 @@ fun HomeScreen(
                     pagingSource = null
                     try {
                         val cachedFeed = db.feedCacheDao().getAll()
-                        val mixedFeed = mutableListOf<Any>()
-                        
-                        val historyVideos = db.historyDao().getAllHistoryOnce().shuffled().take(5)
-                        val watchLaterVideos = db.watchLaterDao().getAllOnce().shuffled().take(5)
-                        val likedVideos = db.likedVideoDao().getAllOnce().shuffled().take(5)
-                        val downloadedVideos = db.downloadedVideoDao().getAllDownloadsSync().shuffled().take(5)
-                        
-                        mixedFeed.addAll(historyVideos)
-                        mixedFeed.addAll(watchLaterVideos)
-                        mixedFeed.addAll(likedVideos)
-                        mixedFeed.addAll(downloadedVideos)
-                        
                         if (cachedFeed.isNotEmpty()) {
-                            mixedFeed.addAll(cachedFeed)
-                            mixedFeed.shuffle()
-                            sharedViewModel.homeVideosCacheMap[0] = mixedFeed
+                            sharedViewModel.homeVideosCacheMap[0] = cachedFeed
                             isLoading = false
                         }
                         
-                        val freshVideos = com.videhub.recommendation.RecommendationEngine.getRecommendedFeed(db, context)
+                        val freshVideos = com.videhub.recommendation.RecommendationEngine.getRecommendedFeed(db, context, isRefresh = false)
                         if (freshVideos.isNotEmpty()) {
                             val entities = freshVideos.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>().map {
                                 com.videhub.data.entity.FeedCacheEntity(
@@ -211,7 +211,7 @@ fun HomeScreen(
                                     title = it.name ?: "",
                                     thumbnailUrl = it.thumbnails?.firstOrNull()?.url ?: "",
                                     channelName = it.uploaderName ?: "",
-                                    channelAvatarUrl = null,
+                                    channelAvatarUrl = it.uploaderAvatars?.firstOrNull()?.url,
                                     viewCount = it.viewCount,
                                     duration = it.duration,
                                     publishedText = it.uploadDate?.toString() ?: it.textualUploadDate ?: ""
@@ -219,16 +219,7 @@ fun HomeScreen(
                             }
                             db.feedCacheDao().clearAll()
                             db.feedCacheDao().insertAll(entities)
-                            
-                            val freshMixed = mutableListOf<Any>()
-                            freshMixed.addAll(historyVideos)
-                            freshMixed.addAll(watchLaterVideos)
-                            freshMixed.addAll(likedVideos)
-                            freshMixed.addAll(downloadedVideos)
-                            freshMixed.addAll(freshVideos)
-                            freshMixed.shuffle()
-                            
-                            sharedViewModel.homeVideosCacheMap[0] = freshMixed
+                            sharedViewModel.homeVideosCacheMap[0] = freshVideos
                         }
                     } catch (e: Exception) {
                         if (e !is kotlinx.coroutines.CancellationException) {
@@ -259,7 +250,7 @@ fun HomeScreen(
             throw e
         } catch (e: Exception) {
             android.util.Log.e("HomeScreen", "Error loading All tab", e)
-                                onError("Error: ${e.message}")
+            onError("Error: ${e.message}")
         }
     }
     
