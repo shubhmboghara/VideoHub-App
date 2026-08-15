@@ -580,9 +580,9 @@ fun PlayerScreen(
         videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
     }
 
-    var isAudioOnlyDownload by remember(videoUrl, forceMusicMode) {
+    var isAudioOnlyDownload by remember(videoUrl) {
         mutableStateOf(
-            forceMusicMode || (isLocalFile && (com.videhub.utils.FileUtils.isAudioFile(videoUrl) || title.contains("kbps", ignoreCase = true)))
+            isLocalFile && (com.videhub.utils.FileUtils.isAudioFile(videoUrl) || title.contains("kbps", ignoreCase = true))
         )
     }
 
@@ -593,10 +593,12 @@ fun PlayerScreen(
                 val entity = db.downloadedVideoDao().getAllDownloadsSync().find {
                     it.fileName == fileName || it.videoId == videoUrl || videoUrl.endsWith(it.fileName)
                 }
-                if (entity != null && (entity.isAudioOnly || com.videhub.utils.FileUtils.isAudio(entity, videoUrl))) {
-                    isAudioOnlyDownload = true
+                if (entity != null) {
+                    isAudioOnlyDownload = entity.isAudioOnly || com.videhub.utils.FileUtils.isAudio(entity, videoUrl)
                 }
             }
+        } else {
+            isAudioOnlyDownload = false
         }
     }
 
