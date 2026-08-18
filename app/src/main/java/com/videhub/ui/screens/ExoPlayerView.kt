@@ -54,6 +54,7 @@ fun ExoPlayerView(
             PlayerView(darkCtx).apply {
                 useController = !com.videhub.PipState.isActive.value
                 player = mediaPlayer
+                useArtwork = false
                 setShowSubtitleButton(false)
                 setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
                 
@@ -202,7 +203,8 @@ fun ExoPlayerView(
             }
             view.subtitleView?.visibility = View.INVISIBLE
             view.setShowSubtitleButton(false)
-                view.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+            view.useArtwork = false
+            view.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
             
             val lastIsFullscreen = view.getTag(com.videhub.R.id.is_fullscreen_tag) as? Boolean
             if (lastIsFullscreen != isFullscreen) {

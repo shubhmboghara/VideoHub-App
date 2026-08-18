@@ -147,6 +147,32 @@ fun PlayerScreen(
         mediaPlayer?.repeatMode = if (loopVideoEnabled) androidx.media3.common.Player.REPEAT_MODE_ONE else androidx.media3.common.Player.REPEAT_MODE_OFF
     }
 
+    val isLocalFile = remember(videoUrl) {
+        videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
+    }
+
+    var isAudioOnlyDownload by remember(videoUrl) {
+        mutableStateOf(
+            isLocalFile && (com.videhub.utils.FileUtils.isAudioFile(videoUrl) || title.contains("kbps", ignoreCase = true))
+        )
+    }
+
+    LaunchedEffect(videoUrl) {
+        if (isLocalFile) {
+            val fileName = java.io.File(videoUrl).name
+            withContext(Dispatchers.IO) {
+                val entity = db.downloadedVideoDao().getAllDownloadsSync().find {
+                    it.fileName == fileName || it.videoId == videoUrl || videoUrl.endsWith(it.fileName)
+                }
+                if (entity != null) {
+                    isAudioOnlyDownload = entity.isAudioOnly || com.videhub.utils.FileUtils.isAudio(entity, videoUrl)
+                }
+            }
+        } else {
+            isAudioOnlyDownload = false
+        }
+    }
+
     var channelId by remember { mutableStateOf<String?>(if (isSameVideo) streamInfo?.uploaderUrl else null) }
     var channelName by remember { mutableStateOf(if (isSameVideo) streamInfo?.uploaderName ?: "" else "") }
     
@@ -327,7 +353,7 @@ fun PlayerScreen(
             } else {
                 val info = streamInfo ?: return@LaunchedEffect
                 val audioOnly = (info.audioStreams ?: emptyList()).filter { !it.content.isNullOrBlank() }
-                if (forceMusicMode && audioOnly.isNotEmpty()) {
+                if (isAudioOnlyDownload && audioOnly.isNotEmpty()) {
                     audioOnly.maxByOrNull { it.averageBitrate }?.content ?: ""
                 } else {
                     val progressive = (info.videoStreams ?: emptyList()).filter { !it.content.isNullOrBlank() }
@@ -575,32 +601,6 @@ fun PlayerScreen(
         autoplayRef.value = autoplayEnabled
     }
     val isHandlingAutoplay = remember { com.videhub.utils.MutableRef(false) }
-    
-    val isLocalFile = remember(videoUrl) {
-        videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
-    }
-
-    var isAudioOnlyDownload by remember(videoUrl) {
-        mutableStateOf(
-            isLocalFile && (com.videhub.utils.FileUtils.isAudioFile(videoUrl) || title.contains("kbps", ignoreCase = true))
-        )
-    }
-
-    LaunchedEffect(videoUrl) {
-        if (isLocalFile) {
-            val fileName = java.io.File(videoUrl).name
-            withContext(Dispatchers.IO) {
-                val entity = db.downloadedVideoDao().getAllDownloadsSync().find {
-                    it.fileName == fileName || it.videoId == videoUrl || videoUrl.endsWith(it.fileName)
-                }
-                if (entity != null) {
-                    isAudioOnlyDownload = entity.isAudioOnly || com.videhub.utils.FileUtils.isAudio(entity, videoUrl)
-                }
-            }
-        } else {
-            isAudioOnlyDownload = false
-        }
-    }
 
     val initialIsMusic = remember(videoUrl, title, forceMusicMode, isAudioOnlyDownload) {
         forceMusicMode || isAudioOnlyDownload || (isLocalFile && (com.videhub.utils.FileUtils.isAudioFile(videoUrl) || title.contains("kbps", ignoreCase = true)))
@@ -1216,170 +1216,166 @@ fun PlayerScreen(
     var originalVideoId by remember(videoUrl) { mutableStateOf(videoUrl) }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        if (isMusicMode) {
-            MusicModeUI(
-                isMusicMode = isMusicMode,
-                isFullscreen = isFullscreen,
-                title = title,
-                channelName = channelName,
-                thumbnailUrl = thumbnailUrl,
-                videoUrl = videoUrl,
-                isLocalFile = isLocalFile,
-                streamInfo = streamInfo,
-                mediaPlayer = mediaPlayer,
-                context = context,
-                scope = scope,
-                db = db,
-                isLiked = isLiked,
-                onLikedChange = { isLiked = it },
-                onBack = onBack,
-                onDownloadClick = { showDownloadDialog = true },
-                onMoreClick = { showVideoActionBottomSheet = true },
-                onToggleMode = {
-                    if (!isAudioOnlyDownload) {
-                        isMusicMode = false
-                    }
-                },
-                onChannelClick = { channelId?.let { onChannelClick(it) } },
-                autoplayEnabled = autoplayEnabled,
-                isBuffering = isBuffering,
-                showCaptions = showCaptionsRef.value,
-                onCaptionsRequested = { showCaptionSelector = true },
-                activeCaptions = activeCaptions,
-                offlineCaptions = offlineCaptions,
-                onVideoPlay = { url, t, th, musicMode -> onVideoPlay(url, t, th, musicMode, false) },
-                isAudioOnly = isAudioOnlyDownload
-            )
-        } else {
-            Column(modifier = Modifier.fillMaxSize()) {
-                val configuration = LocalConfiguration.current
-                val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                val isPip = com.videhub.PipState.isActive.value
-                val videoHeight = if (isFullscreen || isLandscape || isPip) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+        Column(modifier = Modifier.fillMaxSize()) {
+            val configuration = LocalConfiguration.current
+            val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            val isPip = com.videhub.PipState.isActive.value
+            val videoHeight = if (isFullscreen || isLandscape || isPip) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+            
+            Box(modifier = videoHeight.background(Color.Black)) {
+                VideoPlayerContainer(
+                    modifier = Modifier.fillMaxSize(),
+                    mediaPlayer = mediaPlayer,
+                    isFullscreen = isFullscreen,
+                    isMusicMode = isMusicMode,
+                    showCaptions = showCaptionsRef.value,
+                    isScreenLocked = isScreenLocked,
+                    onToggleFullscreen = { setFullscreen(!isFullscreen) },
+                    onCaptionsRequested = { showCaptionSelector = true },
+                    activeCaptions = activeCaptions,
+                    onActiveCaptionsChanged = { activeCaptions = it },
+                    offlineCaptions = offlineCaptions,
+                    onBack = {
+                        if (isFullscreen) {
+                            setFullscreen(false)
+                        } else {
+                            onBack()
+                        }
+                    },
+                    onShowSettingsSheet = { showSettingsSheet = true },
+                    onShowSpeedMenu = { showPlaybackSpeedMenu = true },
+                    currentSpeed = currentSpeed,
+                    onToggleMusicMode = { isMusicMode = true }
+                )
                 
-                Box(modifier = videoHeight.background(Color.Black)) {
-                    VideoPlayerContainer(
-                        modifier = Modifier.fillMaxSize(),
-                        mediaPlayer = mediaPlayer,
-                        isFullscreen = isFullscreen,
-                        isMusicMode = isMusicMode,
-                        showCaptions = showCaptionsRef.value,
-                        isScreenLocked = isScreenLocked,
-                        onToggleFullscreen = { setFullscreen(!isFullscreen) },
-                        onCaptionsRequested = { showCaptionSelector = true },
-                        activeCaptions = activeCaptions,
-                        onActiveCaptionsChanged = { activeCaptions = it },
-                        offlineCaptions = offlineCaptions,
-                        onBack = {
-                            if (isFullscreen) {
-                                setFullscreen(false)
-                            } else {
-                                onBack()
-                            }
-                        },
-                        onShowSettingsSheet = { showSettingsSheet = true },
-                        onShowSpeedMenu = { showPlaybackSpeedMenu = true },
-                        currentSpeed = currentSpeed,
-                        onToggleMusicMode = { isMusicMode = true }
+                val isLocalFile = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
+                if (isBuffering && !isLocalFile) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center),
+                        color = MaterialTheme.colorScheme.primary
                     )
-                    
-                    val isLocalFile = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
-                    if (isBuffering && !isLocalFile) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.align(Alignment.Center),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
+                }
 
-                    if (isScreenLocked) {
-                        androidx.compose.foundation.layout.Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .pointerInput(isScreenLocked) {
-                                    detectTapGestures {
-                                        showLockIconTemp = true
-                                        lockIconJob?.cancel()
-                                        lockIconJob = lockIconScope.launch {
-                                            kotlinx.coroutines.delay(2000)
-                                            showLockIconTemp = false
-                                        }
+                if (isScreenLocked) {
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(isScreenLocked) {
+                                detectTapGestures {
+                                    showLockIconTemp = true
+                                    lockIconJob?.cancel()
+                                    lockIconJob = lockIconScope.launch {
+                                        kotlinx.coroutines.delay(2000)
+                                        showLockIconTemp = false
                                     }
                                 }
+                            }
+                    ) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = showLockIconTemp,
+                            enter = androidx.compose.animation.fadeIn(
+                                animationSpec = androidx.compose.animation.core.tween(200)
+                            ),
+                            exit = androidx.compose.animation.fadeOut(
+                                animationSpec = androidx.compose.animation.core.tween(600)
+                            ),
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.safeGestures)
+                                .padding(start = 48.dp)
                         ) {
-                            androidx.compose.animation.AnimatedVisibility(
-                                visible = showLockIconTemp,
-                                enter = androidx.compose.animation.fadeIn(
-                                    animationSpec = androidx.compose.animation.core.tween(200)
-                                ),
-                                exit = androidx.compose.animation.fadeOut(
-                                    animationSpec = androidx.compose.animation.core.tween(600)
-                                ),
+                            IconButton(
+                                onClick = {
+                                    isScreenLocked = false
+                                    showLockIconTemp = false
+                                    lockIconJob?.cancel()
+                                },
                                 modifier = Modifier
-                                    .align(Alignment.CenterStart)
-                                    .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.safeGestures)
-                                    .padding(start = 48.dp)
-                            ) {
-                                IconButton(
-                                    onClick = {
-                                        isScreenLocked = false
-                                        showLockIconTemp = false
-                                        lockIconJob?.cancel()
-                                    },
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .background(
-                                            Color.Black.copy(alpha = 0.6f),
-                                            androidx.compose.foundation.shape.CircleShape
-                                        )
-                                ) {
-                                    Icon(
-                                        imageVector = androidx.compose.material.icons.Icons.Default.Lock,
-                                        contentDescription = "Tap to unlock",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(22.dp)
+                                    .size(48.dp)
+                                    .background(
+                                        Color.Black.copy(alpha = 0.6f),
+                                        androidx.compose.foundation.shape.CircleShape
                                     )
-                                }
+                            ) {
+                                Icon(
+                                    imageVector = androidx.compose.material.icons.Icons.Default.Lock,
+                                    contentDescription = "Tap to unlock",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
                             }
                         }
                     }
                 }
-                
-                if (!isFullscreen && !isLandscape && !com.videhub.PipState.isActive.value) {
-                    BelowPlayerContent(
-                        listState = listState,
-                        streamInfo = streamInfo,
-                        isLocalFile = isLocalFile,
-                        isOfflineFallback = offlineStreamUri != null,
-                        errorMessage = errorMessage,
-                        title = title,
-                        channelName = channelName,
-                        channelId = channelId,
-                        thumbnailUrl = thumbnailUrl,
-                        onChannelClick = onChannelClick,
-                        context = context,
-                        scope = scope,
-                        db = db,
-                        isSubscribedInitial = isSubscribed,
-                        isLikedInitial = isLiked,
-                        isInWatchLaterInitial = isInWatchLater,
-                        autoplayEnabledInitial = autoplayEnabled,
-                        queue = queue,
-                        relatedVideos = relatedVideos,
-                        videoUrl = videoUrl,
-                        onShowAddToPlaylistDialog = { showAddToPlaylistDialog = true },
-                        onShowDownloadDialog = { showDownloadDialog = true },
-                        onShowSettingsSheet = { showSettingsSheet = true },
-                        onVideoPlay = { url, t, th, musicMode -> onVideoPlay(url, t, th, musicMode, false) },
-                        mediaPlayer = mediaPlayer,
-                        sharedViewModel = sharedViewModel,
-                        isMusicMode = isMusicMode,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+            }
+            
+            if (!isFullscreen && !isLandscape && !com.videhub.PipState.isActive.value) {
+                BelowPlayerContent(
+                    listState = listState,
+                    streamInfo = streamInfo,
+                    isLocalFile = isLocalFile,
+                    isOfflineFallback = offlineStreamUri != null,
+                    errorMessage = errorMessage,
+                    title = title,
+                    channelName = channelName,
+                    channelId = channelId,
+                    thumbnailUrl = thumbnailUrl,
+                    onChannelClick = onChannelClick,
+                    context = context,
+                    scope = scope,
+                    db = db,
+                    isSubscribedInitial = isSubscribed,
+                    isLikedInitial = isLiked,
+                    isInWatchLaterInitial = isInWatchLater,
+                    autoplayEnabledInitial = autoplayEnabled,
+                    queue = queue,
+                    relatedVideos = relatedVideos,
+                    videoUrl = videoUrl,
+                    onShowAddToPlaylistDialog = { showAddToPlaylistDialog = true },
+                    onShowDownloadDialog = { showDownloadDialog = true },
+                    onShowSettingsSheet = { showSettingsSheet = true },
+                    onVideoPlay = { url, t, th, musicMode -> onVideoPlay(url, t, th, musicMode, false) },
+                    mediaPlayer = mediaPlayer,
+                    sharedViewModel = sharedViewModel,
+                    isMusicMode = isMusicMode,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
-        
 
+        MusicModeUI(
+            isMusicMode = isMusicMode,
+            isFullscreen = isFullscreen,
+            title = title,
+            channelName = channelName,
+            thumbnailUrl = thumbnailUrl,
+            videoUrl = videoUrl,
+            isLocalFile = isLocalFile,
+            streamInfo = streamInfo,
+            mediaPlayer = mediaPlayer,
+            context = context,
+            scope = scope,
+            db = db,
+            isLiked = isLiked,
+            onLikedChange = { isLiked = it },
+            onBack = onBack,
+            onDownloadClick = { showDownloadDialog = true },
+            onMoreClick = { showVideoActionBottomSheet = true },
+            onToggleMode = {
+                if (!isAudioOnlyDownload) {
+                    isMusicMode = false
+                }
+            },
+            onChannelClick = { channelId?.let { onChannelClick(it) } },
+            autoplayEnabled = autoplayEnabled,
+            isBuffering = isBuffering,
+            showCaptions = showCaptionsRef.value,
+            onCaptionsRequested = { showCaptionSelector = true },
+            activeCaptions = activeCaptions,
+            offlineCaptions = offlineCaptions,
+            onVideoPlay = { url, t, th, musicMode -> onVideoPlay(url, t, th, musicMode, false) },
+            isAudioOnly = isAudioOnlyDownload
+        )
     }
     
     PlayerScreenDialogs(
