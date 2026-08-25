@@ -355,11 +355,13 @@ fun MainScreen() {
                             }
                             return@collect
                         }
-                        val related = com.videhub.service.BackgroundAutoplayHandler.relatedItemsCache
-                        val alreadyQueued = com.videhub.QueueManager.queue.value.map { it.url }.toSet()
-                        val nextRelated = related.firstOrNull { it.url != currentUrl && it.url !in alreadyQueued }
-                        if (nextRelated != null) {
-                            navigateToPlayer(nextRelated.url, nextRelated.name ?: "", nextRelated.thumbnails?.firstOrNull()?.url ?: "", MiniPlayerState.isMusicMode.value)
+                        val nextRecommended = withContext(Dispatchers.IO) {
+                            currentUrl?.let {
+                                com.videhub.service.BackgroundAutoplayHandler.findNextRecommendedCandidate(context, it, MiniPlayerState.isMusicMode.value)
+                            }
+                        }
+                        if (nextRecommended != null && !nextRecommended.url.isNullOrBlank()) {
+                            navigateToPlayer(nextRecommended.url, nextRecommended.name ?: "", nextRecommended.thumbnails?.firstOrNull()?.url ?: "", MiniPlayerState.isMusicMode.value)
                         }
                     }
                 } else {

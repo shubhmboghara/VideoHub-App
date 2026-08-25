@@ -98,6 +98,9 @@ object MediaSessionManager {
                 )
                 .setHandleAudioBecomingNoisy(true)
                 .build()
+
+            com.videhub.audio.EqualizerManager.init(ctx, player!!.audioSessionId)
+            com.videhub.audio.CrossfadeManager.init(ctx)
                 
             prefetchJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
                 while(true) {
@@ -107,6 +110,10 @@ object MediaSessionManager {
                         val dur = p.duration
                         val currentIndex = p.currentMediaItemIndex
                         val currentMediaId = p.currentMediaItem?.mediaId
+                        
+                        // Crossfade check
+                        com.videhub.audio.CrossfadeManager.checkAndApplyFadeOut(p)
+
                         if (dur > 0 && dur - pos < 25000 && currentMediaId != null && lastPrefetchedMediaId != currentMediaId) {
                             if (p.currentTimeline.windowCount == currentIndex + 1) {
                                 lastPrefetchedMediaId = currentMediaId
@@ -135,6 +142,7 @@ object MediaSessionManager {
                     updateIsPlayingState()
                 }
                 override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                    player?.let { com.videhub.audio.CrossfadeManager.applyFadeIn(it) }
                     if (mediaItem != null) {
                         val title = mediaItem.mediaMetadata.title?.toString() ?: ""
                         val artist = mediaItem.mediaMetadata.artist?.toString() ?: ""
@@ -145,6 +153,7 @@ object MediaSessionManager {
                             com.videhub.MiniPlayerState.update(title, artist, cleanArtwork, com.videhub.MiniPlayerState.isMusicMode.value, url)
                         }
                         if (url.isNotBlank()) {
+                            com.videhub.audio.RadioManager.checkAndRefillRadio(url, title, artist)
                             com.videhub.ui.components.LiveCaptionsManager.clear()
                             if (url.startsWith("/") || url.startsWith("file://") || url.startsWith("content://")) {
                                 com.videhub.ui.components.LiveCaptionsManager.loadCaptionsFromDb(ctx, url)

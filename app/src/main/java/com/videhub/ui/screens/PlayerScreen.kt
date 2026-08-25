@@ -276,6 +276,8 @@ fun PlayerScreen(
 
             sharedViewModel.playerRelatedItemsCache = info.relatedItems?.filterIsInstance<StreamInfoItem>() ?: emptyList()
             com.videhub.service.BackgroundAutoplayHandler.relatedItemsCache = info.relatedItems ?: emptyList()
+            com.videhub.service.BackgroundAutoplayHandler.currentStreamInfo = info
+            com.videhub.service.BackgroundAutoplayHandler.markAsRecentlyPlayed(videoUrl)
             sharedViewModel.playerStreamInfoCache = info
             sharedViewModel.currentPlayerUrl = videoUrl
             streamInfo = info
@@ -516,7 +518,32 @@ fun PlayerScreen(
     var relatedVideos by remember { mutableStateOf<List<StreamInfoItem>>(if (isSameVideo) sharedViewModel.playerRelatedItemsCache?.filterIsInstance<StreamInfoItem>() ?: emptyList() else emptyList()) }
     LaunchedEffect(streamInfo) {
         if (streamInfo != null) {
-            relatedVideos = streamInfo!!.relatedItems?.filterIsInstance<StreamInfoItem>() ?: emptyList()
+            val direct = streamInfo!!.relatedItems?.filterIsInstance<StreamInfoItem>() ?: emptyList()
+            relatedVideos = direct
+            if (direct.size < 5) {
+                withContext(Dispatchers.IO) {
+                    try {
+                        val uploaderUrl = streamInfo?.uploaderUrl
+                        val uploaderName = streamInfo?.uploaderName
+                        val extraItems = mutableListOf<StreamInfoItem>()
+                        if (!uploaderUrl.isNullOrBlank()) {
+                            val chVids = com.videhub.extractor.ExtractorHelper.getChannelVideosSorted(uploaderUrl, "latest", 1)
+                            extraItems.addAll(chVids)
+                        }
+                        if (extraItems.isEmpty() && !uploaderName.isNullOrBlank()) {
+                            val searchVids = com.videhub.extractor.ExtractorHelper.getMoreSearchItems("$uploaderName songs")
+                                .filterIsInstance<StreamInfoItem>()
+                            extraItems.addAll(searchVids)
+                        }
+                        val combined = (direct + extraItems).distinctBy { it.url }.filter { it.url != videoUrl }
+                        if (combined.isNotEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                relatedVideos = combined
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
         }
     }
     var showAddToPlaylistDialog by remember { mutableStateOf(false) }
@@ -525,6 +552,8 @@ fun PlayerScreen(
     var showDownloadDialog by remember { mutableStateOf(false) }
     var showVideoActionBottomSheet by remember { mutableStateOf(false) }
     var showQueueDownloadDialog by remember { mutableStateOf(false) }
+    var showEqualizerSheet by remember { mutableStateOf(false) }
+    var showSleepTimerSheet by remember { mutableStateOf(false) }
     var playlists by remember { mutableStateOf<List<PlaylistEntity>>(emptyList()) }
 
     var isFullscreen by remember { mutableStateOf(initialFullscreen) }
@@ -1334,6 +1363,8 @@ fun PlayerScreen(
                     onShowAddToPlaylistDialog = { showAddToPlaylistDialog = true },
                     onShowDownloadDialog = { showDownloadDialog = true },
                     onShowSettingsSheet = { showSettingsSheet = true },
+                    onShowEqualizerSheet = { showEqualizerSheet = true },
+                    onShowSleepTimerSheet = { showSleepTimerSheet = true },
                     onVideoPlay = { url, t, th, musicMode -> onVideoPlay(url, t, th, musicMode, false) },
                     mediaPlayer = mediaPlayer,
                     sharedViewModel = sharedViewModel,
@@ -1387,6 +1418,10 @@ fun PlayerScreen(
         onDismissVideoActionBottomSheet = { showVideoActionBottomSheet = false },
         showQueueDownloadDialog = showQueueDownloadDialog,
         onDismissQueueDownloadDialog = { showQueueDownloadDialog = false },
+        showEqualizerSheet = showEqualizerSheet,
+        onDismissEqualizerSheet = { showEqualizerSheet = false },
+        showSleepTimerSheet = showSleepTimerSheet,
+        onDismissSleepTimerSheet = { showSleepTimerSheet = false },
         originalVideoId = originalVideoId,
         videoUrl = videoUrl,
         title = title,
@@ -1394,7 +1429,8 @@ fun PlayerScreen(
         channelName = channelName,
         streamInfo = streamInfo,
         queue = queue,
-        context = context
+        context = context,
+        mediaPlayer = mediaPlayer
     )
 
 

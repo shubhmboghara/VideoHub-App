@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
@@ -151,6 +152,7 @@ fun ChannelScreen(
     channelId: String,
     onBack: () -> Unit,
     onVideoClick: (String, String, String) -> Unit,
+    onPlaylistClick: (String) -> Unit = {},
     onAboutClick: () -> Unit
 ) {
     // Determine if we should load from cache
@@ -158,6 +160,10 @@ fun ChannelScreen(
     var channelInfo by remember { mutableStateOf<ChannelInfo?>(if (isSameChannel) sharedViewModel.channelInfoCache else null) }
     var channelAboutInfo by remember { mutableStateOf<com.videhub.extractor.ChannelAboutInfo?>(if (isSameChannel) sharedViewModel.channelAboutInfoCache else null) }
     var channelVideos by remember { mutableStateOf<List<StreamInfoItem>>(if (isSameChannel) sharedViewModel.channelVideosCache ?: emptyList() else emptyList()) }
+    var channelPlaylists by remember { mutableStateOf<List<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem>>(if (isSameChannel) sharedViewModel.channelPlaylistsCache ?: emptyList() else emptyList()) }
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Videos, 1: Playlists
+    var isPlaylistsLoading by remember { mutableStateOf(false) }
+    var playlistsError by remember { mutableStateOf<String?>(null) }
     var isHeaderLoading by remember { mutableStateOf(channelInfo == null) }
     var headerError by remember { mutableStateOf<String?>(null) }
     var isVideoListLoading by remember { mutableStateOf(channelVideos.isEmpty() && channelInfo == null) }
@@ -170,6 +176,7 @@ fun ChannelScreen(
     var isPaginating by remember { mutableStateOf(false) }
     var headerRetryTrigger by remember { mutableIntStateOf(0) }
     var videoRetryTrigger by remember { mutableIntStateOf(0) }
+    var playlistRetryTrigger by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
     
     val listState = androidx.compose.foundation.lazy.rememberLazyListState(
@@ -184,6 +191,7 @@ fun ChannelScreen(
     val currentChannelInfo by rememberUpdatedState(channelInfo)
     val currentChannelAboutInfo by rememberUpdatedState(channelAboutInfo)
     val currentChannelVideos by rememberUpdatedState(channelVideos)
+    val currentChannelPlaylists by rememberUpdatedState(channelPlaylists)
     val currentPagingSource by rememberUpdatedState(pagingSource)
 
     DisposableEffect(channelId) {
@@ -192,6 +200,7 @@ fun ChannelScreen(
             sharedViewModel.channelInfoCache = currentChannelInfo
             sharedViewModel.channelAboutInfoCache = currentChannelAboutInfo
             sharedViewModel.channelVideosCache = currentChannelVideos
+            sharedViewModel.channelPlaylistsCache = currentChannelPlaylists
             sharedViewModel.channelPagingSourceCache = currentPagingSource
             sharedViewModel.channelScrollIndexCache = listState.firstVisibleItemIndex
             sharedViewModel.channelScrollOffsetCache = listState.firstVisibleItemScrollOffset
@@ -199,12 +208,14 @@ fun ChannelScreen(
     }
 
     fun refresh() {
-        if (isRefreshing || isHeaderLoading || isVideoListLoading || isPaginating) return
+        if (isRefreshing || isHeaderLoading || isVideoListLoading || isPlaylistsLoading || isPaginating) return
         // "new render" - clear cache and show shimmer
         channelVideos = emptyList()
+        channelPlaylists = emptyList()
         channelInfo = null
         channelAboutInfo = null
         sharedViewModel.channelVideosCache = emptyList()
+        sharedViewModel.channelPlaylistsCache = null
         sharedViewModel.channelInfoCache = null
         sharedViewModel.channelAboutInfoCache = null
         isHeaderLoading = true
@@ -212,6 +223,7 @@ fun ChannelScreen(
         isRefreshing = true
         headerRetryTrigger++
         videoRetryTrigger++
+        playlistRetryTrigger++
     }
 
     LaunchedEffect(channelId, headerRetryTrigger) {
@@ -284,6 +296,25 @@ fun ChannelScreen(
         } finally {
             isVideoListLoading = false
             isRefreshing = false
+        }
+    }
+
+    LaunchedEffect(selectedTab, channelInfo, playlistRetryTrigger) {
+        if (selectedTab == 1 && channelInfo != null) {
+            if (channelPlaylists.isNotEmpty() && !isRefreshing) return@LaunchedEffect
+            isPlaylistsLoading = true
+            playlistsError = null
+            try {
+                val lists = ExtractorHelper.getChannelPlaylists(channelInfo!!.url)
+                channelPlaylists = lists
+                sharedViewModel.channelPlaylistsCache = lists
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                playlistsError = e.message ?: "Failed to load playlists"
+            } finally {
+                isPlaylistsLoading = false
+            }
         }
     }
 
@@ -557,101 +588,180 @@ fun ChannelScreen(
                                 Spacer(modifier = Modifier.height(16.dp))
                             }
                         androidx.compose.material3.HorizontalDivider()
+                        
+                        PrimaryTabRow(
+                            selectedTabIndex = selectedTab,
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            divider = {}
+                        ) {
+                            Tab(
+                                selected = selectedTab == 0,
+                                onClick = { selectedTab = 0 },
+                                text = { 
+                                    Text(
+                                        "Videos", 
+                                        fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal
+                                    ) 
+                                }
+                            )
+                            Tab(
+                                selected = selectedTab == 1,
+                                onClick = { selectedTab = 1 },
+                                text = { 
+                                    Text(
+                                        "Playlists", 
+                                        fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal
+                                    ) 
+                                }
+                            )
+                        }
+                        androidx.compose.material3.HorizontalDivider()
 
                     }
                 }
                 }
                 
-                if (videoLoading) {
-                    items(5) {
-                        com.videhub.ui.components.VideoCardShimmer()
-                    }
-                } else if (videoListError != null) {
-                    item {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            if (channelInfo == null && headerError != null) {
-                                Text(
-                                    text = "Cannot load videos until channel loads",
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                Button(onClick = {
-                                    headerRetryTrigger++
-                                }) {
-                                    Text("Retry")
+                if (selectedTab == 0) {
+                    if (videoLoading) {
+                        items(5) {
+                            com.videhub.ui.components.VideoCardShimmer()
+                        }
+                    } else if (videoListError != null) {
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                if (channelInfo == null && headerError != null) {
+                                    Text(
+                                        text = "Cannot load videos until channel loads",
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    Button(onClick = {
+                                        headerRetryTrigger++
+                                    }) {
+                                        Text("Retry")
+                                    }
+                                } else {
+                                    Text(
+                                        text = videoListError ?: "Failed to load videos",
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    Button(onClick = {
+                                        videoRetryTrigger++
+                                    }) {
+                                        Text("Retry")
+                                    }
                                 }
-                            } else {
+                            }
+                        }
+                    } else if (!headerLoading && !hasHeaderError) {
+                        if (channelVideos.isEmpty()) {
+                            item {
+                                com.videhub.ui.components.EmptyState(
+                                    icon = Icons.Default.PlayArrow,
+                                    title = "No videos",
+                                    message = "This channel hasn't uploaded any videos yet."
+                                )
+                            }
+                        } else {
+                            items(
+                                count = channelVideos.size,
+                                key = { index -> "${channelVideos[index].url ?: index.toString()}_$index" }
+                            ) { index ->
+                                val video = channelVideos[index]
+                                
+                                if (index == channelVideos.size - 1 && !isPaginating && pagingSource?.hasMore == true) {
+                                    LaunchedEffect(Unit) {
+                                        loadNextPage()
+                                    }
+                                }
+                                
+                                com.videhub.ui.components.VideoRowItem(
+                                    videoUrl = video.url ?: "",
+                                    title = video.name ?: "",
+                                    uploaderName = video.uploaderName ?: "",
+                                    thumbnailUrl = video.thumbnails?.firstOrNull()?.url,
+                                    duration = video.duration,
+                                    viewCount = video.viewCount,
+                                    uploadDate = video.textualUploadDate ?: "",
+                                    uploaderUrl = video.uploaderUrl,
+                                    uploaderAvatarUrl = try { video.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null },
+                                    onChannelClick = {},
+                                    onClick = {
+                                        val url = video.url ?: ""
+                                        if (url.isNotBlank()) {
+                                            onVideoClick(url, video.name ?: "", video.thumbnails?.firstOrNull()?.url ?: "")
+                                        }
+                                    }
+                                )
+                            }
+                            
+                            if (isPaginating) {
+                                item {
+                                    Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (selectedTab == 1) {
+                    if (isPlaylistsLoading) {
+                        items(4) {
+                            com.videhub.ui.components.VideoCardShimmer()
+                        }
+                    } else if (playlistsError != null) {
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
                                 Text(
-                                    text = videoListError ?: "Failed to load videos",
+                                    text = playlistsError ?: "Failed to load playlists",
                                     color = MaterialTheme.colorScheme.error
                                 )
                                 Spacer(Modifier.height(8.dp))
                                 Button(onClick = {
-                                    videoRetryTrigger++
+                                    playlistRetryTrigger++
                                 }) {
                                     Text("Retry")
                                 }
                             }
                         }
-                    }
-                } else if (!headerLoading && !hasHeaderError) {
-                    if (channelVideos.isEmpty()) {
+                    } else if (channelPlaylists.isEmpty()) {
                         item {
                             com.videhub.ui.components.EmptyState(
-                                icon = Icons.Default.PlayArrow,
-                                title = "No videos",
-                                message = "This channel hasn't uploaded any videos yet."
+                                icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                                title = "No playlists",
+                                message = "This channel has not created any public playlists."
                             )
                         }
                     } else {
                         items(
-                            count = channelVideos.size,
-                            key = { index -> "${channelVideos[index].url ?: index.toString()}_$index" }
+                            count = channelPlaylists.size,
+                            key = { index -> "${channelPlaylists[index].url ?: index.toString()}_$index" }
                         ) { index ->
-                            val video = channelVideos[index]
-                            
-                            if (index == channelVideos.size - 1 && !isPaginating && pagingSource?.hasMore == true) {
-                                LaunchedEffect(Unit) {
-                                    loadNextPage()
-                                }
-                            }
-                            
-                            com.videhub.ui.components.VideoRowItem(
-                                videoUrl = video.url ?: "",
-                                title = video.name ?: "",
-                                uploaderName = video.uploaderName ?: "",
-                                thumbnailUrl = video.thumbnails?.firstOrNull()?.url,
-                                duration = video.duration,
-                                viewCount = video.viewCount,
-                                uploadDate = video.textualUploadDate ?: "",
-                                uploaderUrl = video.uploaderUrl,
-                                uploaderAvatarUrl = try { video.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null },
-                                // Already in ChannelScreen, so maybe clicking avatar should just refresh or do nothing, 
-                                // but we can supply onChannelClick just in case
-                                onChannelClick = {},
+                            val playlist = channelPlaylists[index]
+                            com.videhub.ui.components.OnlinePlaylistItemCard(
+                                playlist = playlist,
                                 onClick = {
-                                    val url = video.url ?: ""
+                                    val url = playlist.url ?: ""
                                     if (url.isNotBlank()) {
-                                        onVideoClick(url, video.name ?: "", video.thumbnails?.firstOrNull()?.url ?: "")
+                                        onPlaylistClick(url)
                                     }
                                 }
                             )
-                        }
-                        
-                        if (isPaginating) {
-                            item {
-                                Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
                         }
                     }
                 }

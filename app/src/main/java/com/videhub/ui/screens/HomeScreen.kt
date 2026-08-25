@@ -10,9 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
@@ -38,6 +36,8 @@ import com.videhub.ui.components.VideoCardShimmer
 import com.videhub.ui.theme.ThemeManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.InfoItem
@@ -49,7 +49,8 @@ fun HomeScreen(
     sharedViewModel: com.videhub.viewmodel.MainViewModel,
     onVideoClick: (String, String, String) -> Unit,
     onChannelClick: (String) -> Unit = {},
-    onSearchClick: () -> Unit = {}
+    onSearchClick: () -> Unit = {},
+    onPlaylistClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -63,6 +64,13 @@ fun HomeScreen(
     val indicatorColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     var selectedTab by remember { mutableIntStateOf(sharedViewModel.homeSelectedTabCache) }
+
+    // Recommended playlists state from cache or fetched
+    var recommendedPlaylists by remember {
+        mutableStateOf<List<com.videhub.recommendation.RecommendedPlaylistInfo>>(
+            sharedViewModel.homeRecommendedPlaylistsCache ?: emptyList()
+        )
+    }
 
     // Use state map directly for videos
     val videos = sharedViewModel.homeVideosCacheMap[selectedTab] ?: emptyList()
@@ -113,6 +121,7 @@ fun HomeScreen(
     
     var showAddDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showInterestsSheet by remember { mutableStateOf(false) }
     var tabToDelete by remember { mutableIntStateOf(-1) }
     var newTabName by remember { mutableStateOf("") }
     var playlistDialogVideo by remember { mutableStateOf<StreamInfoItem?>(null) }
@@ -137,7 +146,27 @@ fun HomeScreen(
                 val newVideos = mutableListOf<Any>()
                 when (safeTab) {
                     0 -> {
-                        val freshVideos = com.videhub.recommendation.RecommendationEngine.getRecommendedFeed(db, context, isRefresh = true)
+                        // Concurrently refresh recommended feed videos and recommended playlists
+                        var freshVideos: List<InfoItem> = emptyList()
+                        coroutineScope {
+                            val playlistsDeferred = async(Dispatchers.IO) {
+                                try {
+                                    com.videhub.recommendation.RecommendationEngine.getRecommendedPlaylists(db, context)
+                                } catch (_: Exception) {
+                                    emptyList<com.videhub.recommendation.RecommendedPlaylistInfo>()
+                                }
+                            }
+                            val feedDeferred = async(Dispatchers.IO) {
+                                com.videhub.recommendation.RecommendationEngine.getRecommendedFeed(db, context, isRefresh = true)
+                            }
+                            freshVideos = feedDeferred.await()
+                            val fetchedPlaylists = playlistsDeferred.await()
+                            if (fetchedPlaylists.isNotEmpty()) {
+                                recommendedPlaylists = fetchedPlaylists
+                                sharedViewModel.homeRecommendedPlaylistsCache = fetchedPlaylists
+                            }
+                        }
+
                         if (freshVideos.isNotEmpty()) {
                             val entities = freshVideos.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>().map {
                                 com.videhub.data.entity.FeedCacheEntity(
@@ -203,6 +232,19 @@ fun HomeScreen(
                             isLoading = false
                         }
                         
+                        // Concurrently load recommended playlists if not cached
+                        if (sharedViewModel.homeRecommendedPlaylistsCache == null) {
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    val fetchedPlaylists = com.videhub.recommendation.RecommendationEngine.getRecommendedPlaylists(db, context)
+                                    if (fetchedPlaylists.isNotEmpty()) {
+                                        recommendedPlaylists = fetchedPlaylists
+                                        sharedViewModel.homeRecommendedPlaylistsCache = fetchedPlaylists
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+
                         val freshVideos = com.videhub.recommendation.RecommendationEngine.getRecommendedFeed(db, context, isRefresh = false)
                         if (freshVideos.isNotEmpty()) {
                             val entities = freshVideos.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>().map {
@@ -249,7 +291,7 @@ fun HomeScreen(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            android.util.Log.e("HomeScreen", "Error loading All tab", e)
+            android.util.Log.e("HomeScreen", "Error loading tab", e)
             onError("Error: ${e.message}")
         }
     }
@@ -335,19 +377,40 @@ fun HomeScreen(
                 )
             }
             
-            androidx.compose.material3.Surface(
-                shape = androidx.compose.foundation.shape.CircleShape,
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                onClick = onSearchClick,
-                modifier = Modifier.size(40.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Filled.Search,
-                        contentDescription = "Search",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
+                androidx.compose.material3.Surface(
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    onClick = { showInterestsSheet = true },
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Filled.Tune,
+                            contentDescription = "Personalize Interests",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+
+                androidx.compose.material3.Surface(
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    onClick = onSearchClick,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Filled.Search,
+                            contentDescription = "Search",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
             }
         }
@@ -682,6 +745,14 @@ fun HomeScreen(
                                 )
                             }
                         }
+
+                        // YouTube-style Recommended Playlists & Mixes shelf injected right below the first video
+                        if (selectedTab == 0 && recommendedPlaylists.isNotEmpty() && index == 0) {
+                            com.videhub.ui.components.RecommendedPlaylistsShelf(
+                                playlists = recommendedPlaylists,
+                                onPlaylistClick = onPlaylistClick
+                            )
+                        }
                     }
                     
                     if (isPaginating) {
@@ -709,6 +780,15 @@ fun HomeScreen(
                 thumbnailUrl = video.thumbnails?.firstOrNull()?.url ?: "",
                 channelName = video.uploaderName ?: "",
                 onDismiss = { playlistDialogVideo = null }
+            )
+        }
+
+        if (showInterestsSheet) {
+            com.videhub.ui.components.InterestsBottomSheet(
+                onDismiss = { showInterestsSheet = false },
+                onSaved = {
+                    refresh()
+                }
             )
         }
     }

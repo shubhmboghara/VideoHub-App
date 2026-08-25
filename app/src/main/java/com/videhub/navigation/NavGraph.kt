@@ -23,7 +23,15 @@ fun NavGraph(
                 sharedViewModel = sharedViewModel,
                 onVideoClick = { url, t, thumb -> onNavigateToPlayer(url, t, thumb, false, false) },
                 onChannelClick = { ch -> navController.navigate(Screen.Channel.createRoute(ch)) },
-                onSearchClick = { navController.navigate(Screen.Explore.route) }
+                onSearchClick = { navController.navigate(Screen.Explore.route) },
+                onPlaylistClick = { playlistUrl -> navController.navigate(Screen.OnlinePlaylist.createRoute(playlistUrl)) }
+            )
+        }
+        composable(Screen.Shorts.route) {
+            ShortsScreen(
+                sharedViewModel = sharedViewModel,
+                onVideoClick = { url, t, thumb -> onNavigateToPlayer(url, t, thumb, false, false) },
+                onChannelClick = { ch -> navController.navigate(Screen.Channel.createRoute(ch)) }
             )
         }
         composable(Screen.Explore.route) {
@@ -31,6 +39,7 @@ fun NavGraph(
                 sharedViewModel = sharedViewModel,
                 onVideoClick = { url, t, thumb -> onNavigateToPlayer(url, t, thumb, false, false) },
                 onChannelClick = { ch -> navController.navigate(Screen.Channel.createRoute(ch)) },
+                onPlaylistClick = { playlistUrl -> navController.navigate(Screen.OnlinePlaylist.createRoute(playlistUrl)) }
             )
         }
         composable(Screen.Subscriptions.route) {
@@ -111,7 +120,15 @@ fun NavGraph(
                 channelId = channelId,
                 onBack = { navController.popBackStack() },
                 onVideoClick = { videoUrl, t, thumb -> onNavigateToPlayer(videoUrl, t, thumb, false, false) },
-                onAboutClick = { }
+                onPlaylistClick = { playlistUrl -> navController.navigate(Screen.OnlinePlaylist.createRoute(playlistUrl)) },
+                onAboutClick = { navController.navigate("channel_about") }
+            )
+        }
+        composable("channel_about") {
+            ChannelAboutScreen(
+                sharedViewModel = sharedViewModel,
+                onBack = { navController.popBackStack() },
+                onChannelClick = { ch -> navController.navigate(Screen.Channel.createRoute(ch)) }
             )
         }
         composable("history") {
@@ -126,7 +143,9 @@ fun NavGraph(
         }
         composable("playlists") {
             PlaylistsScreen(
-                onPlaylistClick = { id -> navController.navigate("playlist_detail/$id") }
+                onPlaylistClick = { id -> navController.navigate("playlist_detail/$id") },
+                onNavigate = { route -> navController.navigate(route) },
+                onVideoClick = { videoUrl, t, thumb -> onNavigateToPlayer(videoUrl, t, thumb, false, false) }
             )
         }
         composable(

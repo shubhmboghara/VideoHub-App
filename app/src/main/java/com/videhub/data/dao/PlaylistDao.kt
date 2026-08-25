@@ -48,4 +48,7 @@ interface PlaylistDao {
 
     @Query("SELECT * FROM playlists ORDER BY name ASC")
     suspend fun getAllPlaylistsOnce(): List<PlaylistEntity>
+
+    @Query("SELECT * FROM playlist_videos ORDER BY addedAt DESC")
+    suspend fun getAllPlaylistVideosOnce(): List<PlaylistVideoEntity>
 }

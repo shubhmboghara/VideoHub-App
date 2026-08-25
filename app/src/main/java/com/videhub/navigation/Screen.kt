@@ -2,6 +2,7 @@ package com.videhub.navigation
 
 sealed class Screen(val route: String) {
     object Home : Screen("home")
+    object Shorts : Screen("shorts")
     object Explore : Screen("explore")
     object Subscriptions : Screen("subscriptions")
     object Library : Screen("library")

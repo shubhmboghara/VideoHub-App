@@ -293,6 +293,97 @@ object ExtractorHelper {
         }
     }
 
+    suspend fun getShortsFeed(
+        category: String = "All",
+        maxPages: Int = 3
+    ): List<org.schabi.newpipe.extractor.stream.StreamInfoItem> = withContext(Dispatchers.IO) {
+        try {
+            val query = when (category.lowercase()) {
+                "all" -> listOf("#shorts", "trending shorts", "viral shorts", "youtube shorts", "#shortsvideo").random()
+                "trending" -> listOf("trending shorts", "viral shorts 2024", "most viewed shorts").random()
+                "gaming" -> listOf("gaming shorts", "gameplay shorts #shorts", "funny gaming shorts").random()
+                "music" -> listOf("music shorts", "song shorts #shorts", "trending songs shorts").random()
+                "comedy" -> listOf("comedy shorts", "funny shorts #shorts", "humor viral shorts").random()
+                "tech" -> listOf("tech shorts", "gadgets shorts #shorts", "technology review shorts").random()
+                "viral" -> listOf("viral shorts", "best viral shorts #shorts", "trending now shorts").random()
+                "anime" -> listOf("anime shorts", "anime edit shorts #shorts", "manga shorts").random()
+                else -> "$category #shorts"
+            }
+            val handler = ServiceList.YouTube.searchQHFactory.fromQuery(query)
+            val extractor = ServiceList.YouTube.getSearchExtractor(handler)
+            extractor.fetchPage()
+            val rawItems = mutableListOf<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+            val initial = extractor.initialPage.items?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>() ?: emptyList()
+            rawItems.addAll(initial)
+
+            var currentPage = extractor.initialPage
+            var pagesFetched = 1
+            while (currentPage.hasNextPage() && pagesFetched < maxPages) {
+                try {
+                    val nextPage = extractor.getPage(currentPage.nextPage)
+                    val nextItems = nextPage.items?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>() ?: emptyList()
+                    rawItems.addAll(nextItems)
+                    currentPage = nextPage
+                    pagesFetched++
+                } catch (e: Exception) {
+                    break
+                }
+            }
+
+            // Filter for shorts (duration <= 90s or #short in title or shorts in URL, or fallback)
+            val shortsFiltered = rawItems.filter { item ->
+                val dur = item.duration
+                val name = item.name ?: ""
+                val url = item.url ?: ""
+                val isShortDuration = dur in 1..90
+                val isShortTagged = name.contains("#short", ignoreCase = true) || 
+                                    name.contains("shorts", ignoreCase = true) || 
+                                    url.contains("shorts", ignoreCase = true)
+                isShortDuration || isShortTagged || dur <= 0
+            }.distinctBy { it.url ?: it.name ?: "" }
+
+            if (shortsFiltered.isNotEmpty()) shortsFiltered else rawItems.distinctBy { it.url ?: "" }
+        } catch (e: Exception) {
+            android.util.Log.e("ExtractorHelper", "Error getting shorts feed", e)
+            emptyList()
+        }
+    }
+
+    suspend fun getChannelShorts(
+        channelUrl: String,
+        maxPages: Int = 3
+    ): List<org.schabi.newpipe.extractor.stream.StreamInfoItem> = withContext(Dispatchers.IO) {
+        try {
+            val allVideos = getChannelVideosSorted(channelUrl, "latest", maxPages)
+            val shorts = allVideos.filter { item ->
+                val dur = item.duration
+                val name = item.name ?: ""
+                val url = item.url ?: ""
+                val isShortDuration = dur in 1..90
+                val isShortTagged = name.contains("#short", ignoreCase = true) || 
+                                    name.contains("shorts", ignoreCase = true) || 
+                                    url.contains("shorts", ignoreCase = true)
+                isShortDuration || isShortTagged
+            }.distinctBy { it.url ?: it.name ?: "" }
+            
+            if (shorts.isNotEmpty()) {
+                shorts
+            } else {
+                // If no direct shorts found in channel latest, search for channel name + #shorts
+                val channelInfo = getChannelInfo(channelUrl)
+                val channelName = channelInfo.name ?: ""
+                if (channelName.isNotBlank()) {
+                    getShortsFeed(category = "$channelName #shorts", maxPages = 2)
+                } else {
+                    emptyList()
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ExtractorHelper", "Error getting channel shorts", e)
+            emptyList()
+        }
+    }
+
     private val streamCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, StreamInfo>>()
 
     suspend fun prefetchStreamInfo(url: String) = withContext(Dispatchers.IO) {
@@ -496,6 +587,71 @@ object ExtractorHelper {
             e.printStackTrace()
         }
         items
+    }
+
+    suspend fun getChannelPlaylists(
+        channelUrl: String,
+        maxPages: Int = 3
+    ): List<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem> = withContext(Dispatchers.IO) {
+        val svc = ServiceList.YouTube
+        val items = mutableListOf<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem>()
+        try {
+            val info = ChannelInfo.getInfo(svc, channelUrl)
+            val playlistTab = info.tabs?.firstOrNull { tab ->
+                val linkHandler = tab as? org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
+                linkHandler?.url?.contains("playlists", ignoreCase = true) == true ||
+                linkHandler?.id?.contains("playlists", ignoreCase = true) == true
+            } as? org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
+
+            val tabHandler = playlistTab ?: try {
+                val cleanUrl = if (channelUrl.endsWith("/")) "${channelUrl}playlists" else "$channelUrl/playlists"
+                svc.channelTabLHFactory.fromUrl(cleanUrl)
+            } catch (_: Exception) { null }
+
+            if (tabHandler != null) {
+                val extractor = svc.getChannelTabExtractor(tabHandler)
+                extractor.fetchPage()
+                val initialItems = extractor.initialPage.items?.filterIsInstance<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem>()
+                    ?: emptyList()
+                items.addAll(initialItems)
+
+                var currentPage = extractor.initialPage
+                var pagesFetched = 1
+                while (currentPage.hasNextPage() && pagesFetched < maxPages) {
+                    val nextPage = extractor.getPage(currentPage.nextPage)
+                    val nextItems = nextPage.items?.filterIsInstance<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem>()
+                        ?: emptyList()
+                    items.addAll(nextItems)
+                    currentPage = nextPage
+                    pagesFetched++
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext items.distinctBy { it.url ?: it.name ?: "" }
+    }
+
+    suspend fun searchPlaylists(query: String): List<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem> = withContext(Dispatchers.IO) {
+        try {
+            val handler = try {
+                ServiceList.YouTube.searchQHFactory.fromQuery(query, listOf("playlists"), "")
+            } catch (_: Exception) {
+                ServiceList.YouTube.searchQHFactory.fromQuery(query)
+            }
+            val info = SearchInfo.getInfo(ServiceList.YouTube, handler)
+            val items = mutableListOf<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem>()
+            items.addAll(info.relatedItems.filterIsInstance<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem>())
+            if (info.nextPage != null && items.size < 10) {
+                try {
+                    val more = SearchInfo.getMoreItems(ServiceList.YouTube, handler, info.nextPage)
+                    items.addAll(more.items.filterIsInstance<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem>())
+                } catch (_: Exception) {}
+            }
+            items.distinctBy { it.url ?: it.name ?: "" }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 
     suspend fun getTrending(): List<org.schabi.newpipe.extractor.InfoItem> = withContext(Dispatchers.IO) {

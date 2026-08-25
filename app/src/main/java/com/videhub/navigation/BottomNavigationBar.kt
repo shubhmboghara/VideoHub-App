@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material.icons.outlined.FlashOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -25,6 +26,7 @@ fun BottomNavigationBar(navController: NavController, currentRoute: String?) {
 
     val items = listOf(
         NavItem(Screen.Home.route, Icons.Filled.Home, Icons.Outlined.Home, "Home"),
+        NavItem(Screen.Shorts.route, Icons.Filled.FlashOn, Icons.Outlined.FlashOn, "Shorts"),
         NavItem(Screen.Subscriptions.route, Icons.Filled.Subscriptions, Icons.Outlined.Subscriptions, "Subscriptions"),
         NavItem(Screen.Library.route, Icons.Filled.VideoLibrary, Icons.Outlined.VideoLibrary, "Library"),
     )

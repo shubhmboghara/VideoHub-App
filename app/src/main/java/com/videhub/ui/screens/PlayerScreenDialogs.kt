@@ -6,9 +6,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.media3.common.Player
 import com.videhub.PlayQueueItem
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import com.videhub.service.QueueDownloadService
+import com.videhub.ui.components.EqualizerBottomSheet
+import com.videhub.ui.components.SleepTimerBottomSheet
 
 @Composable
 fun PlayerScreenDialogs(
@@ -20,6 +23,10 @@ fun PlayerScreenDialogs(
     onDismissVideoActionBottomSheet: () -> Unit,
     showQueueDownloadDialog: Boolean,
     onDismissQueueDownloadDialog: () -> Unit,
+    showEqualizerSheet: Boolean = false,
+    onDismissEqualizerSheet: () -> Unit = {},
+    showSleepTimerSheet: Boolean = false,
+    onDismissSleepTimerSheet: () -> Unit = {},
     
     originalVideoId: String,
     videoUrl: String,
@@ -28,7 +35,8 @@ fun PlayerScreenDialogs(
     channelName: String,
     streamInfo: StreamInfo?,
     queue: List<PlayQueueItem>,
-    context: Context
+    context: Context,
+    mediaPlayer: Player? = null
 ) {
     if (showAddToPlaylistDialog) {
         com.videhub.ui.components.AddToPlaylistDialog(
@@ -57,6 +65,20 @@ fun PlayerScreenDialogs(
             thumbnailUrl = thumbnailUrl,
             channelName = channelName,
             onDismiss = onDismissVideoActionBottomSheet
+        )
+    }
+
+    if (showEqualizerSheet) {
+        EqualizerBottomSheet(
+            onDismiss = onDismissEqualizerSheet,
+            mediaPlayer = mediaPlayer
+        )
+    }
+
+    if (showSleepTimerSheet) {
+        SleepTimerBottomSheet(
+            mediaPlayer = mediaPlayer,
+            onDismiss = onDismissSleepTimerSheet
         )
     }
 

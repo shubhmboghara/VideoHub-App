@@ -162,6 +162,12 @@ fun NowPlayingScreen(
     val lyrics by LiveCaptionsManager.captions.collectAsStateWithLifecycle(initialValue = emptyList())
 
     var isLyricsMode by remember { mutableStateOf(false) }
+    var showEqualizerSheet by remember { mutableStateOf(false) }
+    var showSleepTimerSheet by remember { mutableStateOf(false) }
+
+    val isEqEnabled by com.videhub.audio.EqualizerManager.isEnabled.collectAsState()
+    val sleepTimerSecs by com.videhub.audio.SleepTimerManager.remainingSeconds.collectAsState()
+    val isSleepTimerEndOfTrack by com.videhub.audio.SleepTimerManager.isEndOfTrackMode.collectAsState()
 
     // 3D Animation States
     val dragRotationX = remember { Animatable(0f) }
@@ -289,6 +295,25 @@ fun NowPlayingScreen(
                 }
                 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Equalizer Button
+                    IconButton(onClick = { showEqualizerSheet = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.Equalizer,
+                            contentDescription = "Equalizer",
+                            tint = if (isEqEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    }
+
+                    // Sleep Timer Button
+                    IconButton(onClick = { showSleepTimerSheet = true }) {
+                        val isSleepActive = sleepTimerSecs != null || isSleepTimerEndOfTrack
+                        Icon(
+                            imageVector = Icons.Rounded.Bedtime,
+                            contentDescription = "Sleep Timer",
+                            tint = if (isSleepActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    }
+
                     if (!isAudioOnly) {
                         IconButton(onClick = onToggleMode) {
                             Icon(
@@ -307,13 +332,7 @@ fun NowPlayingScreen(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .clickable(
-                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        isLyricsMode = !isLyricsMode
-                    },
+                    .fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
                 AnimatedContent(
@@ -325,21 +344,14 @@ fun NowPlayingScreen(
                     label = "ArtworkVsLyrics"
                 ) { showLyrics ->
                     if (showLyrics) {
-                        if (lyrics.isEmpty()) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    "No lyrics found",
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                            }
-                        } else {
-                            LyricsView(
-                                lyrics = lyrics,
-                                positionProvider = positionProvider,
-                                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)
-                            )
-                        }
+                        SyncedLyricsView(
+                            title = uiState.title,
+                            channelName = uiState.artist,
+                            durationSeconds = (durationProvider() / 1000L).coerceAtLeast(0L),
+                            mediaPlayer = exoPlayer,
+                            offlineCaptions = lyrics,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     } else {
                         Box(
                             modifier = Modifier.fillMaxWidth(),
@@ -561,6 +573,20 @@ fun NowPlayingScreen(
                     onVideoPlay = onVideoPlay
                 )
             }
+        }
+
+        if (showEqualizerSheet) {
+            EqualizerBottomSheet(
+                mediaPlayer = exoPlayer,
+                onDismiss = { showEqualizerSheet = false }
+            )
+        }
+
+        if (showSleepTimerSheet) {
+            SleepTimerBottomSheet(
+                mediaPlayer = exoPlayer,
+                onDismiss = { showSleepTimerSheet = false }
+            )
         }
     }
 }

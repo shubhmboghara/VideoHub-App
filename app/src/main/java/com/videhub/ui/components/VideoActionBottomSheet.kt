@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Bookmark
@@ -78,6 +79,16 @@ fun VideoActionBottomSheet(
                     .fillMaxWidth()
                     .padding(bottom = 24.dp)
             ) {
+                ListItem(
+                    headlineContent = { Text("Start Song Radio (Endless Mix)") },
+                    leadingContent = { Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                    modifier = Modifier.clickable {
+                        com.videhub.audio.RadioManager.startRadio(videoUrl, title, channelName, thumbnailUrl)
+                        Toast.makeText(context, "📻 Infinite Song Radio Started!", Toast.LENGTH_SHORT).show()
+                        onDismiss()
+                    }
+                )
+
                 ListItem(
                     headlineContent = { Text("Play next in queue") },
                     leadingContent = { Icon(Icons.Default.PlayArrow, contentDescription = null) },

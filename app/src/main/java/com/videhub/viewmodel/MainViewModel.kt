@@ -66,6 +66,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     
     // Home screen cache per tab
     val homeVideosCacheMap = androidx.compose.runtime.mutableStateMapOf<Int, List<Any>>()
+    var homeRecommendedPlaylistsCache: List<com.videhub.recommendation.RecommendedPlaylistInfo>? = null
     val homePagingSourceMap = mutableMapOf<Int, com.videhub.extractor.ListExtractorPagingSource?>()
     val homeScrollStateMap = mutableMapOf<Int, Pair<Int, Int>>()
     
@@ -79,6 +80,11 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     var explorePagingSourceCache: com.videhub.extractor.ListExtractorPagingSource? = null
     var exploreScrollIndexCache: Int = 0
     var exploreScrollOffsetCache: Int = 0
+
+    // Shorts screen cache
+    var shortsListCache: List<org.schabi.newpipe.extractor.stream.StreamInfoItem>? = null
+    var shortsCategoryCache: String = "All"
+    var shortsCurrentIndexCache: Int = 0
 
     // Subscriptions screen cache
     var subscriptionsSelectedChannelCache: String?
@@ -101,6 +107,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     var channelInfoCache: org.schabi.newpipe.extractor.channel.ChannelInfo? = null
     var channelAboutInfoCache: com.videhub.extractor.ChannelAboutInfo? = null
     var channelVideosCache: List<org.schabi.newpipe.extractor.stream.StreamInfoItem>? = null
+    var channelPlaylistsCache: List<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem>? = null
     var channelPagingSourceCache: com.videhub.extractor.ListExtractorPagingSource? = null
     var channelScrollIndexCache: Int = 0
     var channelScrollOffsetCache: Int = 0

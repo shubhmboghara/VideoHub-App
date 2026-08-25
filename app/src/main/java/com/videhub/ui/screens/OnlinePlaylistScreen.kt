@@ -64,6 +64,11 @@ fun OnlinePlaylistScreen(
                 },
                 actions = {
                     if (uiState.playlistInfo != null) {
+                        IconButton(onClick = {
+                            viewModel.saveOnlinePlaylistToLocal(context)
+                        }) {
+                            Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = "Save to My Playlists", tint = MaterialTheme.colorScheme.primary)
+                        }
                         IconButton(onClick = { showDownloadDialog = true }) {
                             Icon(Icons.Default.Download, contentDescription = "Download all")
                         }

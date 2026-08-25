@@ -31,6 +31,8 @@ import com.videhub.data.entity.LikedVideoEntity
 import com.videhub.PlayQueueItem
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import androidx.media3.common.Player
+import com.videhub.audio.EqualizerManager
+import com.videhub.audio.SleepTimerManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +51,8 @@ fun PlayerScreenActions(
     onShowAddToPlaylistDialog: () -> Unit,
     onShowDownloadDialog: () -> Unit,
     onShowSettingsSheet: () -> Unit,
+    onShowEqualizerSheet: () -> Unit = {},
+    onShowSleepTimerSheet: () -> Unit = {},
     context: Context,
     scope: CoroutineScope,
     db: AppDatabase,
@@ -58,6 +62,12 @@ fun PlayerScreenActions(
     var isLiked by remember(isLikedInitial) { mutableStateOf(isLikedInitial) }
     var isInWatchLater by remember(isInWatchLaterInitial) { mutableStateOf(isInWatchLaterInitial) }
     var autoplayEnabled by remember(autoplayEnabledInitial) { mutableStateOf(autoplayEnabledInitial) }
+
+    val isEqEnabled by EqualizerManager.isEnabled.collectAsState()
+    val sleepSeconds by SleepTimerManager.remainingSeconds.collectAsState()
+    val isEndOfTrack by SleepTimerManager.isEndOfTrackMode.collectAsState()
+    val isSleepActive = sleepSeconds != null || isEndOfTrack
+    val isRadioActive by com.videhub.audio.RadioManager.isRadioActive.collectAsState()
 
     Row(
         modifier = Modifier
@@ -104,6 +114,7 @@ fun PlayerScreenActions(
         ActionChipItem(
             label = "Like",
             icon = if (isLiked) Icons.Default.ThumbUp else Icons.Outlined.ThumbUp,
+            isActive = isLiked,
             onClick = {
                 scope.launch {
                     if (isLiked) {
@@ -131,8 +142,38 @@ fun PlayerScreenActions(
         )
 
         ActionChipItem(
+            label = if (isRadioActive) "Radio: On" else "Song Radio",
+            icon = Icons.AutoMirrored.Filled.PlaylistAdd,
+            isActive = isRadioActive,
+            onClick = {
+                if (isRadioActive) {
+                    com.videhub.audio.RadioManager.stopRadio()
+                    Toast.makeText(context, "Song Radio Stopped", Toast.LENGTH_SHORT).show()
+                } else {
+                    com.videhub.audio.RadioManager.startRadio(videoUrl, title, channelName, thumbnailUrl)
+                    Toast.makeText(context, "📻 Infinite Song Radio Started!", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+
+        ActionChipItem(
+            label = "Equalizer",
+            icon = Icons.Default.Equalizer,
+            isActive = isEqEnabled,
+            onClick = onShowEqualizerSheet
+        )
+
+        ActionChipItem(
+            label = if (isSleepActive) (if (isEndOfTrack) "Sleep: End" else "Sleep: ${SleepTimerManager.formatRemainingTime()}") else "Sleep Timer",
+            icon = Icons.Default.Bedtime,
+            isActive = isSleepActive,
+            onClick = onShowSleepTimerSheet
+        )
+
+        ActionChipItem(
             label = "Watch Later",
             icon = if (isInWatchLater) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
+            isActive = isInWatchLater,
             onClick = {
                 scope.launch {
                     if (isInWatchLater) {

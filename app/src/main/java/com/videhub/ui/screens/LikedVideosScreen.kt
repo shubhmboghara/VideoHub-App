@@ -27,6 +27,11 @@ import com.videhub.data.entity.LikedVideoEntity
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Shuffle
+import android.widget.Toast
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LikedVideosScreen(
@@ -44,6 +49,47 @@ fun LikedVideosScreen(
         }
     }
 
+    fun playAll(shuffle: Boolean = false) {
+        if (likedVideos.isEmpty()) return
+        val listToPlay = if (shuffle) likedVideos.shuffled() else likedVideos
+        com.videhub.QueueManager.clear()
+        val first = listToPlay.first()
+        for (i in 1 until listToPlay.size) {
+            val qItem = listToPlay[i]
+            com.videhub.QueueManager.enqueue(
+                com.videhub.PlayQueueItem(
+                    url = qItem.videoId,
+                    title = qItem.title,
+                    uploaderName = qItem.channelName,
+                    thumbnailUrl = qItem.thumbnailUrl
+                )
+            )
+        }
+        onVideoClick(first.videoId, first.title, first.thumbnailUrl)
+    }
+
+    fun saveAsPlaylist() {
+        if (likedVideos.isEmpty()) return
+        scope.launch {
+            val playlistName = "Liked Videos (${java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault()).format(java.util.Date())})"
+            val playlistId = db.playlistDao().insertPlaylist(
+                com.videhub.data.entity.PlaylistEntity(name = playlistName)
+            )
+            likedVideos.forEach { video ->
+                db.playlistDao().insertVideo(
+                    com.videhub.data.entity.PlaylistVideoEntity(
+                        playlistId = playlistId.toInt(),
+                        videoId = video.videoId,
+                        title = video.title,
+                        channelName = video.channelName,
+                        thumbnailUrl = video.thumbnailUrl
+                    )
+                )
+            }
+            Toast.makeText(context, "Saved ${likedVideos.size} videos as \"$playlistName\"", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -51,6 +97,16 @@ fun LikedVideosScreen(
                 navigationIcon = {
                     IconButton(onClick = { onBackPressedDispatcher?.onBackPressed() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (likedVideos.isNotEmpty()) {
+                        IconButton(onClick = { saveAsPlaylist() }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.PlaylistAdd,
+                                contentDescription = "Save as Playlist"
+                            )
+                        }
                     }
                 }
             )
@@ -68,15 +124,44 @@ fun LikedVideosScreen(
                 modifier = Modifier.fillMaxSize().padding(paddingValues),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
-            item {
-                Text(
-                    "${likedVideos.size} liked videos",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-            }
-            itemsIndexed(likedVideos, key = { index, video -> "${video.videoId}_$index" }) { index, video ->
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            "${likedVideos.size} liked videos",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Button(
+                                onClick = { playAll(shuffle = false) },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Play All", maxLines = 1)
+                            }
+                            FilledTonalButton(
+                                onClick = { playAll(shuffle = true) },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
+                            ) {
+                                Icon(Icons.Default.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Shuffle", maxLines = 1)
+                            }
+                        }
+                    }
+                }
+                itemsIndexed(likedVideos, key = { index, video -> "${video.videoId}_$index" }) { index, video ->
                 com.videhub.ui.components.VideoRowItem(
                     videoUrl = video.videoId,
                     title = video.title,

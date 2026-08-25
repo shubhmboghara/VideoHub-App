@@ -40,6 +40,8 @@ fun BelowPlayerContent(
     onShowDownloadDialog: () -> Unit,
     onShowAddToPlaylistDialog: () -> Unit,
     onShowSettingsSheet: () -> Unit,
+    onShowEqualizerSheet: () -> Unit = {},
+    onShowSleepTimerSheet: () -> Unit = {},
     onVideoPlay: (String, String, String, Boolean) -> Unit,
     mediaPlayer: Player?,
     sharedViewModel: MainViewModel,
@@ -54,7 +56,7 @@ fun BelowPlayerContent(
             PlayerScreenMetadata(
                 streamInfo = streamInfo,
                 isLocalFile = isLocalFile,
-        isOfflineFallback = isOfflineFallback,
+                isOfflineFallback = isOfflineFallback,
                 errorMessage = errorMessage,
                 title = title,
                 channelName = channelName,
@@ -64,7 +66,10 @@ fun BelowPlayerContent(
                 context = context,
                 scope = scope,
                 db = db,
-                isSubscribedInitial = isSubscribedInitial
+                isSubscribedInitial = isSubscribedInitial,
+                onSeekToSeconds = { sec ->
+                    mediaPlayer?.seekTo(sec * 1000L)
+                }
             )
         }
 
@@ -84,6 +89,8 @@ fun BelowPlayerContent(
                 onShowDownloadDialog = onShowDownloadDialog,
                 onShowAddToPlaylistDialog = onShowAddToPlaylistDialog,
                 onShowSettingsSheet = onShowSettingsSheet,
+                onShowEqualizerSheet = onShowEqualizerSheet,
+                onShowSleepTimerSheet = onShowSleepTimerSheet,
                 context = context,
                 scope = scope,
                 db = db,
@@ -104,7 +111,9 @@ fun BelowPlayerContent(
         relatedVideosSection(
             relatedVideos = relatedVideos,
             isMusicMode = isMusicMode,
-            onVideoPlay = onVideoPlay
+            onVideoPlay = { url, thumbTitle, thumb, _ -> 
+                onVideoPlay(url, thumbTitle, thumb, isMusicMode)
+            }
         )
     }
 }

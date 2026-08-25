@@ -29,6 +29,8 @@ import org.schabi.newpipe.extractor.stream.StreamInfo
 import com.videhub.data.AppDatabase
 import com.videhub.data.entity.ChannelEntity
 import com.videhub.ui.components.AnimatedSubscribeButton
+import com.videhub.ui.components.ClickableDescriptionText
+import com.videhub.ui.components.openUrlSafely
 
 @Composable
 fun PlayerScreenMetadata(
@@ -44,7 +46,8 @@ fun PlayerScreenMetadata(
     context: Context,
     scope: CoroutineScope,
     db: AppDatabase,
-    isSubscribedInitial: Boolean
+    isSubscribedInitial: Boolean,
+    onSeekToSeconds: ((Long) -> Unit)? = null
 ) {
     var isSubscribed by remember(isSubscribedInitial) { mutableStateOf(isSubscribedInitial) }
 
@@ -181,20 +184,35 @@ fun PlayerScreenMetadata(
                                 onClick = { expandedDesc = !expandedDesc }
                             ) {
                                 Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
                                         Text(
                                             text = "Description",
                                             style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            text = if (expandedDesc) "Show less" else "Show more",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary
                                         )
                                     }
 
                                     Spacer(Modifier.height(8.dp))
                                     if (expandedDesc) {
-                                        Text(
+                                        ClickableDescriptionText(
                                             text = finalDesc,
                                             style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            linkColor = MaterialTheme.colorScheme.primary,
+                                            onSeekToSeconds = onSeekToSeconds,
+                                            onUrlClick = { url ->
+                                                openUrlSafely(context, null, url)
+                                            }
                                         )
                                         if (hashtags.isNotEmpty()) {
                                             Spacer(Modifier.height(8.dp))
@@ -215,17 +233,24 @@ fun PlayerScreenMetadata(
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(top = 8.dp)
+                                            modifier = Modifier
+                                                .padding(top = 8.dp)
+                                                .clickable { expandedDesc = false }
                                         )
                                     } else {
                                         Row(verticalAlignment = Alignment.Bottom) {
-                                            Text(
+                                            ClickableDescriptionText(
                                                 text = finalDesc,
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                linkColor = MaterialTheme.colorScheme.primary,
                                                 maxLines = 2,
                                                 overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f, fill = false)
+                                                modifier = Modifier.weight(1f, fill = false),
+                                                onSeekToSeconds = onSeekToSeconds,
+                                                onUrlClick = { url ->
+                                                    openUrlSafely(context, null, url)
+                                                }
                                             )
                                             if (finalDesc.lines().size > 2 || finalDesc.length > 80) {
                                                 Text(

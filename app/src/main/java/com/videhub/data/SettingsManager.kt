@@ -22,6 +22,34 @@ object SettingsManager {
     private val SPONSOR_BLOCK_KEY = booleanPreferencesKey("sponsor_block_enabled")
     private val VOLUME_BOOST_KEY = booleanPreferencesKey("volume_boost")
     private val LOOP_VIDEO_KEY = booleanPreferencesKey("loop_video")
+    private val USER_INTERESTS_KEY = androidx.datastore.preferences.core.stringPreferencesKey("user_interests_list")
+    private val HAS_CONFIGURED_INTERESTS_KEY = booleanPreferencesKey("has_configured_interests")
+
+    fun getUserInterests(context: Context): Flow<List<String>> {
+        return context.dataStore.data.map { preferences ->
+            val raw = preferences[USER_INTERESTS_KEY] ?: ""
+            if (raw.isBlank()) emptyList() else raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        }
+    }
+
+    suspend fun setUserInterests(context: Context, interests: List<String>) {
+        context.dataStore.edit { preferences ->
+            preferences[USER_INTERESTS_KEY] = interests.distinct().joinToString(",")
+            preferences[HAS_CONFIGURED_INTERESTS_KEY] = true
+        }
+    }
+
+    fun getHasConfiguredInterests(context: Context): Flow<Boolean> {
+        return context.dataStore.data.map { preferences ->
+            preferences[HAS_CONFIGURED_INTERESTS_KEY] ?: false
+        }
+    }
+
+    suspend fun setHasConfiguredInterests(context: Context, configured: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[HAS_CONFIGURED_INTERESTS_KEY] = configured
+        }
+    }
 
     fun getLoopVideo(context: Context): Flow<Boolean> = context.dataStore.data.map { it[LOOP_VIDEO_KEY] ?: false }
     suspend fun setLoopVideo(context: Context, loop: Boolean) = context.dataStore.edit { it[LOOP_VIDEO_KEY] = loop }

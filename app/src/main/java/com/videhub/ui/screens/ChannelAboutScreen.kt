@@ -22,6 +22,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.videhub.viewmodel.MainViewModel
+import com.videhub.ui.components.ClickableDescriptionText
+import com.videhub.ui.components.openUrlSafely
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,6 +80,7 @@ fun ChannelAboutScreen(
             // ── Description ──────────────────────────────────────────
             val rawDescription = info.description?.trim() ?: ""
             if (rawDescription.isNotBlank()) {
+                val context = LocalContext.current
                 Column {
                     Text(
                         text = "Description",
@@ -99,11 +103,23 @@ fun ChannelAboutScreen(
                             .trim()
                     }
 
-                    Text(
-                        text = cleanDescription.ifBlank { "No description available." },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
+                    if (cleanDescription.isNotBlank()) {
+                        ClickableDescriptionText(
+                            text = cleanDescription,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            linkColor = MaterialTheme.colorScheme.primary,
+                            onUrlClick = { url ->
+                                openUrlSafely(context, uriHandler, url)
+                            }
+                        )
+                    } else {
+                        Text(
+                            text = "No description available.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
                 }
             }
 

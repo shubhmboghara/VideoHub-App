@@ -83,6 +83,36 @@ class PlaylistViewModel : ViewModel() {
         android.widget.Toast.makeText(context, "Playlist download started...", android.widget.Toast.LENGTH_SHORT).show()
     }
 
+    fun saveOnlinePlaylistToLocal(context: Context, customName: String? = null, onComplete: () -> Unit = {}) {
+        val info = _uiState.value.playlistInfo ?: return
+        val items = _playlistItems.value.map { it.item }
+        if (items.isEmpty()) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val db = AppDatabase.getDatabase(context)
+            val playlistName = customName?.takeIf { it.isNotBlank() } ?: info.name ?: "Imported Playlist"
+            val playlistId = db.playlistDao().insertPlaylist(
+                com.videhub.data.entity.PlaylistEntity(name = playlistName)
+            )
+
+            items.forEach { item ->
+                db.playlistDao().insertVideo(
+                    com.videhub.data.entity.PlaylistVideoEntity(
+                        playlistId = playlistId.toInt(),
+                        videoId = item.url ?: "",
+                        title = item.name ?: "Unknown",
+                        channelName = item.uploaderName ?: "",
+                        thumbnailUrl = item.thumbnails?.firstOrNull()?.url ?: ""
+                    )
+                )
+            }
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(context, "Saved to My Playlists!", android.widget.Toast.LENGTH_SHORT).show()
+                onComplete()
+            }
+        }
+    }
+
     fun downloadSingleVideo(context: Context, videoUrl: String, title: String, thumbnailUrl: String, isAudioOnly: Boolean = false) {
         val intent = android.content.Intent(context, com.videhub.service.DownloadService::class.java).apply {
             putExtra("url", videoUrl)

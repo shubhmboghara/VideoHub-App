@@ -12,6 +12,9 @@ interface SearchHistoryDao {
     @Query("SELECT * FROM search_history ORDER BY timestamp DESC")
     fun getAllSearchHistory(): Flow<List<SearchHistoryEntity>>
 
+    @Query("SELECT * FROM search_history ORDER BY timestamp DESC LIMIT 20")
+    suspend fun getAllSearchHistoryOnce(): List<SearchHistoryEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSearch(searchHistory: SearchHistoryEntity)
 

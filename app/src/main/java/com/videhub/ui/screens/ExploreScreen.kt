@@ -34,8 +34,11 @@ import com.videhub.ui.components.VideoCardShimmer
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.channel.ChannelInfoItem
+import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import android.widget.Toast
 import com.videhub.data.AppDatabase
@@ -44,14 +47,18 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import com.videhub.ui.components.AnimatedSubscribeButton
+import com.videhub.ui.components.CompactPlaylistResultItem
+import com.videhub.ui.components.OnlinePlaylistItemCard
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExploreScreen(
     sharedViewModel: com.videhub.viewmodel.MainViewModel,
     onVideoClick: (String, String, String) -> Unit,
-    onChannelClick: (String) -> Unit = {}
+    onChannelClick: (String) -> Unit = {},
+    onPlaylistClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -64,6 +71,12 @@ fun ExploreScreen(
     var channelResults by remember { mutableStateOf<List<ChannelInfoItem>>(
         sharedViewModel.exploreVideosCache?.filterIsInstance<ChannelInfoItem>() ?: emptyList()
     ) }
+    var playlistResults by remember { mutableStateOf<List<PlaylistInfoItem>>(
+        sharedViewModel.exploreVideosCache?.filterIsInstance<PlaylistInfoItem>() ?: emptyList()
+    ) }
+    
+    var selectedFilterIndex by remember { mutableIntStateOf(0) } // 0: All, 1: Videos, 2: Playlists, 3: Channels
+    var isPlaylistSearchLoading by remember { mutableStateOf(false) }
     
     var isLoading by remember { mutableStateOf(false) }
     var isSearching by remember { mutableStateOf(false) }
@@ -78,8 +91,6 @@ fun ExploreScreen(
     
     val displayedVideos = videoResults
     
-
-    
     val db = remember { AppDatabase.getDatabase(context) }
     val searchHistoryDao = db.searchHistoryDao()
     val searchHistory by searchHistoryDao.getAllSearchHistory().collectAsStateWithLifecycle(initialValue = emptyList())
@@ -92,6 +103,13 @@ fun ExploreScreen(
                 val cachedChannels = cached.filter { it.type == "channel" }.map {
                     org.schabi.newpipe.extractor.channel.ChannelInfoItem(1, it.url, it.channelName)
                 }
+                val cachedPlaylists = cached.filter { it.type == "playlist" }.map {
+                    val p = org.schabi.newpipe.extractor.playlist.PlaylistInfoItem(1, it.url, it.title)
+                    p.uploaderName = it.channelName
+                    p.thumbnails = listOf(org.schabi.newpipe.extractor.Image(it.thumbnailUrl, 50, 50, org.schabi.newpipe.extractor.Image.ResolutionLevel.UNKNOWN))
+                    p.streamCount = it.duration
+                    p
+                }
                 val cachedVideos = cached.filter { it.type == "video" }.map {
                     val item = org.schabi.newpipe.extractor.stream.StreamInfoItem(1, it.url, it.title, org.schabi.newpipe.extractor.stream.StreamType.VIDEO_STREAM)
                     item.uploaderName = it.channelName
@@ -101,6 +119,7 @@ fun ExploreScreen(
                     item
                 }
                 channelResults = cachedChannels
+                playlistResults = cachedPlaylists
                 videoResults = cachedVideos
                 query = cached.first().query
             }
@@ -114,6 +133,7 @@ fun ExploreScreen(
 
     val currentQuery by rememberUpdatedState(query)
     val currentChannelResults by rememberUpdatedState(channelResults)
+    val currentPlaylistResults by rememberUpdatedState(playlistResults)
     val currentVideoResults by rememberUpdatedState(videoResults)
     val currentPagingSource by rememberUpdatedState(pagingSource)
 
@@ -124,6 +144,7 @@ fun ExploreScreen(
             sharedViewModel.exploreScrollOffsetCache = listState.firstVisibleItemScrollOffset
             val combinedList = mutableListOf<InfoItem>()
             combinedList.addAll(currentChannelResults)
+            combinedList.addAll(currentPlaylistResults)
             combinedList.addAll(currentVideoResults)
             sharedViewModel.exploreVideosCache = combinedList
             sharedViewModel.explorePagingSourceCache = currentPagingSource
@@ -132,20 +153,32 @@ fun ExploreScreen(
 
     fun refresh() {
         if (isRefreshing || isLoading || isSearching || isPaginating) return
-        if (query.isNotBlank() && (videoResults.isNotEmpty() || channelResults.isNotEmpty())) {
+        if (query.isNotBlank() && (videoResults.isNotEmpty() || channelResults.isNotEmpty() || playlistResults.isNotEmpty())) {
             searchJob?.cancel()
             searchJob = scope.launch {
-                // Clear cache to force a "new render" (shimmer)
                 videoResults = emptyList()
                 channelResults = emptyList()
+                playlistResults = emptyList()
                 sharedViewModel.exploreVideosCache = emptyList()
                 isSearching = true
                 isRefreshing = true
                 errorText = null
                 try {
-                    val source = ExtractorHelper.getSearchPagingSource(query)
+                    val (source, searchPlaylists) = coroutineScope {
+                        val sourceDeferred = async(Dispatchers.IO) {
+                            ExtractorHelper.getSearchPagingSource(query)
+                        }
+                        val playlistsDeferred = async(Dispatchers.IO) {
+                            try {
+                                ExtractorHelper.searchPlaylists(query)
+                            } catch (_: Exception) {
+                                emptyList<PlaylistInfoItem>()
+                            }
+                        }
+                        Pair(sourceDeferred.await(), playlistsDeferred.await())
+                    }
                     pagingSource = source
-                    val items = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val items = withContext(Dispatchers.IO) {
                         source.loadInitial()
                     }
                     val exactChannels = items.filterIsInstance<ChannelInfoItem>().filter {
@@ -155,6 +188,22 @@ fun ExploreScreen(
                         !it.name.equals(query.trim(), ignoreCase = true)
                     }
                     channelResults = exactChannels + otherChannels
+
+                    val combinedPlaylists = mutableListOf<PlaylistInfoItem>()
+                    // If channel found, try fetching channel's official playlists
+                    val mainChannel = exactChannels.firstOrNull() ?: channelResults.firstOrNull()
+                    if (mainChannel != null && !mainChannel.url.isNullOrBlank()) {
+                        try {
+                            val chLists = withContext(Dispatchers.IO) {
+                                ExtractorHelper.getChannelPlaylists(mainChannel.url)
+                            }
+                            combinedPlaylists.addAll(chLists)
+                        } catch (_: Exception) {}
+                    }
+                    combinedPlaylists.addAll(searchPlaylists)
+                    combinedPlaylists.addAll(items.filterIsInstance<PlaylistInfoItem>())
+
+                    playlistResults = combinedPlaylists.distinctBy { it.url }
                     videoResults = items.filterIsInstance<StreamInfoItem>()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
@@ -177,10 +226,23 @@ fun ExploreScreen(
             errorText = null
             videoResults = emptyList()
             channelResults = emptyList()
+            playlistResults = emptyList()
             try {
-                val source = ExtractorHelper.getSearchPagingSource(query)
+                val (source, searchPlaylists) = coroutineScope {
+                    val sourceDeferred = async(Dispatchers.IO) {
+                        ExtractorHelper.getSearchPagingSource(query)
+                    }
+                    val playlistsDeferred = async(Dispatchers.IO) {
+                        try {
+                            ExtractorHelper.searchPlaylists(query)
+                        } catch (_: Exception) {
+                            emptyList<PlaylistInfoItem>()
+                        }
+                    }
+                    Pair(sourceDeferred.await(), playlistsDeferred.await())
+                }
                 pagingSource = source
-                val items = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val items = withContext(Dispatchers.IO) {
                     source.loadInitial()
                 }
                 val exactChannels = items.filterIsInstance<ChannelInfoItem>().filter {
@@ -190,6 +252,22 @@ fun ExploreScreen(
                     !it.name.equals(query.trim(), ignoreCase = true)
                 }
                 channelResults = exactChannels + otherChannels
+
+                val combinedPlaylists = mutableListOf<PlaylistInfoItem>()
+                // If channel found, fetch channel's official playlists
+                val mainChannel = exactChannels.firstOrNull() ?: channelResults.firstOrNull()
+                if (mainChannel != null && !mainChannel.url.isNullOrBlank()) {
+                    try {
+                        val chLists = withContext(Dispatchers.IO) {
+                            ExtractorHelper.getChannelPlaylists(mainChannel.url)
+                        }
+                        combinedPlaylists.addAll(chLists)
+                    } catch (_: Exception) {}
+                }
+                combinedPlaylists.addAll(searchPlaylists)
+                combinedPlaylists.addAll(items.filterIsInstance<PlaylistInfoItem>())
+
+                playlistResults = combinedPlaylists.distinctBy { it.url }
                 videoResults = items.filterIsInstance<StreamInfoItem>()
                 
                 // Save to SearchCache
@@ -204,6 +282,20 @@ fun ExploreScreen(
                         title = "",
                         thumbnailUrl = "",
                         channelName = it.name ?: "",
+                        orderIndex = order++
+                    ))
+                }
+                playlistResults.forEach {
+                    cacheEntities.add(com.videhub.data.entity.SearchCacheEntity(
+                        id = it.url ?: "",
+                        query = query,
+                        type = "playlist",
+                        url = it.url ?: "",
+                        title = it.name ?: "",
+                        thumbnailUrl = it.thumbnails?.firstOrNull()?.url ?: "",
+                        channelName = it.uploaderName ?: "",
+                        viewCount = 0,
+                        duration = it.streamCount,
                         orderIndex = order++
                     ))
                 }
@@ -235,6 +327,25 @@ fun ExploreScreen(
         }
     }
 
+    // Load extra playlists when playlists tab selected and none present
+    LaunchedEffect(selectedFilterIndex, query) {
+        if (selectedFilterIndex == 2 && query.isNotBlank() && playlistResults.isEmpty() && !isSearching && !isPlaylistSearchLoading) {
+            isPlaylistSearchLoading = true
+            try {
+                val lists = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    ExtractorHelper.searchPlaylists(query)
+                }
+                if (lists.isNotEmpty()) {
+                    playlistResults = lists
+                }
+            } catch (e: Exception) {
+                // Ignore fallback playlist search error
+            } finally {
+                isPlaylistSearchLoading = false
+            }
+        }
+    }
+
     fun loadNextPage() {
         if (isPaginating || pagingSource?.hasMore != true) return
         scope.launch {
@@ -242,6 +353,7 @@ fun ExploreScreen(
             try {
                 val items = pagingSource?.loadNextPage() ?: emptyList()
                 channelResults = channelResults + items.filterIsInstance<ChannelInfoItem>()
+                playlistResults = playlistResults + items.filterIsInstance<PlaylistInfoItem>()
                 videoResults = videoResults + items.filterIsInstance<StreamInfoItem>()
             } catch (e: Exception) {}
             isPaginating = false
@@ -335,8 +447,26 @@ fun ExploreScreen(
             }
         }
         
-        if (query.isNotBlank() && (videoResults.isNotEmpty() || channelResults.isNotEmpty())) {
-
+        if (query.isNotBlank() && (videoResults.isNotEmpty() || channelResults.isNotEmpty() || playlistResults.isNotEmpty())) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val filters = listOf("All", "Videos", "Playlists", "Channels")
+                filters.forEachIndexed { index, title ->
+                    FilterChip(
+                        selected = selectedFilterIndex == index,
+                        onClick = { selectedFilterIndex = index },
+                        label = { Text(title) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    )
+                }
+            }
         }
 
         @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -398,63 +528,191 @@ fun ExploreScreen(
                         }
                     }
                 }
-                videoResults.isNotEmpty() || channelResults.isNotEmpty() -> {
+                videoResults.isNotEmpty() || channelResults.isNotEmpty() || playlistResults.isNotEmpty() -> {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        
-                        // ── Channels section ──────────────────────────────────────
-                        if (channelResults.isNotEmpty()) {
-                            item {
-                                Text(
-                                    "Channels",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(
-                                        horizontal = 16.dp, vertical = 8.dp
-                                    )
-                                )
-                            }
-                            itemsIndexed(channelResults, key = { index, channel -> "${channel.url}_$index" }) { index, channel ->
-                                ChannelResultItem(
-                                    channel = channel,
-                                    onClick = { onChannelClick(channel.url ?: "") }
-                                )
-                            }
-                            item { androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
-                            item {
-                                Text(
-                                    "Videos",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(
-                                        horizontal = 16.dp, vertical = 8.dp
-                                    )
-                                )
+                        when (selectedFilterIndex) {
+                            0 -> {
+                                // ── "All" Tab ──────────────────────────────────────────
+                                // Channels section
+                                if (channelResults.isNotEmpty()) {
+                                    item {
+                                        Text(
+                                            "Channels",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                        )
+                                    }
+                                    itemsIndexed(channelResults, key = { index, channel -> "ch_${channel.url}_$index" }) { index, channel ->
+                                        ChannelResultItem(
+                                            channel = channel,
+                                            onClick = { onChannelClick(channel.url ?: "") },
+                                            onPlaylistsClick = { selectedFilterIndex = 2 }
+                                        )
+                                    }
+                                    item { androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
+                                }
 
-                            }
-                        }
-                        // ── Videos section ────────────────────────────────────────
-                        items(
-                            count = displayedVideos.size,
-                            key = { index -> "${displayedVideos[index].url ?: index.toString()}_$index" }
-                        ) { index ->
-                            val video = displayedVideos[index]
-                            
-                            if (index == displayedVideos.size - 1 && !isPaginating && pagingSource?.hasMore == true) {
-                                LaunchedEffect(Unit) {
-                                    loadNextPage()
+                                // Playlists section
+                                if (playlistResults.isNotEmpty()) {
+                                    item {
+                                        val firstChannel = channelResults.firstOrNull()
+                                        val playlistSectionTitle = if (firstChannel != null && !firstChannel.name.isNullOrBlank()) {
+                                            "Playlists • by ${firstChannel.name}"
+                                        } else {
+                                            "Playlists & Mixes"
+                                        }
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                playlistSectionTitle,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            if (playlistResults.size > 4) {
+                                                TextButton(
+                                                    onClick = { selectedFilterIndex = 2 },
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                                ) {
+                                                    Text(
+                                                        "View all (${playlistResults.size})",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    itemsIndexed(playlistResults.take(6), key = { index, pl -> "pl_${pl.url}_$index" }) { index, playlist ->
+                                        CompactPlaylistResultItem(
+                                            playlist = playlist,
+                                            onClick = { onPlaylistClick(playlist.url ?: "") },
+                                            onChannelClick = onChannelClick
+                                        )
+                                    }
+                                    item { androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
+                                }
+
+                                // Videos section
+                                if (displayedVideos.isNotEmpty()) {
+                                    if (channelResults.isNotEmpty() || playlistResults.isNotEmpty()) {
+                                        item {
+                                            Text(
+                                                "Videos",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                            )
+                                        }
+                                    }
+                                    items(
+                                        count = displayedVideos.size,
+                                        key = { index -> "${displayedVideos[index].url ?: index.toString()}_$index" }
+                                    ) { index ->
+                                        val video = displayedVideos[index]
+                                        
+                                        if (index == displayedVideos.size - 1 && !isPaginating && pagingSource?.hasMore == true) {
+                                            LaunchedEffect(Unit) {
+                                                loadNextPage()
+                                            }
+                                        }
+                                        
+                                        VideoCard(
+                                            item = video,
+                                            onClick = onVideoClick,
+                                            onChannelClick = onChannelClick,
+                                            modifier = Modifier.animateItem()
+                                        )
+                                    }
                                 }
                             }
-                            
-                            VideoCard(
-                                item = video,
-                                onClick = onVideoClick,
-                                onChannelClick = onChannelClick,
-                                modifier = Modifier.animateItem()
-                            )
+                            1 -> {
+                                // ── "Videos" Tab ───────────────────────────────────────
+                                if (displayedVideos.isEmpty()) {
+                                    item {
+                                        com.videhub.ui.components.EmptyState(
+                                            icon = Icons.Default.Search,
+                                            title = "No videos",
+                                            message = "No videos found for this search."
+                                        )
+                                    }
+                                } else {
+                                    items(
+                                        count = displayedVideos.size,
+                                        key = { index -> "vid_${displayedVideos[index].url ?: index.toString()}_$index" }
+                                    ) { index ->
+                                        val video = displayedVideos[index]
+                                        if (index == displayedVideos.size - 1 && !isPaginating && pagingSource?.hasMore == true) {
+                                            LaunchedEffect(Unit) {
+                                                loadNextPage()
+                                            }
+                                        }
+                                        VideoCard(
+                                            item = video,
+                                            onClick = onVideoClick,
+                                            onChannelClick = onChannelClick,
+                                            modifier = Modifier.animateItem()
+                                        )
+                                    }
+                                }
+                            }
+                            2 -> {
+                                // ── "Playlists" Tab ────────────────────────────────────
+                                if (isPlaylistSearchLoading) {
+                                    items(4) { VideoCardShimmer() }
+                                } else if (playlistResults.isEmpty()) {
+                                    item {
+                                        com.videhub.ui.components.EmptyState(
+                                            icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                                            title = "No playlists",
+                                            message = "No playlists found for this query."
+                                        )
+                                    }
+                                } else {
+                                    items(
+                                        count = playlistResults.size,
+                                        key = { index -> "tab_pl_${playlistResults[index].url ?: index.toString()}_$index" }
+                                    ) { index ->
+                                        val playlist = playlistResults[index]
+                                        OnlinePlaylistItemCard(
+                                            playlist = playlist,
+                                            onClick = { onPlaylistClick(playlist.url ?: "") },
+                                            onChannelClick = onChannelClick
+                                        )
+                                    }
+                                }
+                            }
+                            3 -> {
+                                // ── "Channels" Tab ─────────────────────────────────────
+                                if (channelResults.isEmpty()) {
+                                    item {
+                                        com.videhub.ui.components.EmptyState(
+                                            icon = Icons.Default.Search,
+                                            title = "No channels",
+                                            message = "No channels found for this query."
+                                        )
+                                    }
+                                } else {
+                                    itemsIndexed(channelResults, key = { index, channel -> "tab_ch_${channel.url}_$index" }) { index, channel ->
+                                        ChannelResultItem(
+                                            channel = channel,
+                                            onClick = { onChannelClick(channel.url ?: "") }
+                                        )
+                                    }
+                                }
+                            }
                         }
+                        
                         if (isPaginating) {
                             item {
                                 Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
@@ -499,7 +757,8 @@ fun ExploreScreen(
 @Composable
 private fun ChannelResultItem(
     channel: ChannelInfoItem,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onPlaylistsClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
