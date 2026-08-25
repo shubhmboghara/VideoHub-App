@@ -4,8 +4,6 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,10 +20,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.videhub.data.SettingsManager
 import kotlinx.coroutines.launch
 
@@ -52,7 +52,7 @@ val POPULAR_INTEREST_SUGGESTIONS = listOf(
     "Lo-Fi Beats"
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun InterestsBottomSheet(
     onDismiss: () -> Unit,
@@ -95,12 +95,14 @@ fun InterestsBottomSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp)
-                .padding(bottom = 28.dp)
+                .padding(bottom = 32.dp)
                 .verticalScroll(rememberScrollState())
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics(mergeDescendants = true) {}
             ) {
                 Icon(
                     imageVector = Icons.Default.AutoAwesome,
@@ -113,7 +115,8 @@ fun InterestsBottomSheet(
                     Text(
                         text = "Customize Recommendations",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "Select your interests to personalize videos & Shorts",
@@ -133,7 +136,12 @@ fun InterestsBottomSheet(
                 OutlinedTextField(
                     value = customInput,
                     onValueChange = { customInput = it },
-                    placeholder = { Text("Add custom topic (e.g. Kotlin, Physics, Chess)...", fontSize = 13.sp) },
+                    placeholder = {
+                        Text(
+                            text = "Add custom topic (e.g. Kotlin, Physics)...",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = {
@@ -154,13 +162,16 @@ fun InterestsBottomSheet(
                         }
                     },
                     modifier = Modifier
-                        .size(50.dp)
+                        .size(48.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.primaryContainer)
+                        .semantics {
+                            contentDescription = "Add custom interest"
+                        }
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "Add interest",
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
@@ -182,22 +193,36 @@ fun InterestsBottomSheet(
                     )
                     TextButton(
                         onClick = { selectedInterests = emptyList() },
-                        contentPadding = PaddingValues(0.dp)
+                        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
                     ) {
-                        Text("Clear All", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                        Text(
+                            text = "Clear All",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
                     }
                 }
 
-                FlowRowLayout(modifier = Modifier.fillMaxWidth()) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     selectedInterests.forEach { interest ->
                         InputChip(
                             selected = true,
                             onClick = { removeInterest(interest) },
-                            label = { Text(interest, fontWeight = FontWeight.Medium) },
+                            label = {
+                                Text(
+                                    text = interest,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            },
                             trailingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.Close,
-                                    contentDescription = "Remove",
+                                    contentDescription = "Remove $interest",
                                     modifier = Modifier.size(16.dp)
                                 )
                             },
@@ -207,7 +232,7 @@ fun InterestsBottomSheet(
                                 selectedTrailingIconColor = MaterialTheme.colorScheme.onPrimary
                             ),
                             shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.padding(end = 6.dp, bottom = 6.dp)
+                            modifier = Modifier.defaultMinSize(minHeight = 40.dp)
                         )
                     }
                 }
@@ -224,7 +249,11 @@ fun InterestsBottomSheet(
             )
             Spacer(modifier = Modifier.height(8.dp))
 
-            FlowRowLayout(modifier = Modifier.fillMaxWidth()) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 POPULAR_INTEREST_SUGGESTIONS.forEach { suggestion ->
                     val isSelected = selectedInterests.any { it.equals(suggestion, ignoreCase = true) }
                     FilterChip(
@@ -232,7 +261,12 @@ fun InterestsBottomSheet(
                         onClick = {
                             if (isSelected) removeInterest(suggestion) else addInterest(suggestion)
                         },
-                        label = { Text(suggestion) },
+                        label = {
+                            Text(
+                                text = suggestion,
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        },
                         leadingIcon = if (isSelected) {
                             {
                                 Icon(
@@ -243,7 +277,7 @@ fun InterestsBottomSheet(
                             }
                         } else null,
                         shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.padding(end = 6.dp, bottom = 6.dp)
+                        modifier = Modifier.defaultMinSize(minHeight = 40.dp)
                     )
                 }
             }
@@ -257,10 +291,12 @@ fun InterestsBottomSheet(
             ) {
                 OutlinedButton(
                     onClick = onDismiss,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .defaultMinSize(minHeight = 48.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Cancel")
+                    Text("Cancel", style = MaterialTheme.typography.labelLarge)
                 }
 
                 Button(
@@ -271,29 +307,16 @@ fun InterestsBottomSheet(
                             onDismiss()
                         }
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .defaultMinSize(minHeight = 48.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(Icons.Default.Done, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Save & Apply")
+                    Text("Save & Apply", style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun FlowRowLayout(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    @OptIn(ExperimentalLayoutApi::class)
-    FlowRow(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.Start,
-        verticalArrangement = Arrangement.Top
-    ) {
-        content()
     }
 }

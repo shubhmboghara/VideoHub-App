@@ -124,9 +124,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        try {
-            startService(android.content.Intent(this, com.videhub.service.PlaybackService::class.java))
-        } catch (e: Exception) {}
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
             window.attributes.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
@@ -181,16 +178,6 @@ class MainActivity : ComponentActivity() {
             .build()
             .let { coil.Coil.setImageLoader(it) }
 
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.auto(
-                android.graphics.Color.TRANSPARENT,
-                android.graphics.Color.TRANSPARENT
-            ),
-            navigationBarStyle = SystemBarStyle.auto(
-                android.graphics.Color.TRANSPARENT,
-                android.graphics.Color.TRANSPARENT
-            )
-        )
         setContent {
             AppTheme {
                 var showCrashDialog by remember { mutableStateOf(lastCrash != null) }

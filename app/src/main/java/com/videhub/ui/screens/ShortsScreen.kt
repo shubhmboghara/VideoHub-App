@@ -2,8 +2,6 @@ package com.videhub.ui.screens
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -25,7 +23,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -33,12 +30,17 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -72,7 +74,7 @@ fun ShortsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val db = remember { AppDatabase.getDatabase(context) }
-    val haptic = LocalHapticFeedback.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var shortsList by remember { mutableStateOf<List<StreamInfoItem>>(sharedViewModel.shortsListCache ?: emptyList()) }
     var isLoading by remember { mutableStateOf(shortsList.isEmpty()) }
@@ -133,7 +135,7 @@ fun ShortsScreen(
                     }
                 }
             } catch (_: Exception) {
-                // Ignore load more failure
+                // Ignore background load more error
             } finally {
                 isLoadingMore = false
             }
@@ -151,96 +153,106 @@ fun ShortsScreen(
         pageCount = { shortsList.size }
     )
 
-    // Update VM cache
     LaunchedEffect(pagerState.currentPage) {
         sharedViewModel.shortsCurrentIndexCache = pagerState.currentPage
-        // Trigger auto load-more when nearing the bottom
         if (shortsList.isNotEmpty() && pagerState.currentPage >= shortsList.size - 3) {
             loadMoreShorts()
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
-        if (isLoading && shortsList.isEmpty()) {
-            ShortsLoadingShimmer()
-        } else if (errorMessage != null && shortsList.isEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CloudOff,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(64.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = errorMessage ?: "Failed to load Shorts",
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = { loadPersonalizedShorts(isRefresh = true) }) {
-                    Text("Retry")
-                }
-            }
-        } else {
-            VerticalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize(),
-                beyondViewportPageCount = 1,
-                key = { page -> shortsList.getOrNull(page)?.url ?: page.toString() }
-            ) { page ->
-                val shortItem = shortsList.getOrNull(page)
-                if (shortItem != null) {
-                    val isPageActive = pagerState.currentPage == page
-                    ShortPageItem(
-                        item = shortItem,
-                        isActive = isPageActive,
-                        isMuted = isMuted,
-                        isZoomMode = isZoomMode,
-                        onToggleMute = { isMuted = !isMuted },
-                        onChannelClick = onChannelClick,
-                        onOpenFullPlayer = {
-                            onVideoClick(
-                                shortItem.url ?: "",
-                                shortItem.name ?: "Short",
-                                shortItem.thumbnails?.firstOrNull()?.url ?: ""
-                            )
-                        },
-                        onOpenDetails = {
-                            detailsShort = shortItem
-                            showDetailsSheet = true
-                        },
-                        onOpenPlaylist = {
-                            playlistShort = shortItem
-                            scope.launch {
-                                playlists = withContext(Dispatchers.IO) { db.playlistDao().getAllPlaylistsOnce() }
-                                showPlaylistDialog = true
-                            }
-                        }
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        containerColor = Color.Black,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(Color.Black)
+        ) {
+            if (isLoading && shortsList.isEmpty()) {
+                ShortsLoadingShimmer()
+            } else if (errorMessage != null && shortsList.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite },
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudOff,
+                        contentDescription = "Error icon",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(64.dp)
                     )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = errorMessage ?: "Failed to load Shorts",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = { loadPersonalizedShorts(isRefresh = true) },
+                        modifier = Modifier.defaultMinSize(minWidth = 120.dp, minHeight = 48.dp)
+                    ) {
+                        Text("Retry", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
-            }
+            } else {
+                VerticalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    beyondViewportPageCount = 1,
+                    key = { page -> shortsList.getOrNull(page)?.url ?: page.toString() }
+                ) { page ->
+                    val shortItem = shortsList.getOrNull(page)
+                    if (shortItem != null) {
+                        val isPageActive = pagerState.currentPage == page
+                        ShortPageItem(
+                            item = shortItem,
+                            isActive = isPageActive,
+                            isMuted = isMuted,
+                            isZoomMode = isZoomMode,
+                            onToggleMute = { isMuted = !isMuted },
+                            onChannelClick = onChannelClick,
+                            onOpenFullPlayer = {
+                                onVideoClick(
+                                    shortItem.url ?: "",
+                                    shortItem.name ?: "Short",
+                                    shortItem.thumbnails?.firstOrNull()?.url ?: ""
+                                )
+                            },
+                            onOpenDetails = {
+                                detailsShort = shortItem
+                                showDetailsSheet = true
+                            },
+                            onOpenPlaylist = {
+                                playlistShort = shortItem
+                                scope.launch {
+                                    playlists = withContext(Dispatchers.IO) { db.playlistDao().getAllPlaylistsOnce() }
+                                    showPlaylistDialog = true
+                                }
+                            }
+                        )
+                    }
+                }
 
-            // Clean Top Overlay Bar without category filter chips
-            ShortsTopBar(
-                isMuted = isMuted,
-                onToggleMute = { isMuted = !isMuted },
-                isZoomMode = isZoomMode,
-                onToggleZoom = { isZoomMode = !isZoomMode },
-                isRefreshing = isRefreshing,
-                onRefresh = { loadPersonalizedShorts(isRefresh = true) },
-                onOpenInterests = { showInterestsSheet = true }
-            )
+                // Top Overlay Bar
+                ShortsTopBar(
+                    isMuted = isMuted,
+                    onToggleMute = { isMuted = !isMuted },
+                    isZoomMode = isZoomMode,
+                    onToggleZoom = { isZoomMode = !isZoomMode },
+                    isRefreshing = isRefreshing,
+                    onRefresh = { loadPersonalizedShorts(isRefresh = true) },
+                    onOpenInterests = { showInterestsSheet = true }
+                )
+            }
         }
     }
 
@@ -250,7 +262,9 @@ fun ShortsScreen(
             onDismiss = { showInterestsSheet = false },
             onSaved = {
                 loadPersonalizedShorts(isRefresh = true)
-                Toast.makeText(context, "Recommendations updated!", Toast.LENGTH_SHORT).show()
+                scope.launch {
+                    snackbarHostState.showSnackbar("Recommendations updated")
+                }
             }
         )
     }
@@ -272,16 +286,21 @@ fun ShortsScreen(
                 Text(
                     text = item.name ?: "Short Details",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Start
                 )
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.semantics(mergeDescendants = true) {}
+                ) {
                     val avatar = item.uploaderAvatars?.firstOrNull()?.url
                     if (!avatar.isNullOrBlank()) {
                         AsyncImage(
                             model = avatar,
-                            contentDescription = item.uploaderName,
+                            contentDescription = "${item.uploaderName} channel avatar",
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(CircleShape),
@@ -293,7 +312,9 @@ fun ShortsScreen(
                         Text(
                             text = item.uploaderName ?: "Unknown Channel",
                             style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            textAlign = TextAlign.Start
                         )
                         val views = item.viewCount
                         val date = item.textualUploadDate ?: item.uploadDate?.toString() ?: ""
@@ -305,43 +326,57 @@ fun ShortsScreen(
                             Text(
                                 text = meta,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Start
                             )
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider()
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    thickness = 1.dp
+                )
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    FilledTonalButton(onClick = {
-                        showDetailsSheet = false
-                        onVideoClick(
-                            item.url ?: "",
-                            item.name ?: "Short",
-                            item.thumbnails?.firstOrNull()?.url ?: ""
-                        )
-                    }) {
+                    FilledTonalButton(
+                        onClick = {
+                            showDetailsSheet = false
+                            onVideoClick(
+                                item.url ?: "",
+                                item.name ?: "Short",
+                                item.thumbnails?.firstOrNull()?.url ?: ""
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                    ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Play in Full Player")
+                        Text("Play in Full Player", style = MaterialTheme.typography.labelLarge)
                     }
 
-                    OutlinedButton(onClick = {
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, item.url ?: "")
-                        }
-                        context.startActivity(Intent.createChooser(shareIntent, "Share Short"))
-                    }) {
+                    OutlinedButton(
+                        onClick = {
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, item.url ?: "")
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, "Share Short"))
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                    ) {
                         Icon(Icons.Default.Share, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Share")
+                        Text("Share", style = MaterialTheme.typography.labelLarge)
                     }
                 }
                 Spacer(modifier = Modifier.height(24.dp))
@@ -357,17 +392,27 @@ fun ShortsScreen(
 
         AlertDialog(
             onDismissRequest = { showPlaylistDialog = false },
-            title = { Text("Save Short to Playlist") },
+            title = {
+                Text(
+                    text = "Save Short to Playlist",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            },
             text = {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     if (playlists.isEmpty() && !showCreateInput) {
-                        Text("No playlists found. Create one below:")
+                        Text(
+                            text = "No playlists found. Create one below:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     } else {
                         playlists.forEach { pl ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
+                                    .clickable(role = Role.Button) {
                                         scope.launch(Dispatchers.IO) {
                                             db.playlistDao().insertVideo(
                                                 PlaylistVideoEntity(
@@ -382,23 +427,32 @@ fun ShortsScreen(
                                                 )
                                             )
                                             withContext(Dispatchers.Main) {
-                                                Toast.makeText(context, "Saved to ${pl.name}", Toast.LENGTH_SHORT).show()
                                                 showPlaylistDialog = false
+                                                snackbarHostState.showSnackbar("Saved to ${pl.name}")
                                             }
                                         }
                                     }
-                                    .padding(vertical = 12.dp),
+                                    .padding(vertical = 12.dp)
+                                    .semantics(mergeDescendants = true) {},
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.PlaylistAdd, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Icon(
+                                    imageVector = Icons.Default.PlaylistAdd,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text(pl.name, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = pl.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
                     }
 
                     if (showCreateInput) {
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         OutlinedTextField(
                             value = newName,
                             onValueChange = { newName = it },
@@ -429,27 +483,34 @@ fun ShortsScreen(
                                         )
                                     )
                                     withContext(Dispatchers.Main) {
-                                        Toast.makeText(context, "Created & saved to $newName", Toast.LENGTH_SHORT).show()
                                         showPlaylistDialog = false
+                                        snackbarHostState.showSnackbar("Created & saved to $newName")
                                     }
                                 }
                             }
                         },
-                        enabled = newName.isNotBlank()
+                        enabled = newName.isNotBlank(),
+                        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
                     ) {
-                        Text("Create & Save")
+                        Text("Create & Save", style = MaterialTheme.typography.labelLarge)
                     }
                 } else {
-                    TextButton(onClick = { showCreateInput = true }) {
+                    TextButton(
+                        onClick = { showCreateInput = true },
+                        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                    ) {
                         Icon(Icons.Default.Add, contentDescription = null)
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("New Playlist")
+                        Text("New Playlist", style = MaterialTheme.typography.labelLarge)
                     }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showPlaylistDialog = false }) {
-                    Text("Cancel")
+                TextButton(
+                    onClick = { showPlaylistDialog = false },
+                    modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                ) {
+                    Text("Cancel", style = MaterialTheme.typography.labelLarge)
                 }
             }
         )
@@ -488,7 +549,6 @@ private fun ShortPageItem(
     val uploaderUrl = item.uploaderUrl ?: ""
     val uploaderName = item.uploaderName ?: "Creator"
 
-    // Check DB status
     LaunchedEffect(videoUrl) {
         if (videoUrl.isNotBlank()) {
             withContext(Dispatchers.IO) {
@@ -505,7 +565,6 @@ private fun ShortPageItem(
         }
     }
 
-    // Setup and manage ExoPlayer instance per page
     DisposableEffect(isActive, videoUrl) {
         if (!isActive || videoUrl.isBlank()) {
             exoPlayer?.stop()
@@ -532,7 +591,6 @@ private fun ShortPageItem(
         player.addListener(listener)
         exoPlayer = player
 
-        // Fetch Stream Info and prepare
         val loadJob = scope.launch(Dispatchers.IO) {
             try {
                 val streamInfo = ExtractorHelper.getStreamInfo(videoUrl)
@@ -540,7 +598,6 @@ private fun ShortPageItem(
                 val videoOnly = (streamInfo.videoOnlyStreams ?: emptyList()).filter { !it.content.isNullOrBlank() }
                 val audioOnly = (streamInfo.audioStreams ?: emptyList()).filter { !it.content.isNullOrBlank() }
 
-                // Best progressive or merge
                 val bestProg = progressive.maxByOrNull {
                     it.getResolution()?.replace("p", "")?.replace("fps", "")?.trim()?.toIntOrNull() ?: 0
                 }?.content
@@ -566,9 +623,7 @@ private fun ShortPageItem(
                         player.play()
                     }
                 }
-            } catch (e: Exception) {
-                android.util.Log.e("ShortPageItem", "Failed to load short stream", e)
-            }
+            } catch (_: Exception) {}
         }
 
         onDispose {
@@ -580,12 +635,10 @@ private fun ShortPageItem(
         }
     }
 
-    // Sync volume
     LaunchedEffect(isMuted, exoPlayer) {
         exoPlayer?.volume = if (isMuted) 0f else 1f
     }
 
-    // Progress tracker loop
     LaunchedEffect(isActive, exoPlayer) {
         val player = exoPlayer ?: return@LaunchedEffect
         while (isActive && kotlinx.coroutines.currentCoroutineContext().isActive) {
@@ -667,7 +720,6 @@ private fun ShortPageItem(
                 )
             }
     ) {
-        // Video View
         if (exoPlayer != null) {
             AndroidView(
                 factory = { ctx ->
@@ -684,27 +736,25 @@ private fun ShortPageItem(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            // Thumbnail poster before ready
             AsyncImage(
                 model = thumbnailUrl,
-                contentDescription = null,
+                contentDescription = item.name ?: "Short video preview",
                 contentScale = if (isZoomMode) ContentScale.Crop else ContentScale.Fit,
                 modifier = Modifier.fillMaxSize()
             )
         }
 
-        // Buffering spinner
         if (isBuffering) {
             CircularProgressIndicator(
                 modifier = Modifier
                     .size(48.dp)
-                    .align(Alignment.Center),
+                    .align(Alignment.Center)
+                    .semantics { liveRegion = LiveRegionMode.Polite },
                 color = MaterialTheme.colorScheme.primary,
                 strokeWidth = 3.dp
             )
         }
 
-        // Animated Heart Pop on double tap
         AnimatedVisibility(
             visible = showHeartPop,
             enter = scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
@@ -713,13 +763,12 @@ private fun ShortPageItem(
         ) {
             Icon(
                 imageVector = Icons.Filled.Favorite,
-                contentDescription = null,
+                contentDescription = "Liked",
                 tint = Color.Red,
-                modifier = Modifier.size(100.dp)
+                modifier = Modifier.size(96.dp)
             )
         }
 
-        // Play / Pause Icon overlay
         AnimatedVisibility(
             visible = showPauseIcon,
             enter = scaleIn() + fadeIn(),
@@ -734,7 +783,7 @@ private fun ShortPageItem(
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Play",
+                        contentDescription = "Paused",
                         tint = Color.White,
                         modifier = Modifier.size(40.dp)
                     )
@@ -742,7 +791,7 @@ private fun ShortPageItem(
             }
         }
 
-        // Gradient Scrim at the bottom for metadata legibility
+        // Gradient Scrim for accessibility contrast
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -755,24 +804,27 @@ private fun ShortPageItem(
                 )
         )
 
-        // Bottom Left Info Column
+        // Bottom Left Info Area
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth(0.78f)
                 .padding(start = 16.dp, end = 8.dp, bottom = 24.dp)
         ) {
-            // Creator Row
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .clickable { if (uploaderUrl.isNotBlank()) onChannelClick(uploaderUrl) }
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(role = Role.Button) {
+                        if (uploaderUrl.isNotBlank()) onChannelClick(uploaderUrl)
+                    }
+                    .semantics(mergeDescendants = true) {}
             ) {
                 val avatar = item.uploaderAvatars?.firstOrNull()?.url
                 if (!avatar.isNullOrBlank()) {
                     AsyncImage(
                         model = avatar,
-                        contentDescription = uploaderName,
+                        contentDescription = "${uploaderName} channel logo",
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape),
@@ -783,45 +835,49 @@ private fun ShortPageItem(
                 Text(
                     text = "@${uploaderName.replace(" ", "")}",
                     color = Color.White,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Start
                 )
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
-                // Subscribe Button
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = if (isSubscribed) Color.White.copy(alpha = 0.25f) else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable { toggleSubscribe() }
+                    modifier = Modifier
+                        .clickable(role = Role.Button) { toggleSubscribe() }
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = if (isSubscribed) "Unsubscribe from channel" else "Subscribe to channel"
+                        }
                 ) {
                     Text(
                         text = if (isSubscribed) "Subscribed" else "Subscribe",
                         color = if (isSubscribed) Color.White else MaterialTheme.colorScheme.onPrimary,
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        textAlign = TextAlign.Center
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Title Text
             Text(
                 text = item.name ?: "",
                 color = Color.White,
-                fontSize = 14.sp,
-                lineHeight = 18.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 maxLines = if (isTitleExpanded) 6 else 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable { isTitleExpanded = !isTitleExpanded }
+                textAlign = TextAlign.Start,
+                modifier = Modifier.clickable(role = Role.Button) { isTitleExpanded = !isTitleExpanded }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Music / Audio Banner with rotating disc
             val infiniteTransition = rememberInfiniteTransition(label = "disc")
             val rotation by infiniteTransition.animateFloat(
                 initialValue = 0f,
@@ -839,10 +895,11 @@ private fun ShortPageItem(
                     .clip(RoundedCornerShape(12.dp))
                     .background(Color.White.copy(alpha = 0.15f))
                     .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .semantics(mergeDescendants = true) {}
             ) {
                 Icon(
                     imageVector = Icons.Default.MusicNote,
-                    contentDescription = null,
+                    contentDescription = "Audio track",
                     tint = Color.White,
                     modifier = Modifier
                         .size(16.dp)
@@ -852,9 +909,10 @@ private fun ShortPageItem(
                 Text(
                     text = "${uploaderName} • Original Sound",
                     color = Color.White,
-                    fontSize = 11.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Start
                 )
             }
         }
@@ -867,35 +925,35 @@ private fun ShortPageItem(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Like Action
             ShortActionButton(
                 icon = if (isLiked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                 tint = if (isLiked) Color.Red else Color.White,
                 label = if (isLiked) "Liked" else "Like",
+                contentDescription = if (isLiked) "Unlike short" else "Like short",
                 onClick = { toggleLike() }
             )
 
-            // Playlist / Save Action
             ShortActionButton(
                 icon = Icons.Outlined.PlaylistAdd,
                 tint = Color.White,
                 label = "Save",
+                contentDescription = "Save to playlist",
                 onClick = onOpenPlaylist
             )
 
-            // Details / Description Action
             ShortActionButton(
                 icon = Icons.Outlined.Info,
                 tint = Color.White,
                 label = "Info",
+                contentDescription = "Show short info",
                 onClick = onOpenDetails
             )
 
-            // Share Action
             ShortActionButton(
                 icon = Icons.Outlined.Share,
                 tint = Color.White,
                 label = "Share",
+                contentDescription = "Share short link",
                 onClick = {
                     val sendIntent = Intent(Intent.ACTION_SEND).apply {
                         putExtra(Intent.EXTRA_TEXT, videoUrl)
@@ -905,21 +963,20 @@ private fun ShortPageItem(
                 }
             )
 
-            // Open in Full Player Action
             ShortActionButton(
                 icon = Icons.Filled.SmartDisplay,
                 tint = MaterialTheme.colorScheme.primary,
                 label = "Player",
+                contentDescription = "Open in full player view",
                 onClick = onOpenFullPlayer
             )
         }
 
-        // Linear Progress Bar along the bottom edge
         LinearProgressIndicator(
             progress = { currentProgress },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(3.dp)
+                .height(4.dp)
                 .align(Alignment.BottomCenter),
             color = MaterialTheme.colorScheme.primary,
             trackColor = Color.White.copy(alpha = 0.2f)
@@ -932,21 +989,28 @@ private fun ShortActionButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     tint: Color,
     label: String,
+    contentDescription: String,
     onClick: () -> Unit
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable { onClick() }
+        modifier = Modifier
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            .clickable(role = Role.Button) { onClick() }
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                this.contentDescription = contentDescription
+            }
     ) {
         Surface(
             shape = CircleShape,
             color = Color.Black.copy(alpha = 0.45f),
-            modifier = Modifier.size(46.dp)
+            modifier = Modifier.size(48.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = icon,
-                    contentDescription = label,
+                    contentDescription = null,
                     tint = tint,
                     modifier = Modifier.size(24.dp)
                 )
@@ -956,8 +1020,9 @@ private fun ShortActionButton(
         Text(
             text = label,
             color = Color.White,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center
         )
     }
 }
@@ -981,24 +1046,27 @@ private fun ShortsTopBar(
                 )
             )
             .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.semantics(mergeDescendants = true) {}
+        ) {
             Icon(
                 imageVector = Icons.Filled.FlashOn,
-                contentDescription = null,
+                contentDescription = "Shorts badge",
                 tint = Color.Red,
                 modifier = Modifier.size(28.dp)
             )
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "Shorts",
                 color = Color.White,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = (-0.5).sp
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Start
             )
         }
 
@@ -1006,74 +1074,84 @@ private fun ShortsTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Tune Interests / Personalize Action
             IconButton(
                 onClick = onOpenInterests,
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.4f))
+                    .semantics {
+                        contentDescription = "Personalize interests and recommendations"
+                    }
             ) {
                 Icon(
                     imageVector = Icons.Default.Tune,
-                    contentDescription = "Personalize Interests",
+                    contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
 
-            // Zoom / Aspect Ratio Mode Toggle
             IconButton(
                 onClick = onToggleZoom,
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.4f))
+                    .semantics {
+                        contentDescription = if (isZoomMode) "Switch to fit aspect ratio" else "Switch to zoom full screen"
+                    }
             ) {
                 Icon(
                     imageVector = if (isZoomMode) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                    contentDescription = "Aspect Ratio",
+                    contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
 
-            // Volume Toggle
             IconButton(
                 onClick = onToggleMute,
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.4f))
+                    .semantics {
+                        contentDescription = if (isMuted) "Unmute audio" else "Mute audio"
+                    }
             ) {
                 Icon(
                     imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                    contentDescription = "Mute Toggle",
+                    contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
 
-            // Refresh Button
             IconButton(
                 onClick = onRefresh,
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.4f))
+                    .semantics {
+                        contentDescription = "Refresh feed"
+                    }
             ) {
                 if (isRefreshing) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier
+                            .size(20.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
                         color = Color.White,
                         strokeWidth = 2.dp
                     )
                 } else {
                     Icon(
                         imageVector = Icons.Default.Refresh,
-                        contentDescription = "Refresh",
+                        contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
@@ -1088,15 +1166,14 @@ private fun ShortsLoadingShimmer() {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .semantics { liveRegion = LiveRegionMode.Polite }
     ) {
-        // Center placeholder
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(brush)
         )
 
-        // Bottom Left placeholders
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -1109,11 +1186,11 @@ private fun ShortsLoadingShimmer() {
                         .clip(CircleShape)
                         .background(brush)
                 )
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
                         .width(120.dp)
-                        .height(18.dp)
+                        .height(20.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(brush)
                 )
@@ -1126,7 +1203,7 @@ private fun ShortsLoadingShimmer() {
                     .clip(RoundedCornerShape(4.dp))
                     .background(brush)
             )
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Box(
                 modifier = Modifier
                     .width(160.dp)
@@ -1136,7 +1213,6 @@ private fun ShortsLoadingShimmer() {
             )
         }
 
-        // Right side placeholders
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -1146,7 +1222,7 @@ private fun ShortsLoadingShimmer() {
             repeat(4) {
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
                         .background(brush)
                 )
