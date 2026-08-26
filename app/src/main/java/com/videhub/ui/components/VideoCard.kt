@@ -104,6 +104,8 @@ fun VideoCard(
     val url = item.url ?: return
     val duration = item.duration
     val views = item.viewCount
+    val isLive = item.streamType == org.schabi.newpipe.extractor.stream.StreamType.LIVE_STREAM ||
+                 item.streamType == org.schabi.newpipe.extractor.stream.StreamType.AUDIO_LIVE_STREAM
 
     VideoCard(
         title = title,
@@ -115,6 +117,7 @@ fun VideoCard(
         channelAvatarUrl = channelAvatarUrl ?: try { item.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null },
         uploadDate = (item as? org.schabi.newpipe.extractor.stream.StreamInfoItem)?.uploadDate?.toString() ?: item.textualUploadDate ?: "unknown",
         channelUrl = item.uploaderUrl ?: "",
+        isLive = isLive,
         onClick = onClick,
         onChannelClick = onChannelClick,
         modifier = modifier
@@ -132,6 +135,7 @@ fun VideoCard(
     channelAvatarUrl: String?,
     uploadDate: String = "",
     channelUrl: String = "",
+    isLive: Boolean = false,
     onClick: (String, String, String) -> Unit,
     onChannelClick: (String) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -175,8 +179,24 @@ fun VideoCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
-            // Duration badge
-            if (duration > 0) {
+            // Duration badge / LIVE badge
+            if (isLive || (duration <= 0L && uploadDate.contains("Live", ignoreCase = true))) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .clip(MaterialTheme.shapes.small)
+                        .background(androidx.compose.ui.graphics.Color(0xFFE50914))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "LIVE",
+                        color = androidx.compose.ui.graphics.Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                }
+            } else if (duration > 0) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)

@@ -32,7 +32,7 @@ sealed class Screen(val route: String) {
     data class Channel(val channelId: String) : Screen("channel?channelId={channelId}") {
         companion object {
             const val ROUTE = "channel?channelId={channelId}"
-            fun createRoute(channelId: String) = "channel?channelId=$channelId"
+            fun createRoute(channelId: String) = "channel?channelId=${android.net.Uri.encode(channelId)}"
         }
     }
 }

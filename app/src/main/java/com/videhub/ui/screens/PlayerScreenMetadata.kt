@@ -73,14 +73,45 @@ fun PlayerScreenMetadata(
                 )
                 Spacer(Modifier.height(8.dp))
                 if (!isLocalFile) {
-                    streamInfo?.viewCount?.takeIf { it > 0 }?.let { viewCount ->
-                        Text(
-                            text = "${com.videhub.utils.FormatHelper.formatCount(viewCount)} views • ${com.videhub.utils.FormatHelper.formatDate(streamInfo?.textualUploadDate)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                    val isLiveStream = streamInfo?.streamType == org.schabi.newpipe.extractor.stream.StreamType.LIVE_STREAM ||
+                                      streamInfo?.streamType == org.schabi.newpipe.extractor.stream.StreamType.AUDIO_LIVE_STREAM ||
+                                      (streamInfo?.duration ?: 0L) <= 0L && !streamInfo?.hlsUrl.isNullOrBlank()
+
+                    if (isLiveStream) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                color = androidx.compose.ui.graphics.Color(0xFFE50914),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier.padding(end = 8.dp)
+                            ) {
+                                Text(
+                                    text = "LIVE",
+                                    color = androidx.compose.ui.graphics.Color.White,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            val viewCount = streamInfo?.viewCount ?: 0L
+                            val viewsText = if (viewCount > 0) "${com.videhub.utils.FormatHelper.formatCount(viewCount)} watching now" else "Live Stream"
+                            Text(
+                                text = viewsText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    } else {
+                        streamInfo?.viewCount?.takeIf { it > 0 }?.let { viewCount ->
+                            Text(
+                                text = "${com.videhub.utils.FormatHelper.formatCount(viewCount)} views • ${com.videhub.utils.FormatHelper.formatDate(streamInfo?.textualUploadDate)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                     Spacer(Modifier.height(16.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {

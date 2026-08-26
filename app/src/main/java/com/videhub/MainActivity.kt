@@ -82,6 +82,10 @@ class MainActivity : ComponentActivity() {
     companion object {
         var isAppInForeground = false
         var syncPlayerOnResume: (() -> Unit)? = null
+        val pendingDeepLink = kotlinx.coroutines.flow.MutableSharedFlow<String>(
+            extraBufferCapacity = 5,
+            onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+        )
     }
 
     override fun onResume() {
@@ -98,6 +102,34 @@ class MainActivity : ComponentActivity() {
             isAppInForeground = false
         }
     }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: android.content.Intent?) {
+        if (intent == null) return
+        val action = intent.action
+        val data = intent.dataString
+        if (action == android.content.Intent.ACTION_VIEW) {
+            if (!data.isNullOrBlank()) {
+                pendingDeepLink.tryEmit(data)
+            } else {
+                val schemePart = intent.data?.schemeSpecificPart
+                if (!schemePart.isNullOrBlank()) {
+                    pendingDeepLink.tryEmit("https://www.youtube.com/watch?v=$schemePart")
+                }
+            }
+        } else if (action == android.content.Intent.ACTION_SEND && intent.type == "text/plain") {
+            val text = intent.getStringExtra(android.content.Intent.EXTRA_TEXT)
+            if (!text.isNullOrBlank()) {
+                pendingDeepLink.tryEmit(text)
+            }
+        }
+    }
+
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         if (PipState.canEnterPip && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -124,6 +156,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        handleIntent(intent)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
             window.attributes.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
@@ -213,6 +246,29 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+
+private fun resolveYouTubeUrl(rawText: String): String? {
+    val trimmed = rawText.trim()
+    if (trimmed.startsWith("vnd.youtube:", ignoreCase = true)) {
+        val id = trimmed.substringAfter("vnd.youtube:").substringBefore("?").substringBefore("&")
+        if (id.isNotBlank()) return "https://www.youtube.com/watch?v=$id"
+    }
+    val ytRegex = "(https?://(?:[a-zA-Z0-9.-]+\\.)?(?:youtube\\.com/(?:watch\\?[^\\s]+|shorts/[^\\s]+|live/[^\\s]+|playlist\\?[^\\s]+|channel/[^\\s]+|c/[^\\s]+|user/[^\\s]+|@[^\\s]+|embed/[^\\s]+|v/[^\\s]+)|youtu\\.be/[^\\s]+))".toRegex()
+    val match = ytRegex.find(trimmed)
+    if (match != null) return match.value
+
+    val generalUrlRegex = "(https?://[^\\s]+)".toRegex()
+    val genMatch = generalUrlRegex.find(trimmed)
+    if (genMatch != null) return genMatch.value
+
+    if (trimmed.length == 11 && !trimmed.contains(" ") && !trimmed.contains("/")) {
+        return "https://www.youtube.com/watch?v=$trimmed"
+    }
+    if (trimmed.startsWith("@") || trimmed.startsWith("UC")) {
+        return "https://www.youtube.com/$trimmed"
+    }
+    return if (trimmed.startsWith("http")) trimmed else null
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -306,6 +362,21 @@ fun MainScreen() {
         sharedViewModel.getOrCreateMediaController(context)
         val player = com.videhub.service.MediaSessionManager.getOrCreatePlayer(context)
         mediaPlayer = player
+        
+        launch {
+            MainActivity.pendingDeepLink.collect { rawText ->
+                val cleanUrl = resolveYouTubeUrl(rawText)
+                if (!cleanUrl.isNullOrBlank()) {
+                    if (cleanUrl.contains("/channel/") || cleanUrl.contains("/c/") || cleanUrl.contains("/user/") || cleanUrl.contains("/@")) {
+                        navController.navigate(Screen.Channel.createRoute(cleanUrl))
+                    } else if (cleanUrl.contains("/playlist?list=") || (cleanUrl.contains("list=") && !cleanUrl.contains("v="))) {
+                        navController.navigate(Screen.OnlinePlaylist.createRoute(cleanUrl))
+                    } else {
+                        navigateToPlayer(cleanUrl, "Loading...", "none", isMusicMode = false, isFullscreen = false)
+                    }
+                }
+            }
+        }
         
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {

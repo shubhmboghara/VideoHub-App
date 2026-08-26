@@ -262,15 +262,28 @@ fun PlayerScreen(
             channelId = info.uploaderUrl
             channelName = info.uploaderName ?: ""
             
+            val actualTitle = if (title.isNotBlank() && title != "Video" && title != "Loading...") title else (info.name ?: "Video")
+            val actualThumb = if (thumbnailUrl.isNotBlank() && thumbnailUrl != "none") thumbnailUrl else (info.thumbnails?.firstOrNull()?.url ?: "")
+
             db.historyDao().insert(
                 com.videhub.data.entity.HistoryEntity(
                     videoId = videoUrl,
-                    title = title,
-                    thumbnailUrl = thumbnailUrl,
+                    title = actualTitle,
+                    thumbnailUrl = actualThumb,
                     channelName = channelName,
                     viewCount = info.viewCount,
                     uploadDate = info.textualUploadDate ?: "",
                     timestamp = System.currentTimeMillis()
+                )
+            )
+
+            com.videhub.PlaybackHistory.addToHistory(
+                com.videhub.PlayQueueItem(
+                    url = videoUrl,
+                    title = actualTitle,
+                    uploaderName = channelName,
+                    thumbnailUrl = actualThumb,
+                    duration = info.duration
                 )
             )
 
@@ -297,8 +310,8 @@ fun PlayerScreen(
                         db.videoMetadataDao().insertVideoMetadata(
                             com.videhub.data.entity.VideoMetadataEntity(
                                 videoId = videoUrl,
-                                title = title,
-                                thumbnailUrl = thumbnailUrl,
+                                title = actualTitle,
+                                thumbnailUrl = actualThumb,
                                 channelName = channelName,
                                 viewCount = info.viewCount,
                                 duration = info.duration,
@@ -354,8 +367,16 @@ fun PlayerScreen(
                 offlineStreamUri!!
             } else {
                 val info = streamInfo ?: return@LaunchedEffect
+                val isLive = (info.streamType == org.schabi.newpipe.extractor.stream.StreamType.LIVE_STREAM || 
+                              info.streamType == org.schabi.newpipe.extractor.stream.StreamType.AUDIO_LIVE_STREAM ||
+                              info.duration <= 0L) && (!info.hlsUrl.isNullOrBlank() || !info.dashMpdUrl.isNullOrBlank())
+
                 val audioOnly = (info.audioStreams ?: emptyList()).filter { !it.content.isNullOrBlank() }
-                if (isAudioOnlyDownload && audioOnly.isNotEmpty()) {
+                if (isLive && !info.hlsUrl.isNullOrBlank()) {
+                    info.hlsUrl!!
+                } else if (isLive && !info.dashMpdUrl.isNullOrBlank()) {
+                    info.dashMpdUrl!!
+                } else if (isAudioOnlyDownload && audioOnly.isNotEmpty()) {
                     audioOnly.maxByOrNull { it.averageBitrate }?.content ?: ""
                 } else {
                     val progressive = (info.videoStreams ?: emptyList()).filter { !it.content.isNullOrBlank() }
@@ -376,7 +397,9 @@ fun PlayerScreen(
                                 }
                                 audioUrlForMerge = matchingAudio?.content ?: audioOnly.maxByOrNull { it.averageBitrate }?.content
                                 v.content
-                            } else ""
+                            } else {
+                                info.hlsUrl ?: info.dashMpdUrl ?: ""
+                            }
                         }
                     } else {
                         val cleanSelected = selectedQuality.replace("p", "").replace("fps", "").trim()
@@ -407,7 +430,7 @@ fun PlayerScreen(
                             matchedVideoOnly.content
                         } else {
                             progressive.maxByOrNull { it.getResolution()?.replace("p", "")?.replace("fps", "")?.trim()?.toIntOrNull() ?: 0 }?.content
-                                ?: videoOnly.firstOrNull()?.content ?: ""
+                                ?: videoOnly.firstOrNull()?.content ?: info.hlsUrl ?: info.dashMpdUrl ?: ""
                         }
                     }
                 }
@@ -427,10 +450,12 @@ fun PlayerScreen(
                 com.videhub.ui.components.LiveCaptionsManager.setAvailableTracks(tracks)
                 if (isLocal) { com.videhub.ui.components.LiveCaptionsManager.loadCaptionsFromDb(context, videoUrl) }
                 
+                val effectiveTitle = if (title.isNotBlank() && title != "Video" && title != "Loading...") title else (streamInfo?.name ?: "Video")
+                val effectiveThumb = if (thumbnailUrl.isNotBlank() && thumbnailUrl != "none") thumbnailUrl else (streamInfo?.thumbnails?.firstOrNull()?.url ?: "none")
                 val metadata = androidx.media3.common.MediaMetadata.Builder()
-                    .setTitle(title)
-                    .setArtist(channelName)
-                    .setArtworkUri(android.net.Uri.parse(if (thumbnailUrl.isNotBlank()) thumbnailUrl else "none"))
+                    .setTitle(effectiveTitle)
+                    .setArtist(channelName.ifBlank { streamInfo?.uploaderName ?: "" })
+                    .setArtworkUri(android.net.Uri.parse(if (effectiveThumb.isNotBlank()) effectiveThumb else "none"))
                     .build()
                 val mediaItem = androidx.media3.common.MediaItem.Builder()
                     .setMediaId(videoUrl)
@@ -903,6 +928,24 @@ fun PlayerScreen(
 
                 item {
                     androidx.compose.material3.ListItem(
+                        headlineContent = { androidx.compose.material3.Text("Share Video", style = MaterialTheme.typography.bodyLarge) },
+                        leadingContent = { Icon(androidx.compose.material.icons.Icons.Default.Share, contentDescription = "Share") },
+                        modifier = Modifier
+                            .height(48.dp)
+                            .clickable {
+                                showSettingsSheet = false
+                                val shareIntent = android.content.Intent().apply {
+                                    action = android.content.Intent.ACTION_SEND
+                                    putExtra(android.content.Intent.EXTRA_TEXT, if (title.isNotBlank()) "$title\n$videoUrl" else videoUrl)
+                                    putExtra(android.content.Intent.EXTRA_SUBJECT, title)
+                                    type = "text/plain"
+                                }
+                                context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Video"))
+                            }
+                    )
+                }
+                item {
+                    androidx.compose.material3.ListItem(
                         headlineContent = { androidx.compose.material3.Text("Loop Video", style = MaterialTheme.typography.bodyLarge) },
                         leadingContent = { Icon(androidx.compose.material.icons.Icons.Default.Repeat, contentDescription = null) },
                         trailingContent = { 
@@ -1273,6 +1316,15 @@ fun PlayerScreen(
                     },
                     onShowSettingsSheet = { showSettingsSheet = true },
                     onShowSpeedMenu = { showPlaybackSpeedMenu = true },
+                    onShareClick = {
+                        val shareIntent = android.content.Intent().apply {
+                            action = android.content.Intent.ACTION_SEND
+                            putExtra(android.content.Intent.EXTRA_TEXT, if (title.isNotBlank()) "$title\n$videoUrl" else videoUrl)
+                            putExtra(android.content.Intent.EXTRA_SUBJECT, title)
+                            type = "text/plain"
+                        }
+                        context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Video"))
+                    },
                     currentSpeed = currentSpeed,
                     onToggleMusicMode = { isMusicMode = true }
                 )
@@ -1338,6 +1390,9 @@ fun PlayerScreen(
                 }
             }
             
+            val resolvedTitle = if (title.isNotBlank() && title != "Video" && title != "Loading...") title else (streamInfo?.name ?: title.ifBlank { "Video" })
+            val resolvedThumbnail = if (thumbnailUrl.isNotBlank() && thumbnailUrl != "none") thumbnailUrl else (streamInfo?.thumbnails?.firstOrNull()?.url ?: "")
+
             if (!isFullscreen && !isLandscape && !com.videhub.PipState.isActive.value) {
                 BelowPlayerContent(
                     listState = listState,
@@ -1345,10 +1400,10 @@ fun PlayerScreen(
                     isLocalFile = isLocalFile,
                     isOfflineFallback = offlineStreamUri != null,
                     errorMessage = errorMessage,
-                    title = title,
+                    title = resolvedTitle,
                     channelName = channelName,
                     channelId = channelId,
-                    thumbnailUrl = thumbnailUrl,
+                    thumbnailUrl = resolvedThumbnail,
                     onChannelClick = onChannelClick,
                     context = context,
                     scope = scope,
@@ -1374,12 +1429,15 @@ fun PlayerScreen(
             }
         }
 
+        val resolvedTitle = if (title.isNotBlank() && title != "Video" && title != "Loading...") title else (streamInfo?.name ?: title.ifBlank { "Video" })
+        val resolvedThumbnail = if (thumbnailUrl.isNotBlank() && thumbnailUrl != "none") thumbnailUrl else (streamInfo?.thumbnails?.firstOrNull()?.url ?: "")
+
         MusicModeUI(
             isMusicMode = isMusicMode,
             isFullscreen = isFullscreen,
-            title = title,
+            title = resolvedTitle,
             channelName = channelName,
-            thumbnailUrl = thumbnailUrl,
+            thumbnailUrl = resolvedThumbnail,
             videoUrl = videoUrl,
             isLocalFile = isLocalFile,
             streamInfo = streamInfo,
@@ -1497,6 +1555,7 @@ fun VideoPlayerContainer(
     onBack: () -> Unit,
     onShowSettingsSheet: () -> Unit,
     onShowSpeedMenu: () -> Unit,
+    onShareClick: () -> Unit = {},
     currentSpeed: Float,
     onToggleMusicMode: () -> Unit
 ) {
@@ -1561,6 +1620,13 @@ fun VideoPlayerContainer(
                     modifier = Modifier.align(Alignment.CenterEnd),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    IconButton(onClick = onShareClick) {
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Default.Share,
+                            contentDescription = "Share",
+                            tint = Color.White
+                        )
+                    }
                     IconButton(onClick = onShowSettingsSheet) {
                         Icon(
                             imageVector = androidx.compose.material.icons.Icons.Default.Settings,

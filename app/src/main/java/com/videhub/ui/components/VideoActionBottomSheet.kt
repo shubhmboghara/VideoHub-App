@@ -150,6 +150,21 @@ fun VideoActionBottomSheet(
                         showAddToPlaylist = true
                     }
                 )
+
+                ListItem(
+                    headlineContent = { Text("Share") },
+                    leadingContent = { Icon(Icons.Default.Share, contentDescription = "Share") },
+                    modifier = Modifier.clickable {
+                        val shareIntent = Intent().apply {
+                            action = Intent.ACTION_SEND
+                            putExtra(Intent.EXTRA_TEXT, if (title.isNotBlank()) "$title\n$videoUrl" else videoUrl)
+                            putExtra(Intent.EXTRA_SUBJECT, title)
+                            type = "text/plain"
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Share Video"))
+                        onDismiss()
+                    }
+                )
                 
                 ListItem(
                     headlineContent = { Text("Download") },

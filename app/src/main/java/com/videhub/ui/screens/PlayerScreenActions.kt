@@ -142,6 +142,20 @@ fun PlayerScreenActions(
         )
 
         ActionChipItem(
+            label = "Share",
+            icon = Icons.Default.Share,
+            onClick = {
+                val shareIntent = android.content.Intent().apply {
+                    action = android.content.Intent.ACTION_SEND
+                    putExtra(android.content.Intent.EXTRA_TEXT, if (title.isNotBlank()) "$title\n$videoUrl" else videoUrl)
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, title)
+                    type = "text/plain"
+                }
+                context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Video"))
+            }
+        )
+
+        ActionChipItem(
             label = if (isRadioActive) "Radio: On" else "Song Radio",
             icon = Icons.AutoMirrored.Filled.PlaylistAdd,
             isActive = isRadioActive,

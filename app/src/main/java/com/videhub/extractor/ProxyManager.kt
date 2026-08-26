@@ -41,41 +41,42 @@ object ProxyManager {
     )
 
     private val currentProxyIndex = java.util.concurrent.atomic.AtomicInteger(0)
-    private lateinit var prefs: SharedPreferences
+    private var prefs: SharedPreferences? = null
 
     fun init(context: Context) {
-        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
     // Save proxy settings
     fun saveProxy(config: ProxyConfig) {
-        prefs.edit()
-            .putBoolean(KEY_ENABLED, true)
-            .putString(KEY_HOST, config.host)
-            .putInt(KEY_PORT, config.port)
-            .putString(KEY_TYPE, config.type.name)
-            .putString(KEY_USERNAME, config.username)
-            .putString(KEY_PASSWORD, config.password)
-            .apply()
+        prefs?.edit()
+            ?.putBoolean(KEY_ENABLED, true)
+            ?.putString(KEY_HOST, config.host)
+            ?.putInt(KEY_PORT, config.port)
+            ?.putString(KEY_TYPE, config.type.name)
+            ?.putString(KEY_USERNAME, config.username)
+            ?.putString(KEY_PASSWORD, config.password)
+            ?.apply()
     }
 
     fun disableProxy() {
-        prefs.edit().putBoolean(KEY_ENABLED, false).apply()
+        prefs?.edit()?.putBoolean(KEY_ENABLED, false)?.apply()
     }
 
-    fun isProxyEnabled(): Boolean = prefs.getBoolean(KEY_ENABLED, false)
+    fun isProxyEnabled(): Boolean = prefs?.getBoolean(KEY_ENABLED, false) ?: false
 
     fun getSavedProxy(): ProxyConfig? {
         if (!isProxyEnabled()) return null
-        val host = prefs.getString(KEY_HOST, "") ?: return null
-        val port = prefs.getInt(KEY_PORT, 0)
+        val p = prefs ?: return null
+        val host = p.getString(KEY_HOST, "") ?: return null
+        val port = p.getInt(KEY_PORT, 0)
         if (host.isEmpty() || port == 0) return null
         return ProxyConfig(
             host = host,
             port = port,
-            type = Proxy.Type.valueOf(prefs.getString(KEY_TYPE, "HTTP") ?: "HTTP"),
-            username = prefs.getString(KEY_USERNAME, "") ?: "",
-            password = prefs.getString(KEY_PASSWORD, "") ?: ""
+            type = Proxy.Type.valueOf(p.getString(KEY_TYPE, "HTTP") ?: "HTTP"),
+            username = p.getString(KEY_USERNAME, "") ?: "",
+            password = p.getString(KEY_PASSWORD, "") ?: ""
         )
     }
 
