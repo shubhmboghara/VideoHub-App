@@ -39,6 +39,7 @@ fun SyncedLyricsView(
     durationSeconds: Long = 0,
     mediaPlayer: Player?,
     offlineCaptions: List<CaptionLine3> = emptyList(),
+    description: String? = null,
     modifier: Modifier = Modifier
 ) {
     var lyricsData by remember { mutableStateOf<LyricsData?>(null) }
@@ -47,27 +48,19 @@ fun SyncedLyricsView(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // Fetch lyrics when title/channel changes
-    LaunchedEffect(title, channelName) {
+    // Fetch lyrics prioritizing CC -> Description -> Cleaned LRC search
+    LaunchedEffect(title, channelName, offlineCaptions, description) {
         isLoading = true
         lyricsData = null
 
-        // 1. Try offline captions first if available
-        if (offlineCaptions.isNotEmpty()) {
-            val fromCc = LyricsManager.fromSubtitles(offlineCaptions)
-            if (fromCc != null) {
-                lyricsData = fromCc
-                isLoading = false
-            }
-        }
-
-        // 2. Fetch from online LRCLIB
-        val fetched = LyricsManager.getLyrics(title, channelName, durationSeconds)
-        if (fetched != null) {
-            lyricsData = fetched
-        } else if (lyricsData == null && offlineCaptions.isNotEmpty()) {
-            lyricsData = LyricsManager.fromSubtitles(offlineCaptions)
-        }
+        val fetched = LyricsManager.getLyrics(
+            title = title,
+            channel = channelName,
+            durationSeconds = durationSeconds,
+            captions = offlineCaptions,
+            description = description
+        )
+        lyricsData = fetched
         isLoading = false
     }
 
@@ -167,7 +160,13 @@ fun SyncedLyricsView(
                     onClick = {
                         scope.launch {
                             isLoading = true
-                            lyricsData = LyricsManager.getLyrics(title, channelName, durationSeconds)
+                            lyricsData = LyricsManager.getLyrics(
+                                title = title,
+                                channel = channelName,
+                                durationSeconds = durationSeconds,
+                                captions = offlineCaptions,
+                                description = description
+                            )
                             isLoading = false
                         }
                     }

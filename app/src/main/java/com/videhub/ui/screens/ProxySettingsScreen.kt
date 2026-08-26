@@ -1,13 +1,18 @@
 package com.videhub.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.SettingsBrightness
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -55,18 +60,94 @@ fun ProxySettingsScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             val context = LocalContext.current
-            val isDarkMode by com.videhub.data.SettingsManager.getIsDarkMode(context).collectAsStateWithLifecycle(initialValue = true)
+            val themeModeStr by com.videhub.data.SettingsManager.getThemeMode(context).collectAsStateWithLifecycle(initialValue = "SYSTEM")
+            val currentThemeMode = com.videhub.ui.theme.AppThemeMode.fromString(themeModeStr)
             val isAmoledMode by com.videhub.data.SettingsManager.getIsAmoledMode(context).collectAsStateWithLifecycle(initialValue = false)
+            val isSystemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val isEffectivelyDark = when (currentThemeMode) {
+                com.videhub.ui.theme.AppThemeMode.SYSTEM -> isSystemDark
+                com.videhub.ui.theme.AppThemeMode.LIGHT -> false
+                com.videhub.ui.theme.AppThemeMode.DARK -> true
+            }
             val scope = rememberCoroutineScope()
+            var showThemeDialog by remember { mutableStateOf(false) }
+
+            if (showThemeDialog) {
+                AlertDialog(
+                    onDismissRequest = { showThemeDialog = false },
+                    title = { Text("Choose Theme", style = MaterialTheme.typography.titleLarge) },
+                    text = {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            val options: List<Triple<com.videhub.ui.theme.AppThemeMode, String, ImageVector>> = listOf(
+                                Triple(com.videhub.ui.theme.AppThemeMode.SYSTEM, "System default", Icons.Default.SettingsBrightness),
+                                Triple(com.videhub.ui.theme.AppThemeMode.LIGHT, "Light theme", Icons.Default.LightMode),
+                                Triple(com.videhub.ui.theme.AppThemeMode.DARK, "Dark theme", Icons.Default.DarkMode)
+                            )
+                            options.forEach { (mode, title, icon) ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            com.videhub.ui.theme.ThemeManager.setThemeMode(context, mode)
+                                            showThemeDialog = false
+                                        }
+                                        .padding(vertical = 12.dp, horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = (currentThemeMode == mode),
+                                        onClick = {
+                                            com.videhub.ui.theme.ThemeManager.setThemeMode(context, mode)
+                                            showThemeDialog = false
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(22.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showThemeDialog = false }) {
+                            Text("Close")
+                        }
+                    }
+                )
+            }
 
             Text("Appearance", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-            Card(onClick = { scope.launch { com.videhub.data.SettingsManager.setIsDarkMode(context, !isDarkMode) } }, modifier = Modifier.fillMaxWidth()) {
-                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Dark Mode", style = MaterialTheme.typography.bodyLarge)
-                    Switch(checked = isDarkMode, onCheckedChange = { scope.launch { com.videhub.data.SettingsManager.setIsDarkMode(context, it) } }, colors = SwitchDefaults.colors(uncheckedTrackColor = MaterialTheme.colorScheme.outline, uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant))
+            Card(
+                onClick = { showThemeDialog = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("App Theme", style = MaterialTheme.typography.bodyLarge)
+                        val themeSubtitle = when (currentThemeMode) {
+                            com.videhub.ui.theme.AppThemeMode.SYSTEM -> "System default"
+                            com.videhub.ui.theme.AppThemeMode.LIGHT -> "Light theme"
+                            com.videhub.ui.theme.AppThemeMode.DARK -> "Dark theme"
+                        }
+                        Text(themeSubtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(
+                        imageVector = when (currentThemeMode) {
+                            com.videhub.ui.theme.AppThemeMode.SYSTEM -> Icons.Default.SettingsBrightness
+                            com.videhub.ui.theme.AppThemeMode.LIGHT -> Icons.Default.LightMode
+                            com.videhub.ui.theme.AppThemeMode.DARK -> Icons.Default.DarkMode
+                        },
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
-            if (isDarkMode) {
+            if (isEffectivelyDark) {
                 Card(onClick = { scope.launch { com.videhub.data.SettingsManager.setIsAmoledMode(context, !isAmoledMode) } }, modifier = Modifier.fillMaxWidth()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("AMOLED Pure Black", style = MaterialTheme.typography.bodyLarge)

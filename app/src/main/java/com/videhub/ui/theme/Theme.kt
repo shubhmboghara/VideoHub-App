@@ -1,6 +1,7 @@
 package com.videhub.ui.theme
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.isSystemInDarkTheme
 
 
 
@@ -81,14 +82,24 @@ private val BogharaLightColorScheme = lightColorScheme(
 fun AppTheme(
     content: @Composable () -> Unit
 ) {
-    val isDarkMode by ThemeManager.isDarkMode.collectAsStateWithLifecycle()
+    val themeMode by ThemeManager.themeMode.collectAsStateWithLifecycle()
     val isAmoledMode by ThemeManager.isAmoledMode.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    val systemInDark = isSystemInDarkTheme()
+    
+    val isDark = when (themeMode) {
+        AppThemeMode.SYSTEM -> systemInDark
+        AppThemeMode.LIGHT -> false
+        AppThemeMode.DARK -> true
+    }
     
     val colorScheme = when {
-        isDarkMode -> {
+        isDark -> {
             if (isAmoledMode) {
-                BogharaDarkColorScheme.copy(background = Color(0xFF000000), surface = Color(0xFF000000), surfaceVariant = Color(0xFF000000))
+                BogharaDarkColorScheme.copy(
+                    background = Color(0xFF000000), 
+                    surface = Color(0xFF000000), 
+                    surfaceVariant = Color(0xFF121212)
+                )
             } else {
                 BogharaDarkColorScheme
             }
@@ -103,8 +114,8 @@ fun AppTheme(
             window.statusBarColor = Color.Transparent.toArgb()
             window.navigationBarColor = Color.Transparent.toArgb()
             val insetsController = WindowCompat.getInsetsController(window, view)
-            insetsController.isAppearanceLightStatusBars = !isDarkMode
-            insetsController.isAppearanceLightNavigationBars = !isDarkMode
+            insetsController.isAppearanceLightStatusBars = !isDark
+            insetsController.isAppearanceLightNavigationBars = !isDark
         }
     }
 

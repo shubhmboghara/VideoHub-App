@@ -1393,7 +1393,7 @@ fun PlayerScreen(
             val resolvedTitle = if (title.isNotBlank() && title != "Video" && title != "Loading...") title else (streamInfo?.name ?: title.ifBlank { "Video" })
             val resolvedThumbnail = if (thumbnailUrl.isNotBlank() && thumbnailUrl != "none") thumbnailUrl else (streamInfo?.thumbnails?.firstOrNull()?.url ?: "")
 
-            if (!isFullscreen && !isLandscape && !com.videhub.PipState.isActive.value) {
+            if (!isFullscreen && !isLandscape && !com.videhub.PipState.isActive.value && !isMusicMode) {
                 BelowPlayerContent(
                     listState = listState,
                     streamInfo = streamInfo,

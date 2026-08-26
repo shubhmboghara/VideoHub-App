@@ -261,9 +261,12 @@ fun ShortsScreen(
         InterestsBottomSheet(
             onDismiss = { showInterestsSheet = false },
             onSaved = {
+                sharedViewModel.shortsListCache = null
+                sharedViewModel.shortsCurrentIndexCache = 0
+                shortsList = emptyList()
                 loadPersonalizedShorts(isRefresh = true)
                 scope.launch {
-                    snackbarHostState.showSnackbar("Recommendations updated")
+                    snackbarHostState.showSnackbar("Shorts updated for your interests!")
                 }
             }
         )

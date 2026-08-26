@@ -82,9 +82,11 @@ fun NowPlayingScreen(
     onToggleMode: () -> Unit,
     onChannelClick: () -> Unit,
     showCaptions: Boolean = false,
+    offlineCaptions: List<CaptionLine3> = emptyList(),
     onCaptionsRequested: () -> Unit = {},
     onVideoPlay: (String, String, String) -> Unit = { _,_,_ -> },
-    isAudioOnly: Boolean = false
+    isAudioOnly: Boolean = false,
+    description: String? = null
 ) {
     var uiState by remember { 
         mutableStateOf(
@@ -218,7 +220,16 @@ fun NowPlayingScreen(
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {}
+            )
+    ) {
         // Dynamic blurred background with Parallax depth
         val displayArt = uiState.artworkData ?: if (uiState.artworkUri == "none") "" else uiState.artworkUri
         androidx.compose.animation.Crossfade(
@@ -349,7 +360,8 @@ fun NowPlayingScreen(
                             channelName = uiState.artist,
                             durationSeconds = (durationProvider() / 1000L).coerceAtLeast(0L),
                             mediaPlayer = exoPlayer,
-                            offlineCaptions = lyrics,
+                            offlineCaptions = if (lyrics.isNotEmpty()) lyrics else offlineCaptions,
+                            description = description,
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {

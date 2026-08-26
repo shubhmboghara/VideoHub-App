@@ -302,7 +302,12 @@ fun InterestsBottomSheet(
                 Button(
                     onClick = {
                         scope.launch {
-                            SettingsManager.setUserInterests(context, selectedInterests)
+                            val finalInterests = selectedInterests.toMutableList()
+                            val pendingCustom = customInput.trim()
+                            if (pendingCustom.isNotBlank() && !finalInterests.any { it.equals(pendingCustom, ignoreCase = true) }) {
+                                finalInterests.add(pendingCustom)
+                            }
+                            SettingsManager.setUserInterests(context, finalInterests)
                             onSaved()
                             onDismiss()
                         }

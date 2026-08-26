@@ -16,6 +16,7 @@ object SettingsManager {
     private val AUTOPLAY_KEY = booleanPreferencesKey("autoplay_enabled")
     private val PLAYBACK_SPEED_KEY = floatPreferencesKey("playback_speed")
     private val CUSTOM_TABS_KEY = androidx.datastore.preferences.core.stringPreferencesKey("custom_tabs_list")
+    private val THEME_MODE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("theme_mode")
     private val IS_DARK_MODE_KEY = booleanPreferencesKey("is_dark_mode")
     private val IS_AMOLED_MODE_KEY = booleanPreferencesKey("is_amoled_mode")
     private val SHOW_CAPTIONS_KEY = booleanPreferencesKey("show_captions")
@@ -81,15 +82,38 @@ object SettingsManager {
         }
     }
 
+    fun getThemeMode(context: Context): Flow<String> {
+        return context.dataStore.data.map { preferences ->
+            preferences[THEME_MODE_KEY] ?: "SYSTEM"
+        }
+    }
+
+    suspend fun setThemeMode(context: Context, mode: String) {
+        context.dataStore.edit { preferences ->
+            preferences[THEME_MODE_KEY] = mode
+            if (mode == "DARK") {
+                preferences[IS_DARK_MODE_KEY] = true
+            } else if (mode == "LIGHT") {
+                preferences[IS_DARK_MODE_KEY] = false
+            }
+        }
+    }
+
     fun getIsDarkMode(context: Context): Flow<Boolean> {
         return context.dataStore.data.map { preferences ->
-            preferences[IS_DARK_MODE_KEY] ?: true
+            val mode = preferences[THEME_MODE_KEY]
+            if (mode != null) {
+                mode == "DARK"
+            } else {
+                preferences[IS_DARK_MODE_KEY] ?: false
+            }
         }
     }
 
     suspend fun setIsDarkMode(context: Context, isDark: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[IS_DARK_MODE_KEY] = isDark
+            preferences[THEME_MODE_KEY] = if (isDark) "DARK" else "LIGHT"
         }
     }
 

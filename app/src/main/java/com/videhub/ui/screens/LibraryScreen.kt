@@ -19,11 +19,15 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SettingsBrightness
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -40,10 +44,62 @@ fun LibraryScreen(
     onAboutClick: () -> Unit = { onNavigate("about") }
 ) {
     val context = LocalContext.current
-    val isDarkMode by ThemeManager.isDarkMode.collectAsStateWithLifecycle()
+    val themeMode by ThemeManager.themeMode.collectAsStateWithLifecycle()
     val isAmoledMode by ThemeManager.isAmoledMode.collectAsStateWithLifecycle()
+    val systemInDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val isEffectivelyDark = when (themeMode) {
+        com.videhub.ui.theme.AppThemeMode.SYSTEM -> systemInDark
+        com.videhub.ui.theme.AppThemeMode.LIGHT -> false
+        com.videhub.ui.theme.AppThemeMode.DARK -> true
+    }
+    var showThemeDialog by remember { mutableStateOf(false) }
     
     val scrollState = rememberScrollState(sharedViewModel.libraryScrollCache)
+
+    if (showThemeDialog) {
+        AlertDialog(
+            onDismissRequest = { showThemeDialog = false },
+            title = { Text("Choose Theme", style = MaterialTheme.typography.titleLarge) },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    val options: List<Triple<com.videhub.ui.theme.AppThemeMode, String, ImageVector>> = listOf(
+                        Triple(com.videhub.ui.theme.AppThemeMode.SYSTEM, "System default", Icons.Default.SettingsBrightness),
+                        Triple(com.videhub.ui.theme.AppThemeMode.LIGHT, "Light theme", Icons.Default.LightMode),
+                        Triple(com.videhub.ui.theme.AppThemeMode.DARK, "Dark theme", Icons.Default.DarkMode)
+                    )
+                    options.forEach { (mode, title, icon) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    ThemeManager.setThemeMode(context, mode)
+                                    showThemeDialog = false
+                                }
+                                .padding(vertical = 12.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = (themeMode == mode),
+                                onClick = {
+                                    ThemeManager.setThemeMode(context, mode)
+                                    showThemeDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(22.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showThemeDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
 
     androidx.compose.runtime.DisposableEffect(scrollState) {
         onDispose {
@@ -94,11 +150,11 @@ fun LibraryScreen(
         )
         
         SectionTitle("Preferences")
-        DarkModeRow(
-            isDarkMode = isDarkMode,
-            onToggle = { ThemeManager.setDarkMode(context, it) }
+        ThemePreferenceRow(
+            themeMode = themeMode,
+            onClick = { showThemeDialog = true }
         )
-        if (isDarkMode) {
+        if (isEffectivelyDark) {
             SwitchRow(
                 title = "AMOLED Dark Mode",
                 icon = Icons.Default.DarkMode,
@@ -201,35 +257,46 @@ fun SwitchRow(
 }
 
 @Composable
-fun DarkModeRow(
-    isDarkMode: Boolean,
-    onToggle: (Boolean) -> Unit
+fun ThemePreferenceRow(
+    themeMode: com.videhub.ui.theme.AppThemeMode,
+    onClick: () -> Unit
 ) {
+    val subtitle = when (themeMode) {
+        com.videhub.ui.theme.AppThemeMode.SYSTEM -> "System default"
+        com.videhub.ui.theme.AppThemeMode.LIGHT -> "Light theme"
+        com.videhub.ui.theme.AppThemeMode.DARK -> "Dark theme"
+    }
+    val icon = when (themeMode) {
+        com.videhub.ui.theme.AppThemeMode.SYSTEM -> Icons.Default.SettingsBrightness
+        com.videhub.ui.theme.AppThemeMode.LIGHT -> Icons.Default.LightMode
+        com.videhub.ui.theme.AppThemeMode.DARK -> Icons.Default.DarkMode
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onToggle(!isDarkMode) }
+            .clickable(onClick = onClick)
             .defaultMinSize(minHeight = 56.dp)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = if (isDarkMode) Icons.Default.DarkMode else Icons.Default.LightMode,
+            imageVector = icon,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(16.dp))
-        Text(
-            text = "Dark Mode",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f)
-        )
-        Switch(
-            colors = androidx.compose.material3.SwitchDefaults.colors(uncheckedTrackColor = androidx.compose.material3.MaterialTheme.colorScheme.outline, uncheckedThumbColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant),
-            checked = isDarkMode,
-            onCheckedChange = onToggle
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Theme",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }

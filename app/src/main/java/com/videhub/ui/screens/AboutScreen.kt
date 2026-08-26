@@ -8,35 +8,49 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Subscriptions
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,17 +63,31 @@ import kotlinx.coroutines.delay
 fun AboutScreen(onBack: () -> Unit) {
     var hasAnimated by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        delay(50)
+        delay(40)
         hasAnimated = true
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("About") },
+                title = { 
+                    Text(
+                        text = "About VideoHub",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    ) 
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Navigate back")
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .semantics { contentDescription = "Navigate back" }
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = null
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -77,7 +105,7 @@ fun AboutScreen(onBack: () -> Unit) {
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // ── Logo with bounce-in scale + fade, glow ring behind it ──────────
             val logoScale by animateFloatAsState(
@@ -96,19 +124,19 @@ fun AboutScreen(onBack: () -> Unit) {
 
             Box(
                 modifier = Modifier
-                    .size(140.dp)
+                    .size(136.dp)
                     .scale(logoScale)
                     .alpha(logoAlpha),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
-                        .size(140.dp)
+                        .size(136.dp)
                         .clip(CircleShape)
                         .background(
                             Brush.radialGradient(
                                 colors = listOf(
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
                                     MaterialTheme.colorScheme.primary.copy(alpha = 0f)
                                 )
                             )
@@ -121,12 +149,12 @@ fun AboutScreen(onBack: () -> Unit) {
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            StaggeredEntrance(visible = hasAnimated, delayMillis = 80) {
+            StaggeredEntrance(visible = hasAnimated, delayMillis = 60) {
                 Text(
                     text = "VideoHub",
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
@@ -134,57 +162,58 @@ fun AboutScreen(onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            StaggeredEntrance(visible = hasAnimated, delayMillis = 140) {
+            StaggeredEntrance(visible = hasAnimated, delayMillis = 100) {
                 Text(
-                    text = "Ad-free YouTube, your way.",
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "The ultimate private streaming & music player",
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                     textAlign = TextAlign.Center
                 )
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            StaggeredEntrance(visible = hasAnimated, delayMillis = 200) {
+            StaggeredEntrance(visible = hasAnimated, delayMillis = 140) {
                 Text(
-                    text = "VideoHub is a clean, private YouTube player. No ads, no trackers, no account required. Just search, watch, and enjoy your favorite videos.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    text = "VideoHub is a clean, lightweight, ad-free streaming engine designed for private audio and video consumption. No ads, no trackers, and no Google sign-in required.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            StaggeredEntrance(visible = hasAnimated, delayMillis = 260) {
+            // ── Core Philosophy Card ──
+            StaggeredEntrance(visible = hasAnimated, delayMillis = 180) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large,
+                    shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant
                     ),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
-                    Column(modifier = Modifier.padding(24.dp)) {
+                    Column(modifier = Modifier.padding(20.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(6.dp)
+                                    .size(8.dp)
                                     .clip(CircleShape)
                                     .background(MaterialTheme.colorScheme.primary)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Philosophy",
+                                text = "Privacy & Freedom First",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "We believe you should be in control. No annoying ads, no hidden data collection, and no forced recommendations. Just the videos you love, whenever and however you want.",
+                            text = "Enjoy your media without interruptions, forced telemetry, or paywalls. Everything is stored locally on your device with complete data ownership.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -194,54 +223,111 @@ fun AboutScreen(onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            StaggeredEntrance(visible = hasAnimated, delayMillis = 320) {
-                Text(
-                    text = "Key Features",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                )
-            }
-
-            val features = listOf(
-                Triple(Icons.Default.PlayArrow, "Play icon", "Watch videos ad-free, even in the background"),
-                Triple(Icons.Default.Search, "Search icon", "Find videos, channels, and playlists"),
-                Triple(Icons.Default.Download, "Download icon", "Save videos to watch offline, in any quality"),
-                Triple(Icons.AutoMirrored.Filled.PlaylistPlay, "Playlist icon", "Create your own playlists"),
-                Triple(Icons.Default.Subscriptions, "Subscriptions icon", "Follow channels you love, privately"),
-                Triple(Icons.Default.History, "History icon", "Easily find videos you watched before"),
-                Triple(Icons.Default.VisibilityOff, "Private icon", "100% private — no tracking, no sign-in")
+            // ── Section 1: Music & Synced Lyrics ──
+            FeatureCategoryHeader(
+                title = "Music & Synced Lyrics",
+                visible = hasAnimated,
+                delayMillis = 220
             )
 
-            Column(modifier = Modifier.fillMaxWidth()) {
-                features.forEachIndexed { index, (icon, desc, title) ->
-                    StaggeredEntrance(
-                        visible = hasAnimated,
-                        delayMillis = 360 + (index * 50),
-                        fromLeft = true
-                    ) {
-                        FeatureItem(icon = icon, contentDescription = desc, title = title)
-                    }
-                }
-            }
+            val musicFeatures = listOf(
+                FeatureData(Icons.Default.MusicNote, "Music mode", "Dedicated Music Player", "Seamless audio-only mode with full background & notification controls."),
+                FeatureData(Icons.Default.Mic, "Lyrics icon", "Synchronized Karaoke Lyrics", "Multi-tiered lyrics engine with live auto-scroll, YouTube CC & description parser."),
+                FeatureData(Icons.Default.GraphicEq, "Equalizer icon", "Audio Pitch & Equalizer", "Fine-tune frequencies, bass boost, and pitch correction for optimal listening.")
+            )
+
+            FeatureList(features = musicFeatures, visible = hasAnimated, startDelay = 240)
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+            // ── Section 2: Video Playback & Controls ──
+            FeatureCategoryHeader(
+                title = "Video Playback & Smart Controls",
+                visible = hasAnimated,
+                delayMillis = 340
+            )
+
+            val videoFeatures = listOf(
+                FeatureData(Icons.Default.PlayArrow, "Ad-free play", "100% Ad-Free Streaming", "Watch videos with zero pre-roll, mid-roll, or sponsored banners."),
+                FeatureData(Icons.Default.FlashOn, "Shorts icon", "Shorts Feed & Search Carousel", "Scroll seamless short-form vertical reels and explore Shorts directly inside search results."),
+                FeatureData(Icons.Default.PictureInPictureAlt, "PiP icon", "Picture-in-Picture & Background", "Multitask freely while keeping your video or audio playing seamlessly."),
+                FeatureData(Icons.Default.Speed, "Speed icon", "Speed & Pitch Controls", "Variable playback speed from 0.25x up to 3.0x with pitch-preservation."),
+                FeatureData(Icons.Default.Timer, "Sleep timer", "Custom Sleep Timer", "Schedule automatic playback shutoff when listening to sleep tracks or podcasts.")
+            )
+
+            FeatureList(features = videoFeatures, visible = hasAnimated, startDelay = 360)
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ── Section 3: Downloads & Offline Media ──
+            FeatureCategoryHeader(
+                title = "Offline Downloads & Media",
+                visible = hasAnimated,
+                delayMillis = 480
+            )
+
+            val downloadFeatures = listOf(
+                FeatureData(Icons.Default.Download, "Download icon", "Clean Video & Audio Downloads", "Save your favorite streams for offline listening and watching wherever you are."),
+                FeatureData(Icons.AutoMirrored.Filled.PlaylistPlay, "Playlist download", "Batch Playlist Downloads", "Queue and download entire collections with reliable background management."),
+                FeatureData(Icons.Default.Subtitles, "Offline subtitles", "Offline Captions & Lyrics", "Keeps lyrics and subtitles bundled right alongside your saved media.")
+            )
+
+            FeatureList(features = downloadFeatures, visible = hasAnimated, startDelay = 500)
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ── Section 4: Subtitles & Translation ──
+            FeatureCategoryHeader(
+                title = "Closed Captions & Translation",
+                visible = hasAnimated,
+                delayMillis = 620
+            )
+
+            val captionFeatures = listOf(
+                FeatureData(Icons.Default.Subtitles, "Captions icon", "Multilingual Closed Captions", "Official YouTube CC, auto-generated streams, and community subtitles."),
+                FeatureData(Icons.Default.Translate, "Translate icon", "Live Subtitle Translation", "On-device real-time neural translation into your preferred native language.")
+            )
+
+            FeatureList(features = captionFeatures, visible = hasAnimated, startDelay = 640)
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ── Section 5: Privacy & Local Data ──
+            FeatureCategoryHeader(
+                title = "Privacy & Local Organization",
+                visible = hasAnimated,
+                delayMillis = 720
+            )
+
+            val privacyFeatures = listOf(
+                FeatureData(Icons.Default.Subscriptions, "Subscriptions", "Local Channel Subscriptions", "Subscribe and organize favorite creators without signing into a Google account."),
+                FeatureData(Icons.AutoMirrored.Filled.PlaylistPlay, "Custom playlists", "Custom Playlists & Queue", "Create playlists, reorder items, shuffle, and manage ongoing queues locally."),
+                FeatureData(Icons.Default.History, "History icon", "Watch & Search History", "Instant offline history and search suggestions with one-tap clear privacy controls."),
+                FeatureData(Icons.Default.Security, "Privacy icon", "No Tracking & No Telemetry", "100% private. Zero telemetry, zero analytics, zero data sharing.")
+            )
+
+            FeatureList(features = privacyFeatures, visible = hasAnimated, startDelay = 740)
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant,
+                thickness = 1.dp
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "Version 1.0.0 (Beta)",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = "Version 1.0.0 (Release Build)",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Made with care by Shubham Boghara.",
+                text = "Crafted with care by Shubham Boghara.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -253,8 +339,8 @@ fun AboutScreen(onBack: () -> Unit) {
             @OptIn(ExperimentalLayoutApi::class)
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 PressableSocialButton(
                     iconRes = R.drawable.ic_github_logo,
@@ -280,6 +366,56 @@ fun AboutScreen(onBack: () -> Unit) {
             }
 
             Spacer(modifier = Modifier.height(48.dp))
+        }
+    }
+}
+
+private data class FeatureData(
+    val icon: ImageVector,
+    val contentDescription: String,
+    val title: String,
+    val subtitle: String
+)
+
+@Composable
+private fun FeatureCategoryHeader(
+    title: String,
+    visible: Boolean,
+    delayMillis: Int
+) {
+    StaggeredEntrance(visible = visible, delayMillis = delayMillis) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun FeatureList(
+    features: List<FeatureData>,
+    visible: Boolean,
+    startDelay: Int
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        features.forEachIndexed { index, item ->
+            StaggeredEntrance(
+                visible = visible,
+                delayMillis = startDelay + (index * 40),
+                fromLeft = true
+            ) {
+                FeatureItem(
+                    icon = item.icon,
+                    contentDescription = item.contentDescription,
+                    title = item.title,
+                    subtitle = item.subtitle
+                )
+            }
         }
     }
 }
@@ -310,18 +446,19 @@ private fun StaggeredEntrance(
     }
 }
 
-// ── Feature row ───────────────────────────────────────────────────────────────
+// ── Feature row item ─────────────────────────────────────────────────────────
 @Composable
 fun FeatureItem(
     icon: ImageVector,
     contentDescription: String,
-    title: String
+    title: String,
+    subtitle: String
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.Top
     ) {
         Box(
             modifier = Modifier
@@ -338,14 +475,24 @@ fun FeatureItem(
             )
         }
         Spacer(modifier = Modifier.width(16.dp))
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -370,17 +517,19 @@ private fun PressableSocialButton(
         interactionSource = interactionSource,
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.scale(scale)
+        modifier = Modifier
+            .scale(scale)
+            .semantics { role = Role.Button }
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 painter = painterResource(id = iconRes),
                 contentDescription = text,
                 tint = iconTint ?: MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(

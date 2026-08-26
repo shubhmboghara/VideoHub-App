@@ -256,6 +256,47 @@ object ExtractorHelper {
         return ListExtractorPagingSource(extractor)
     }
 
+    suspend fun getSearchSuggestions(query: String): List<String> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        try {
+            // 1. Try NewPipe's official suggestion extractor
+            try {
+                val suggestionExtractor = ServiceList.YouTube.suggestionExtractor
+                if (suggestionExtractor != null) {
+                    val suggestions = suggestionExtractor.suggestionList(query)
+                    if (!suggestions.isNullOrEmpty()) {
+                        return@withContext suggestions.take(10)
+                    }
+                }
+            } catch (_: Exception) {}
+
+            // 2. High-speed YouTube Suggestion API fallback
+            val encoded = URLEncoder.encode(query, "UTF-8")
+            val url = "https://suggestqueries.google.com/complete/search?client=youtube&ds=yt&client=firefox&q=$encoded"
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", WEB_USER_AGENT)
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .build()
+            val response = buildClient().newCall(request).execute()
+            if (response.isSuccessful) {
+                val body = response.body?.string() ?: ""
+                if (body.startsWith("[")) {
+                    val array = JSONArray(body)
+                    if (array.length() > 1) {
+                        val suggestionsArray = array.getJSONArray(1)
+                        val results = mutableListOf<String>()
+                        for (i in 0 until suggestionsArray.length()) {
+                            results.add(suggestionsArray.getString(i))
+                        }
+                        return@withContext results.take(10)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        emptyList()
+    }
+
     fun getChannelPagingSource(info: ChannelInfo): ListExtractorPagingSource? {
         val tab = info.tabs.firstOrNull() as? org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
         return if (tab != null) {

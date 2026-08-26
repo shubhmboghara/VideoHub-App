@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -69,7 +70,16 @@ fun MusicModeUI(
         exit = fadeOut(animationSpec = tween(300)),
         modifier = Modifier.zIndex(2f)
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .clickable(
+                    interactionSource = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                )
+        ) {
             if (com.videhub.PipState.isActive.value) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     AsyncImage(
@@ -160,7 +170,9 @@ fun MusicModeUI(
                     onVideoPlay = { url, t, thumb -> onVideoPlay(url, t, thumb, true) },
                     onCaptionsRequested = onCaptionsRequested,
                     showCaptions = showCaptions,
-                    isAudioOnly = isAudioOnly
+                    offlineCaptions = offlineCaptions,
+                    isAudioOnly = isAudioOnly,
+                    description = streamInfo?.description?.content
                 )
                     }
                 

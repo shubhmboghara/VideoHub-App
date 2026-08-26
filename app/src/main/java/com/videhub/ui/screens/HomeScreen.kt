@@ -29,6 +29,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import com.videhub.data.AppDatabase
 import com.videhub.extractor.ExtractorHelper
 import com.videhub.ui.components.VideoCard
@@ -84,7 +90,101 @@ fun HomeScreen(
         initialFirstVisibleItemScrollOffset = sharedViewModel.homeScrollStateMap[selectedTab]?.second ?: 0
     )
     
+    val customTabsString by com.videhub.data.SettingsManager.getCustomTabs(context).collectAsStateWithLifecycle(initialValue = "Music,Gaming,News,Sports")
+    val channels by db.channelDao().getAll().collectAsStateWithLifecycle(initialValue = emptyList())
+    val channelMap = remember(channels) { channels.associateBy { it.channelId } }
+    val tabs = remember(customTabsString) {
+        val list = mutableStateListOf("All")
+        if (customTabsString.isNotEmpty()) {
+            list.addAll(customTabsString.split(","))
+        }
+        list
+    }
+    
+    val isOnline by remember { com.videhub.utils.NetworkUtils.getNetworkStatusFlow(context) }.collectAsStateWithLifecycle(initialValue = com.videhub.utils.NetworkUtils.isNetworkAvailable(context))
+    val offlineDownloads by db.downloadedVideoDao().getAllDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
+    
+    val feedRepository = remember(db, context) { com.videhub.data.repository.FeedRepository(db, context) }
+    
+    var showAddDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showInterestsSheet by remember { mutableStateOf(false) }
+    var tabToDelete by remember { mutableIntStateOf(-1) }
+    var newTabName by remember { mutableStateOf("") }
+    var playlistDialogVideo by remember { mutableStateOf<StreamInfoItem?>(null) }
+    var isRefreshing by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
+    var homeFeedPage by remember { mutableIntStateOf(1) }
+    var refreshCounter by remember { mutableIntStateOf(0) }
+
+    val onError: (String) -> Unit = { message ->
+        errorText = message
+        isLoading = false
+    }
+
+    fun loadNextPage() {
+        if (isPaginating) return
+        val current = sharedViewModel.homeVideosCacheMap[selectedTab] ?: emptyList()
+        if (current.isEmpty()) return
+
+        scope.launch {
+            isPaginating = true
+            try {
+                if (selectedTab == 0) {
+                    val existingUrls = current.mapNotNull {
+                        when (it) {
+                            is StreamInfoItem -> it.url
+                            is com.videhub.data.entity.FeedCacheEntity -> it.videoId
+                            else -> null
+                        }
+                    }.toSet()
+                    val nextVideos = feedRepository.getHomeFeedNextPage(
+                        pageNumber = ++homeFeedPage,
+                        existingUrls = existingUrls
+                    )
+                    if (nextVideos.isNotEmpty()) {
+                        sharedViewModel.homeVideosCacheMap[0] = current + nextVideos
+                    }
+                } else {
+                    if (pagingSource?.hasMore == true) {
+                        val items = pagingSource?.loadNextPage() ?: emptyList()
+                        val newItems = items.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+                        if (newItems.isNotEmpty()) {
+                            sharedViewModel.homeVideosCacheMap[selectedTab] = current + newItems
+                        }
+                    } else if (pagingSource == null && selectedTab < tabs.size) {
+                        // Fallback pagination for custom tabs
+                        val tabName = tabs[selectedTab]
+                        val (moreFeed, newSource) = feedRepository.loadCustomTabFeed(tabName)
+                        pagingSource = newSource
+                        sharedViewModel.homePagingSourceMap[selectedTab] = newSource
+                        if (moreFeed.isNotEmpty()) {
+                            sharedViewModel.homeVideosCacheMap[selectedTab] = current + moreFeed
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("HomeScreen", "Error loading next page", e)
+            } finally {
+                isPaginating = false
+            }
+        }
+    }
+
+    // Trigger pagination when nearing end of list (within last 3 items)
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val totalItems = listState.layoutInfo.totalItemsCount
+            val lastVisibleItemIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItems > 0 && lastVisibleItemIndex >= totalItems - 3 && !isPaginating
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore && videos.isNotEmpty() && !isLoading && !isRefreshing) {
+            loadNextPage()
+        }
+    }
 
     // Save scroll state continuously or when selectedTab changes
     LaunchedEffect(selectedTab) {
@@ -104,36 +204,9 @@ fun HomeScreen(
             sharedViewModel.homeScrollStateMap[selectedTab] = Pair(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
         }
     }
-    
-    val customTabsString by com.videhub.data.SettingsManager.getCustomTabs(context).collectAsStateWithLifecycle(initialValue = "Music,Gaming,News,Sports")
-    val channels by db.channelDao().getAll().collectAsStateWithLifecycle(initialValue = emptyList())
-    val channelMap = remember(channels) { channels.associateBy { it.channelId } }
-    val tabs = remember(customTabsString) {
-        val list = mutableStateListOf("All")
-        if (customTabsString.isNotEmpty()) {
-            list.addAll(customTabsString.split(","))
-        }
-        list
-    }
-    
-    val isOnline by remember { com.videhub.utils.NetworkUtils.getNetworkStatusFlow(context) }.collectAsStateWithLifecycle(initialValue = com.videhub.utils.NetworkUtils.isNetworkAvailable(context))
-    val offlineDownloads by db.downloadedVideoDao().getAllDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
-    
-    var showAddDialog by remember { mutableStateOf(false) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var showInterestsSheet by remember { mutableStateOf(false) }
-    var tabToDelete by remember { mutableIntStateOf(-1) }
-    var newTabName by remember { mutableStateOf("") }
-    var playlistDialogVideo by remember { mutableStateOf<StreamInfoItem?>(null) }
-    var isRefreshing by remember { mutableStateOf(false) }
 
-    val onError: (String) -> Unit = { message ->
-        errorText = message
-        isLoading = false
-    }
-
-    fun refresh() {
-        if (isRefreshing || isLoading || isPaginating) return
+    fun refresh(force: Boolean = false) {
+        if (!force && (isRefreshing || isLoading || isPaginating)) return
         scope.launch {
             // "new render": clear cache and show shimmer
             sharedViewModel.homeVideosCacheMap[selectedTab] = emptyList()
@@ -141,23 +214,25 @@ fun HomeScreen(
             isLoading = true
             isRefreshing = true
             errorText = null
+            refreshCounter++
+            homeFeedPage = 1
             try {
                 val safeTab = if (tabs.isNotEmpty()) selectedTab.coerceIn(0, tabs.size - 1) else 0
                 val newVideos = mutableListOf<Any>()
                 when (safeTab) {
                     0 -> {
-                        // Concurrently refresh recommended feed videos and recommended playlists
+                        // Concurrently refresh recommended feed videos and recommended playlists via FeedRepository
                         var freshVideos: List<InfoItem> = emptyList()
                         coroutineScope {
                             val playlistsDeferred = async(Dispatchers.IO) {
                                 try {
-                                    com.videhub.recommendation.RecommendationEngine.getRecommendedPlaylists(db, context)
+                                    feedRepository.getRecommendedPlaylists(isRefresh = true, refreshCount = refreshCounter)
                                 } catch (_: Exception) {
                                     emptyList<com.videhub.recommendation.RecommendedPlaylistInfo>()
                                 }
                             }
                             val feedDeferred = async(Dispatchers.IO) {
-                                com.videhub.recommendation.RecommendationEngine.getRecommendedFeed(db, context, isRefresh = true)
+                                feedRepository.getHomeFeed(isRefresh = true, refreshCount = refreshCounter)
                             }
                             freshVideos = feedDeferred.await()
                             val fetchedPlaylists = playlistsDeferred.await()
@@ -168,37 +243,25 @@ fun HomeScreen(
                         }
 
                         if (freshVideos.isNotEmpty()) {
-                            val entities = freshVideos.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>().map {
-                                com.videhub.data.entity.FeedCacheEntity(
-                                    videoId = it.url ?: "",
-                                    title = it.name ?: "",
-                                    thumbnailUrl = it.thumbnails?.firstOrNull()?.url ?: "",
-                                    channelName = it.uploaderName ?: "",
-                                    channelAvatarUrl = it.uploaderAvatars?.firstOrNull()?.url,
-                                    viewCount = it.viewCount,
-                                    duration = it.duration,
-                                    publishedText = it.uploadDate?.toString() ?: it.textualUploadDate ?: ""
-                                )
-                            }
-                            db.feedCacheDao().clearAll()
-                            db.feedCacheDao().insertAll(entities)
                             newVideos.addAll(freshVideos)
                         }
                         pagingSource = null
                     }
                     else -> {
                         if (safeTab < tabs.size) {
-                            val modifiers = listOf("trending", "popular", "top", "new", "viral", "latest", "hits")
-                            val queryModifier = modifiers.random()
-                            val source = ExtractorHelper.getSearchPagingSource("${tabs[safeTab]} $queryModifier")
+                            val (customFeed, source) = feedRepository.loadCustomTabFeed(
+                                tabName = tabs[safeTab],
+                                isRefresh = true,
+                                refreshCount = refreshCounter
+                            )
                             pagingSource = source
-                            val res = source.loadInitial()?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>() ?: emptyList()
-                            newVideos.addAll(res)
+                            newVideos.addAll(customFeed)
                         }
                     }
                 }
                 sharedViewModel.homeVideosCacheMap[selectedTab] = newVideos
                 sharedViewModel.homePagingSourceMap[selectedTab] = pagingSource
+                listState.scrollToItem(0)
             } catch (e: Exception) {
                 if (e !is kotlinx.coroutines.CancellationException) {
                     android.util.Log.e("HomeScreen", "Error loading All tab", e)
@@ -236,7 +299,7 @@ fun HomeScreen(
                         if (sharedViewModel.homeRecommendedPlaylistsCache == null) {
                             scope.launch(Dispatchers.IO) {
                                 try {
-                                    val fetchedPlaylists = com.videhub.recommendation.RecommendationEngine.getRecommendedPlaylists(db, context)
+                                    val fetchedPlaylists = feedRepository.getRecommendedPlaylists()
                                     if (fetchedPlaylists.isNotEmpty()) {
                                         recommendedPlaylists = fetchedPlaylists
                                         sharedViewModel.homeRecommendedPlaylistsCache = fetchedPlaylists
@@ -245,22 +308,8 @@ fun HomeScreen(
                             }
                         }
 
-                        val freshVideos = com.videhub.recommendation.RecommendationEngine.getRecommendedFeed(db, context, isRefresh = false)
+                        val freshVideos = feedRepository.getHomeFeed(isRefresh = false)
                         if (freshVideos.isNotEmpty()) {
-                            val entities = freshVideos.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>().map {
-                                com.videhub.data.entity.FeedCacheEntity(
-                                    videoId = it.url ?: "",
-                                    title = it.name ?: "",
-                                    thumbnailUrl = it.thumbnails?.firstOrNull()?.url ?: "",
-                                    channelName = it.uploaderName ?: "",
-                                    channelAvatarUrl = it.uploaderAvatars?.firstOrNull()?.url,
-                                    viewCount = it.viewCount,
-                                    duration = it.duration,
-                                    publishedText = it.uploadDate?.toString() ?: it.textualUploadDate ?: ""
-                                )
-                            }
-                            db.feedCacheDao().clearAll()
-                            db.feedCacheDao().insertAll(entities)
                             sharedViewModel.homeVideosCacheMap[0] = freshVideos
                         }
                     } catch (e: Exception) {
@@ -276,10 +325,9 @@ fun HomeScreen(
                 }
                 else -> {
                     if (safeTab < tabs.size) {
-                        val source = ExtractorHelper.getSearchPagingSource(tabs[safeTab] + " trending")
+                        val (customFeed, source) = feedRepository.loadCustomTabFeed(tabs[safeTab])
                         pagingSource = source
-                        val res = source.loadInitial()?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>() ?: emptyList()
-                        newVideos.addAll(res)
+                        newVideos.addAll(customFeed)
                     }
                     isLoading = false
                 }
@@ -293,19 +341,6 @@ fun HomeScreen(
         } catch (e: Exception) {
             android.util.Log.e("HomeScreen", "Error loading tab", e)
             onError("Error: ${e.message}")
-        }
-    }
-    
-    fun loadNextPage() {
-        if (isPaginating || pagingSource?.hasMore != true) return
-        scope.launch {
-            isPaginating = true
-            try {
-                val items = pagingSource?.loadNextPage() ?: emptyList()
-                val current = sharedViewModel.homeVideosCacheMap[selectedTab] ?: emptyList()
-                sharedViewModel.homeVideosCacheMap[selectedTab] = current + items.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
-            } catch (e: Exception) {}
-            isPaginating = false
         }
     }
 
@@ -381,32 +416,42 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                androidx.compose.material3.Surface(
-                    shape = androidx.compose.foundation.shape.CircleShape,
+                Surface(
+                    shape = CircleShape,
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     onClick = { showInterestsSheet = true },
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .size(48.dp)
+                        .semantics {
+                            contentDescription = "Personalize interests and topics"
+                        }
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Filled.Tune,
-                            contentDescription = "Personalize Interests",
+                            imageVector = Icons.Filled.Tune,
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(22.dp)
                         )
                     }
                 }
 
-                androidx.compose.material3.Surface(
-                    shape = androidx.compose.foundation.shape.CircleShape,
+                Surface(
+                    shape = CircleShape,
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     onClick = onSearchClick,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .size(48.dp)
+                        .semantics {
+                            contentDescription = "Search videos, channels, and playlists"
+                        }
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Filled.Search,
-                            contentDescription = "Search",
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(24.dp)
                         )
@@ -416,7 +461,10 @@ fun HomeScreen(
         }
         
         Row(
-            modifier = Modifier.fillMaxWidth().background(tabBg).padding(vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(tabBg)
+                .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             val safeSelectedTab = if (tabs.isNotEmpty()) selectedTab.coerceIn(0, tabs.size - 1) else 0
@@ -427,48 +475,71 @@ fun HomeScreen(
             
             androidx.compose.foundation.lazy.LazyRow(
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 items(count = tabs.size, key = { index -> tabs[index] }) { index ->
-                    val defaultTabs = "Music,Gaming,News,Sports"
                     val tab = tabs[index]
                     val isSelected = safeSelectedTab == index
                     val isCustom = tab != "All"
                     
-                    Box(
+                    Surface(
                         modifier = Modifier
+                            .minimumInteractiveComponentSize()
                             .height(36.dp)
-                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                            .background(if (isSelected) selectedChipBg else unselectedChipBg.copy(alpha = 0.5f))
-                            .combinedClickable(
-                                onClick = { selectedTab = index },
-                                onLongClick = {
-                                    if (isCustom) {
-                                        tabToDelete = index
-                                        showDeleteDialog = true
-                                    }
-                                }
-                            )
-                            .padding(horizontal = 16.dp),
-                        contentAlignment = Alignment.Center
+                            .semantics {
+                                contentDescription = if (isSelected) "$tab tab, selected" else "$tab tab"
+                            },
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isSelected) selectedChipBg else unselectedChipBg.copy(alpha = 0.5f),
+                        onClick = { selectedTab = index }
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(tab, style = MaterialTheme.typography.labelLarge, fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal, color = if (isSelected) selectedText else unselectedText)
+                        Box(
+                            modifier = Modifier
+                                .combinedClickable(
+                                    role = androidx.compose.ui.semantics.Role.Tab,
+                                    onClick = { selectedTab = index },
+                                    onLongClick = {
+                                        if (isCustom) {
+                                            tabToDelete = index
+                                            showDeleteDialog = true
+                                        }
+                                    }
+                                )
+                                .padding(horizontal = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = tab,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                color = if (isSelected) selectedText else unselectedText
+                            )
                         }
                     }
                 }
                 item {
-                    Box(
+                    Surface(
                         modifier = Modifier
-                            .size(32.dp)
-                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                            .background(unselectedChipBg)
-                            .clickable { showAddDialog = true },
-                        contentAlignment = Alignment.Center
+                            .minimumInteractiveComponentSize()
+                            .size(36.dp)
+                            .semantics {
+                                contentDescription = "Add custom category"
+                            },
+                        shape = CircleShape,
+                        color = unselectedChipBg,
+                        onClick = { showAddDialog = true }
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -613,39 +684,29 @@ fun HomeScreen(
                         count = videos.size,
                         key = { index -> 
                             val v = videos[index]
-                            val id = when (v) {
-                                is StreamInfoItem -> v.url
-                                is com.videhub.data.entity.FeedCacheEntity -> v.videoId
-                                is com.videhub.data.entity.HistoryEntity -> v.videoId
-                                is com.videhub.data.entity.WatchLaterEntity -> v.videoId
-                                is com.videhub.data.entity.LikedVideoEntity -> v.videoId
-                                is com.videhub.data.entity.DownloadedVideoEntity -> v.videoId
-                                is com.videhub.data.entity.PlaylistVideoEntity -> v.videoId
-                                else -> index.toString()
+                            when (v) {
+                                is StreamInfoItem -> v.url ?: "stream_$index"
+                                is com.videhub.data.entity.FeedCacheEntity -> "feed_${v.videoId}"
+                                is com.videhub.data.entity.HistoryEntity -> "hist_${v.videoId}"
+                                is com.videhub.data.entity.WatchLaterEntity -> "wl_${v.videoId}"
+                                is com.videhub.data.entity.LikedVideoEntity -> "liked_${v.videoId}"
+                                is com.videhub.data.entity.DownloadedVideoEntity -> "dl_${v.videoId}"
+                                is com.videhub.data.entity.PlaylistVideoEntity -> "pl_${v.videoId}"
+                                else -> "item_$index"
                             }
-                            "${id}_$index" 
+                        },
+                        contentType = { index ->
+                            videos[index]::class.java.simpleName
                         }
                     ) { index ->
                         val video = videos[index]
-                        
-                        if (index == videos.size - 1 && !isPaginating && pagingSource?.hasMore == true) {
-                            LaunchedEffect(Unit) {
-                                loadNextPage()
-                            }
-                        }
                         
                         when (video) {
                             is StreamInfoItem -> {
                                 val cId = video.uploaderUrl ?: ""
                                 val avatarUrl = channelMap[cId]?.thumbnailUrl
-                                if (index < 3) {
-                                    LaunchedEffect(video.url) {
-                                        com.videhub.utils.PrefetchManager.prefetch(context, video.url)
-                                    }
-                                }
                                 VideoCard(
                                     item = video,
-                                    modifier = Modifier.animateItem(),
                                     onClick = onVideoClick,
                                     onChannelClick = onChannelClick,
                                     channelAvatarUrl = avatarUrl
@@ -662,8 +723,7 @@ fun HomeScreen(
                                     channelAvatarUrl = video.channelAvatarUrl,
                                     uploadDate = video.publishedText,
                                     onClick = onVideoClick,
-                                    onChannelClick = onChannelClick,
-                                    modifier = Modifier.animateItem()
+                                    onChannelClick = onChannelClick
                                 )
                             }
                             is com.videhub.data.entity.HistoryEntity -> {
@@ -677,8 +737,7 @@ fun HomeScreen(
                                     channelAvatarUrl = null,
                                     uploadDate = video.uploadDate,
                                     onClick = onVideoClick,
-                                    onChannelClick = onChannelClick,
-                                    modifier = Modifier.animateItem()
+                                    onChannelClick = onChannelClick
                                 )
                             }
                             is com.videhub.data.entity.WatchLaterEntity -> {
@@ -692,8 +751,7 @@ fun HomeScreen(
                                     channelAvatarUrl = null,
                                     uploadDate = "",
                                     onClick = onVideoClick,
-                                    onChannelClick = onChannelClick,
-                                    modifier = Modifier.animateItem()
+                                    onChannelClick = onChannelClick
                                 )
                             }
                             is com.videhub.data.entity.LikedVideoEntity -> {
@@ -707,8 +765,7 @@ fun HomeScreen(
                                     channelAvatarUrl = null,
                                     uploadDate = video.uploadDate,
                                     onClick = onVideoClick,
-                                    onChannelClick = onChannelClick,
-                                    modifier = Modifier.animateItem()
+                                    onChannelClick = onChannelClick
                                 )
                             }
                             is com.videhub.data.entity.DownloadedVideoEntity -> {
@@ -725,8 +782,7 @@ fun HomeScreen(
                                         val localUri = android.net.Uri.fromFile(java.io.File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), video.fileName)).toString()
                                         onVideoClick(localUri, video.title, video.thumbnailUrl)
                                     },
-                                    onChannelClick = onChannelClick,
-                                    modifier = Modifier.animateItem()
+                                    onChannelClick = onChannelClick
                                 )
                             }
                             is com.videhub.data.entity.PlaylistVideoEntity -> {
@@ -787,7 +843,17 @@ fun HomeScreen(
             com.videhub.ui.components.InterestsBottomSheet(
                 onDismiss = { showInterestsSheet = false },
                 onSaved = {
-                    refresh()
+                    sharedViewModel.homeVideosCacheMap.clear()
+                    sharedViewModel.homeRecommendedPlaylistsCache = null
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            db.feedCacheDao().clearAll()
+                        } catch (_: Exception) {}
+                        withContext(Dispatchers.Main) {
+                            selectedTab = 0
+                            refresh(force = true)
+                        }
+                    }
                 }
             )
         }
