@@ -567,14 +567,16 @@ fun NowPlayingScreen(
                 )
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Custom seek bar
-                CustomSeekBar(
+                // Modern Music Seek Bar with 3-Layer Track, Floating Time Bubble, Haptics & Toggleable Remaining Duration
+                MusicSeekBar(
                     positionProvider = positionProvider,
                     duration = duration,
+                    bufferedPositionProvider = { exoPlayer?.bufferedPosition?.coerceAtLeast(0L) ?: 0L },
                     onSeek = { pos -> 
                         val player = com.videhub.service.MediaSessionManager.getOrCreatePlayer(context)
                         player.seekTo(pos)
-                    }
+                    },
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -603,7 +605,6 @@ fun NowPlayingScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomSeekBar(
     positionProvider: () -> Long,
@@ -611,81 +612,13 @@ fun CustomSeekBar(
     onSeek: (Long) -> Unit,
     onSeekComplete: (Long) -> Unit = {}
 ) {
-    var dragProgress by remember { mutableStateOf<Float?>(null) }
-    var position by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) {
-        while(true) {
-            position = positionProvider()
-            kotlinx.coroutines.delay(500)
-        }
-    }
-    
-    val safeDuration = if (duration <= 0L) 0L else duration
-    val safePosition = position.coerceIn(0L, if (safeDuration > 0L) safeDuration else Long.MAX_VALUE)
-    
-    val displayPosition = when {
-        dragProgress != null -> (dragProgress!! * safeDuration).toLong()
-        else -> safePosition
-    }
-    
-    val fraction = if (safeDuration > 0L) displayPosition.toFloat() / safeDuration.toFloat() else 0f
-    
-    val haptic = LocalHapticFeedback.current
-    
-    // Issue #6: Seek Bar Too Thin and No Thumb
-    val interactionSource = remember { MutableInteractionSource() }
-    var lastHapticFraction by remember { mutableStateOf(0f) }
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Slider(
-            value = fraction.coerceIn(0f, 1f),
-            onValueChange = { 
-                if (dragProgress == null) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    lastHapticFraction = it
-                } else if (kotlin.math.abs(it - lastHapticFraction) > 0.01f) {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    lastHapticFraction = it
-                }
-                dragProgress = it 
-            },
-            onValueChangeFinished = {
-                dragProgress?.let {
-                    val seekTo = (it * safeDuration).toLong()
-                    onSeek(seekTo)
-                    position = seekTo
-                    onSeekComplete(seekTo)
-                }
-                dragProgress = null
-            },
-            interactionSource = interactionSource,
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(24.dp)
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = formatDuration(displayPosition / 1000),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-            )
-            Text(
-                text = formatDuration(safeDuration / 1000),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-            )
-        }
-    }
+    MusicSeekBar(
+        positionProvider = positionProvider,
+        duration = duration,
+        onSeek = onSeek,
+        onSeekComplete = onSeekComplete,
+        modifier = Modifier.fillMaxWidth()
+    )
 }
 
 fun formatDuration(seconds: Long): String {

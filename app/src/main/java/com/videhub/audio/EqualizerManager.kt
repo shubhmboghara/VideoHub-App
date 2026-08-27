@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import android.media.audiofx.Virtualizer
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,13 +13,16 @@ import kotlinx.coroutines.flow.asStateFlow
 object EqualizerManager {
     private const val TAG = "EqualizerManager"
     private const val PREFS_NAME = "videhub_equalizer_prefs"
+
     private const val KEY_ENABLED = "eq_enabled"
     private const val KEY_PRESET = "eq_preset"
     private const val KEY_BASS_STRENGTH = "eq_bass_strength"
+    private const val KEY_VIRTUALIZER_STRENGTH = "eq_virtualizer_strength"
     private const val KEY_BAND_PREFIX = "eq_band_"
 
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
+    private var virtualizer: Virtualizer? = null
     private var currentSessionId: Int = 0
     private var prefs: SharedPreferences? = null
 
@@ -30,6 +34,9 @@ object EqualizerManager {
 
     private val _bassStrength = MutableStateFlow<Short>(0)
     val bassStrength: StateFlow<Short> = _bassStrength.asStateFlow()
+
+    private val _virtualizerStrength = MutableStateFlow<Short>(0)
+    val virtualizerStrength: StateFlow<Short> = _virtualizerStrength.asStateFlow()
 
     private val _bandLevels = MutableStateFlow<Map<Short, Short>>(emptyMap())
     val bandLevels: StateFlow<Map<Short, Short>> = _bandLevels.asStateFlow()
@@ -59,13 +66,16 @@ object EqualizerManager {
         if (prefs == null) {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         }
+
         val savedEnabled = prefs?.getBoolean(KEY_ENABLED, false) ?: false
         val savedPreset = prefs?.getString(KEY_PRESET, "Flat") ?: "Flat"
         val savedBass = prefs?.getInt(KEY_BASS_STRENGTH, 0)?.toShort() ?: 0
+        val savedVirtualizer = prefs?.getInt(KEY_VIRTUALIZER_STRENGTH, 0)?.toShort() ?: 0
 
         _isEnabled.value = savedEnabled
         _currentPreset.value = savedPreset
         _bassStrength.value = savedBass
+        _virtualizerStrength.value = savedVirtualizer
 
         if (audioSessionId > 0 && audioSessionId != currentSessionId) {
             release()
@@ -85,7 +95,6 @@ object EqualizerManager {
 
                 val freqs = mutableListOf<Pair<Short, Int>>()
                 val levels = mutableMapOf<Short, Short>()
-
                 for (band in 0 until numBands) {
                     val b = band.toShort()
                     val freq = getCenterFreq(b)
@@ -99,7 +108,6 @@ object EqualizerManager {
                         Log.e(TAG, "Error setting band level: ${e.message}")
                     }
                 }
-
                 _bandFrequencies.value = freqs
                 _bandLevels.value = levels
                 enabled = _isEnabled.value
@@ -119,6 +127,17 @@ object EqualizerManager {
             Log.e(TAG, "Failed to init BassBoost: ${e.message}")
         }
 
+        try {
+            virtualizer = Virtualizer(0, audioSessionId).apply {
+                if (strengthSupported) {
+                    setStrength(_virtualizerStrength.value)
+                }
+                enabled = _isEnabled.value && _virtualizerStrength.value > 0
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to init Virtualizer: ${e.message}")
+        }
+
         applyCurrentPresetState()
     }
 
@@ -128,6 +147,7 @@ object EqualizerManager {
         try {
             equalizer?.enabled = enabled
             bassBoost?.enabled = enabled && _bassStrength.value > 0
+            virtualizer?.enabled = enabled && _virtualizerStrength.value > 0
         } catch (e: Exception) {
             Log.e(TAG, "Error toggling effects: ${e.message}")
         }
@@ -148,17 +168,29 @@ object EqualizerManager {
         }
     }
 
+    fun setVirtualizerStrength(strength: Short) {
+        _virtualizerStrength.value = strength
+        prefs?.edit()?.putInt(KEY_VIRTUALIZER_STRENGTH, strength.toInt())?.apply()
+        try {
+            virtualizer?.let {
+                if (it.strengthSupported) {
+                    it.setStrength(strength)
+                    it.enabled = _isEnabled.value && strength > 0
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting virtualizer strength: ${e.message}")
+        }
+    }
+
     fun setBandLevel(band: Short, level: Short) {
         _currentPreset.value = "Custom"
         prefs?.edit()?.putString(KEY_PRESET, "Custom")?.apply()
-
         val updated = _bandLevels.value.toMutableMap()
         val clamped = level.coerceIn(_minBandLevel.value, _maxBandLevel.value)
         updated[band] = clamped
         _bandLevels.value = updated
-
         prefs?.edit()?.putInt("$KEY_BAND_PREFIX$band", clamped.toInt())?.apply()
-
         try {
             equalizer?.setBandLevel(band, clamped)
         } catch (e: Exception) {
@@ -169,14 +201,12 @@ object EqualizerManager {
     fun selectPreset(presetName: String) {
         _currentPreset.value = presetName
         prefs?.edit()?.putString(KEY_PRESET, presetName)?.apply()
-
         val freqs = _bandFrequencies.value
         if (freqs.isEmpty()) return
 
         val min = _minBandLevel.value.toFloat()
         val max = _maxBandLevel.value.toFloat()
 
-        // Helper to normalize percentage (-1.0 to 1.0) to device band range
         fun calcLevel(pct: Float): Short = (pct * max).toInt().coerceIn(min.toInt(), max.toInt()).toShort()
 
         val newLevels = mutableMapOf<Short, Short>()
@@ -186,6 +216,7 @@ object EqualizerManager {
             "Flat" -> {
                 for (i in 0 until count) newLevels[i.toShort()] = 0
                 setBassStrength(0)
+                setVirtualizerStrength(0)
             }
             "Bass Boost" -> {
                 for (i in 0 until count) {
@@ -212,6 +243,7 @@ object EqualizerManager {
                     newLevels[i.toShort()] = calcLevel(pct)
                 }
                 setBassStrength(0)
+                setVirtualizerStrength(200)
             }
             "Rock" -> {
                 for (i in 0 until count) {
@@ -225,6 +257,7 @@ object EqualizerManager {
                     newLevels[i.toShort()] = calcLevel(pct)
                 }
                 setBassStrength(400)
+                setVirtualizerStrength(300)
             }
             "Pop" -> {
                 for (i in 0 until count) {
@@ -238,6 +271,7 @@ object EqualizerManager {
                     newLevels[i.toShort()] = calcLevel(pct)
                 }
                 setBassStrength(300)
+                setVirtualizerStrength(250)
             }
             "EDM" -> {
                 for (i in 0 until count) {
@@ -251,6 +285,7 @@ object EqualizerManager {
                     newLevels[i.toShort()] = calcLevel(pct)
                 }
                 setBassStrength(800)
+                setVirtualizerStrength(500)
             }
             "Hip-Hop" -> {
                 for (i in 0 until count) {
@@ -264,6 +299,7 @@ object EqualizerManager {
                     newLevels[i.toShort()] = calcLevel(pct)
                 }
                 setBassStrength(600)
+                setVirtualizerStrength(400)
             }
             "Acoustic" -> {
                 for (i in 0 until count) {
@@ -277,6 +313,7 @@ object EqualizerManager {
                     newLevels[i.toShort()] = calcLevel(pct)
                 }
                 setBassStrength(150)
+                setVirtualizerStrength(200)
             }
             else -> return // Custom: maintain current levels
         }
@@ -302,10 +339,12 @@ object EqualizerManager {
         try {
             equalizer?.release()
             bassBoost?.release()
+            virtualizer?.release()
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing audio effects: ${e.message}")
         }
         equalizer = null
         bassBoost = null
+        virtualizer = null
     }
 }

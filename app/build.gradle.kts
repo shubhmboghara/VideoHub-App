@@ -92,8 +92,6 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
-    implementation("androidx.compose.material:material")
-    implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
@@ -103,7 +101,6 @@ dependencies {
 
 
     // Media playback
-    implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:12.1.0")
     implementation("androidx.media3:media3-exoplayer:1.2.0")
     implementation("androidx.media3:media3-datasource-okhttp:1.2.0")
     implementation("androidx.media3:media3-exoplayer-dash:1.2.0")
@@ -126,22 +123,3 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }
 
-tasks.register("restoreFile") {
-    doLast {
-        val process = Runtime.getRuntime().exec(arrayOf("bash", "-c", "ls -l /app && ls -l /app/applet/app"))
-        process.waitFor()
-        println("STDOUT: " + process.inputStream.bufferedReader().readText())
-    }
-}
-
-
-
-
-tasks.register<JavaExec>("runTest") {
-    mainClass.set("com.videhub.TestKt")
-    classpath = sourceSets["main"].runtimeClasspath
-}
-tasks.register<JavaExec>("runTest2") {
-    mainClass.set("Test_captionsKt")
-    classpath = sourceSets["main"].runtimeClasspath
-}

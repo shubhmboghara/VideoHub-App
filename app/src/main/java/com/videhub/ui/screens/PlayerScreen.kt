@@ -1581,6 +1581,23 @@ fun VideoPlayerContainer(
             onCaptionsRequested = onCaptionsRequested,
             onActiveCaptionsChanged = onActiveCaptionsChanged
         )
+
+        if (!com.videhub.PipState.isActive.value && !isScreenLocked) {
+            ModernPlayerControls(
+                modifier = Modifier.fillMaxSize(),
+                mediaPlayer = mediaPlayer,
+                isVisible = controllerVisible,
+                isFullscreen = isFullscreen,
+                showCaptions = showCaptions,
+                onToggleFullscreen = onToggleFullscreen,
+                onSettingsClick = onShowSettingsSheet,
+                onCaptionsClick = onCaptionsRequested,
+                onPreviousClick = { mediaPlayer?.seekToPrevious() },
+                onNextClick = { mediaPlayer?.seekToNext() },
+                onSingleTap = { controllerVisible = !controllerVisible }
+            )
+        }
+
         CaptionsOverlay(
             isPipActive = com.videhub.PipState.isActive.value,
             showCaptions = showCaptions,
