@@ -19,6 +19,10 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    ndk {
+      abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+    }
   }
 
   signingConfigs {
@@ -76,12 +80,7 @@ secrets {
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
-    
-    
-    
-    implementation(libs.mlkit.language.id)
-    implementation(libs.mlkit.translate)
-    implementation("com.ibm.icu:icu4j:74.2")
+    implementation(libs.mlkit.text.recognition)
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.androidx.datastore.preferences)
     implementation("androidx.core:core-splashscreen:1.0.1")

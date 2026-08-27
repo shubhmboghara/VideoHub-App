@@ -915,7 +915,9 @@ fun NowPlayingPlaybackControlsRow(
                 Icon(
                     imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     contentDescription = if (playing) "Pause" else "Play",
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier
+                        .size(36.dp)
+                        .then(if (!playing) Modifier.offset(x = 6.dp) else Modifier)
                 )
             }
         }

@@ -136,13 +136,14 @@ fun ExploreScreen(
     val searchHistory by searchHistoryDao.getAllSearchHistory().collectAsStateWithLifecycle(initialValue = emptyList())
     val searchCacheDao = db.searchCacheDao()
 
-    // Live search suggestions with debounce
+    // Live search suggestions with smart query normalization and debounce
     LaunchedEffect(query) {
-        if (query.trim().length >= 2) {
+        val cleanQuery = com.videhub.ml.SmartMediaAnalyzer.normalizeSearchQuery(query)
+        if (cleanQuery.length >= 2) {
             delay(180)
             try {
                 val fetched = withContext(Dispatchers.IO) {
-                    ExtractorHelper.getSearchSuggestions(query.trim())
+                    ExtractorHelper.getSearchSuggestions(cleanQuery)
                 }
                 suggestions = fetched
             } catch (_: Exception) {

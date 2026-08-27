@@ -1560,6 +1560,27 @@ fun VideoPlayerContainer(
     onToggleMusicMode: () -> Unit
 ) {
     var controllerVisible by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
+    var videoScale by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
+    var videoPanOffsetX by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var videoPanOffsetY by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+
+    val animatedScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = videoScale,
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessLow
+        ),
+        label = "video_zoom_scale"
+    )
+    val animatedOffsetX by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = videoPanOffsetX,
+        label = "video_pan_x"
+    )
+    val animatedOffsetY by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = videoPanOffsetY,
+        label = "video_pan_y"
+    )
+
     androidx.compose.runtime.LaunchedEffect(controllerVisible) {
         if (controllerVisible) {
             kotlinx.coroutines.delay(3000)
@@ -1576,6 +1597,9 @@ fun VideoPlayerContainer(
             isMusicMode = isMusicMode,
             showCaptions = showCaptions,
             isScreenLocked = isScreenLocked,
+            scale = animatedScale,
+            offsetX = animatedOffsetX,
+            offsetY = animatedOffsetY,
             onToggleFullscreen = onToggleFullscreen,
             onControllerVisibilityChanged = { controllerVisible = it },
             onCaptionsRequested = onCaptionsRequested,
@@ -1589,6 +1613,25 @@ fun VideoPlayerContainer(
                 isVisible = controllerVisible,
                 isFullscreen = isFullscreen,
                 showCaptions = showCaptions,
+                videoScale = videoScale,
+                onScaleChange = { zoomChange, panChange ->
+                    val newScale = (videoScale * zoomChange).coerceIn(1f, 3.5f)
+                    videoScale = newScale
+                    if (newScale <= 1f) {
+                        videoPanOffsetX = 0f
+                        videoPanOffsetY = 0f
+                    } else {
+                        val maxPanX = (newScale - 1f) * 450f
+                        val maxPanY = (newScale - 1f) * 300f
+                        videoPanOffsetX = (videoPanOffsetX + panChange.x).coerceIn(-maxPanX, maxPanX)
+                        videoPanOffsetY = (videoPanOffsetY + panChange.y).coerceIn(-maxPanY, maxPanY)
+                    }
+                },
+                onResetZoom = {
+                    videoScale = 1f
+                    videoPanOffsetX = 0f
+                    videoPanOffsetY = 0f
+                },
                 onToggleFullscreen = onToggleFullscreen,
                 onSettingsClick = onShowSettingsSheet,
                 onCaptionsClick = onCaptionsRequested,

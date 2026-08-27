@@ -200,6 +200,7 @@ object LyricsManager {
 
     /**
      * Extracts Song and Artist metadata from description if present.
+     * Parses YouTube "Provided to YouTube by", "Music in this video", publisher copyright, and artist credits.
      */
     fun extractMetadataFromDescription(description: String): Pair<String, String>? {
         if (description.isBlank()) return null
@@ -214,11 +215,11 @@ object LyricsManager {
             val lower = line.lowercase()
             
             // 1. Standard key-value pairs
-            if (lower.startsWith("song:") || lower.startsWith("track:") || lower.startsWith("title:") || lower.startsWith("music:")) {
+            if (lower.startsWith("song:") || lower.startsWith("track:") || lower.startsWith("title:") || lower.startsWith("music:") || lower.startsWith("canción:") || lower.startsWith("chanson:")) {
                 val value = line.substring(line.indexOf(":") + 1).trim()
                 if (value.isNotBlank() && song == null) song = value
             }
-            if (lower.startsWith("artist:") || lower.startsWith("singer:") || lower.startsWith("band:") || lower.startsWith("creator:")) {
+            if (lower.startsWith("artist:") || lower.startsWith("singer:") || lower.startsWith("band:") || lower.startsWith("creator:") || lower.startsWith("artista:") || lower.startsWith("artiste:")) {
                 val value = line.substring(line.indexOf(":") + 1).trim()
                 if (value.isNotBlank() && artist == null) artist = value
             }
@@ -227,30 +228,43 @@ object LyricsManager {
             if (lower.contains("provided to youtube by")) {
                 if (i + 1 < lines.size) {
                     val nextLine = lines[i + 1]
-                    if (nextLine.contains("·") || nextLine.contains("-")) {
-                        val parts = nextLine.split("·", "-").map { it.trim() }
+                    if (nextLine.contains("·") || nextLine.contains("-") || nextLine.contains("•")) {
+                        val parts = nextLine.split("·", "-", "•").map { it.trim() }
                         if (parts.size >= 2) {
                             if (song == null) song = parts[0]
                             if (artist == null) artist = parts[1]
                         }
                     } else {
                         if (song == null) song = nextLine
-                        if (artist == null && i + 2 < lines.size) artist = lines[i + 2]
+                        if (artist == null && i + 2 < lines.size) {
+                            val candidateArtist = lines[i + 2]
+                            if (!candidateArtist.lowercase().contains("℗") && !candidateArtist.lowercase().contains("released on")) {
+                                artist = candidateArtist
+                            }
+                        }
                     }
                 }
             }
             
-            // 3. "Music in this video" block
-            if (lower == "music in this video" || lower == "song") {
+            // 3. "Music in this video" block / Publisher credits
+            if (lower == "music in this video" || lower == "song" || lower.startsWith("music in this video:")) {
                 if (i + 1 < lines.size) {
-                    val nextLine = lines[i+1]
-                    if (!nextLine.lowercase().startsWith("learn more") && !nextLine.lowercase().startsWith("listen")) {
+                    val nextLine = lines[i + 1]
+                    if (!nextLine.lowercase().startsWith("learn more") && !nextLine.lowercase().startsWith("listen") && !nextLine.lowercase().startsWith("https://")) {
                         if (song == null) song = nextLine
                     }
                 }
             }
+
+            // 4. "Performed by", "Composed by", "Vocals:"
+            if (lower.startsWith("performed by:") || lower.startsWith("performed by") || lower.startsWith("vocals by:") || lower.startsWith("singer -")) {
+                val parts = line.split(":", "-").map { it.trim() }
+                if (parts.size >= 2 && artist == null) {
+                    artist = parts[1]
+                }
+            }
             
-            // 4. Common text patterns "Title - Artist" or "Title by Artist" when preceded by keywords like 'now playing'
+            // 5. Common text patterns "Title - Artist" or "Title by Artist" when preceded by keywords like 'now playing'
             if (lower.startsWith("now playing:") || lower.startsWith("playing:")) {
                 val value = line.substring(line.indexOf(":") + 1).trim()
                 val parts = value.split("-", " by ").map { it.trim() }
@@ -262,7 +276,7 @@ object LyricsManager {
                 }
             }
             
-            // 5. Look for quotes: "Song Title" by Artist
+            // 6. Look for quotes: "Song Title" by Artist
             val quoteMatch = Regex("\"([^\"]+)\"\\s+by\\s+(.+)").find(line)
             if (quoteMatch != null) {
                 if (song == null) song = quoteMatch.groupValues[1].trim()
@@ -271,8 +285,8 @@ object LyricsManager {
         }
         
         // Clean up common emojis and artifacts
-        song = song?.replace(Regex("[🎵🎶🎧]"), "")?.trim()?.takeIf { it.isNotBlank() }
-        artist = artist?.replace(Regex("[🎵🎶🎧]"), "")?.trim()?.takeIf { it.isNotBlank() }
+        song = song?.replace(Regex("[🎵🎶🎧]"), "")?.replace(Regex("^[\"']|[\"']$"), "")?.trim()?.takeIf { it.isNotBlank() }
+        artist = artist?.replace(Regex("[🎵🎶🎧]"), "")?.replace(Regex("^[\"']|[\"']$"), "")?.trim()?.takeIf { it.isNotBlank() }
         
         if (song != null || artist != null) {
             return Pair(song ?: "", artist ?: "")
@@ -399,25 +413,27 @@ object LyricsManager {
         val lower = description.lowercase()
         val lyricMarkers = listOf(
             // English
-            "lyrics:", "lyrics :", "[lyrics]", "(lyrics)", "--- lyrics ---",
-            "song lyrics:", "full lyrics:", "lyrics below:", "lyrics in description",
-            "read lyrics:", "lyrics -", "lyrics ♫", "\nlyrics\n", "lyrics\n",
+            "lyrics:", "lyrics :", "[lyrics]", "(lyrics)", "--- lyrics ---", "=== lyrics ===",
+            "song lyrics:", "full lyrics:", "lyrics below:", "lyrics in description", "read lyrics:",
+            "lyrics -", "lyrics ♫", "\nlyrics\n", "lyrics\n", "lyrics : \n", "lyrics:\n",
+            "lyrics by", "written by:", "track lyrics:",
             // Spanish / Portuguese
             "letra:", "letras:", "letra da música:", "letra de la canción:", "\nletras\n", "letras\n",
+            "letra :", "letras :",
             // French
-            "paroles:", "paroles de la chanson:",
+            "paroles:", "paroles :", "paroles de la chanson:", "paroles : \n",
             // Italian
-            "testo:", "testo della canzone:",
+            "testo:", "testo :", "testo della canzone:",
             // German
-            "songtext:", "songtexte:",
-            // Indonesian / Malay
-            "lirik:", "lirik lagu:",
-            // Russian / Slavic
-            "текст песни:", "слова песни:", "текст:",
-            // Hindi / Bengali
-            "बोल:", "गीत:", "গান:",
+            "songtext:", "songtext :", "songtexte:", "songtexte :",
+            // Indonesian / Malay / Tagalog
+            "lirik:", "lirik :", "lirik lagu:", "mga liriko:",
+            // Russian / Ukrainian / Slavic
+            "текст песни:", "слова песни:", "текст:", "текст :",
+            // Hindi / Punjabi / Gujarati / Bengali
+            "बोल:", "गीत:", "গান:", "गीत के बोल:", "લિરિક્સ:", "লিরিক্স:",
             // Japanese / Chinese / Korean
-            "歌詞:", "가사:", "歌词:"
+            "歌詞:", "歌詞 :", "가사:", "가사 :", "歌词:", "歌词 :"
         )
 
         val blocks = mutableListOf<String>()
@@ -427,19 +443,33 @@ object LyricsManager {
             var idx = lower.indexOf(marker)
             while (idx != -1) {
                 val sub = description.substring(idx + marker.length)
-                blocks.add(extractLyricsBlock(sub))
+                val block = extractLyricsBlock(sub)
+                if (block.isNotBlank()) {
+                    blocks.add(block)
+                }
                 idx = lower.indexOf(marker, idx + 1)
             }
         }
 
         // 2. Fallback: Check for verse/chorus structure markers
-        if (blocks.isEmpty() || blocks.maxOf { it.length } < 40) {
-            val structureMarkers = listOf("[verse 1]", "verse 1:", "[intro]", "intro:", "[chorus]", "chorus:")
+        if (blocks.isEmpty() || blocks.maxOfOrNull { it.length } ?: 0 < 40) {
+            val structureMarkers = listOf(
+                "[verse 1]", "verse 1:", "verse 1\n", "[verse]", "verse:\n",
+                "[intro]", "intro:", "intro\n",
+                "[chorus]", "chorus:", "chorus\n", "[chorus 1]",
+                "[hook]", "hook:", "hook\n",
+                "[refrain]", "refrain:",
+                "[strophe 1]", "strophe 1:",
+                "[estribillo]", "estribillo:"
+            )
             for (marker in structureMarkers) {
                 var idx = lower.indexOf(marker)
                 while (idx != -1) {
                     val sub = description.substring(idx) // keep the marker
-                    blocks.add(extractLyricsBlock(sub))
+                    val block = extractLyricsBlock(sub)
+                    if (block.isNotBlank()) {
+                        blocks.add(block)
+                    }
                     idx = lower.indexOf(marker, idx + 1)
                 }
             }
@@ -462,15 +492,17 @@ object LyricsManager {
             } else {
                 consecutiveEmpty = 0
                 val lowerLine = line.lowercase()
-                // Stop if we hit promotional links, copyright, credits or social links
+                // Stop if we hit promotional links, copyright, credits, store links or social channels
                 if (lowerLine.startsWith("http://") || lowerLine.startsWith("https://") ||
                     lowerLine.startsWith("www.") || lowerLine.startsWith("follow ") || lowerLine.startsWith("follow:") ||
                     lowerLine.startsWith("subscribe") || lowerLine.startsWith("produced by") ||
                     lowerLine.startsWith("directed by") || lowerLine.startsWith("music video by") ||
                     lowerLine.startsWith("copyright") || lowerLine.startsWith("all rights reserved") ||
-                    lowerLine.startsWith("(c)") || lowerLine.startsWith("(p)") ||
+                    lowerLine.startsWith("(c)") || lowerLine.startsWith("(p)") || lowerLine.startsWith("©") || lowerLine.startsWith("℗") ||
                     lowerLine.startsWith("stream / download") || lowerLine.startsWith("connect with") ||
-                    lowerLine.startsWith("listen on") || lowerLine.startsWith("buy on")) {
+                    lowerLine.startsWith("listen on") || lowerLine.startsWith("buy on") ||
+                    lowerLine.startsWith("socials:") || lowerLine.startsWith("social media:") ||
+                    lowerLine.startsWith("official merchandise:") || lowerLine.startsWith("merch:")) {
                     break
                 }
                 collectedLines.add(line)
