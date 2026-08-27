@@ -124,6 +124,8 @@ fun MusicModeUI(
                     positionProvider = { mediaPlayer?.currentPosition ?: 0L },
                     durationProvider = { mediaPlayer?.duration ?: 0L },
                     isPlayingProvider = { mediaPlayer?.isPlaying ?: false },
+                    offlineCaptions = offlineCaptions,
+                    description = streamInfo?.description?.content,
                     onBack = {
                         if (mediaPlayer?.currentMediaItem != null) {
                             com.videhub.MiniPlayerState.show(videoUrl, title, if (thumbnailUrl.isNotBlank()) thumbnailUrl else if (isLocalFile) videoUrl else "", channelName, isMusicMode)
@@ -170,9 +172,7 @@ fun MusicModeUI(
                     onVideoPlay = { url, t, thumb -> onVideoPlay(url, t, thumb, true) },
                     onCaptionsRequested = onCaptionsRequested,
                     showCaptions = showCaptions,
-                    offlineCaptions = offlineCaptions,
-                    isAudioOnly = isAudioOnly,
-                    description = streamInfo?.description?.content
+                    isAudioOnly = isAudioOnly
                 )
                     }
                 

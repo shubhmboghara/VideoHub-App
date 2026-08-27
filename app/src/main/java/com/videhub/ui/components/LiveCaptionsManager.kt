@@ -332,146 +332,17 @@ object LiveCaptionsManager {
         .build()
 
     private suspend fun tryFallbackLyrics(artist: String, title: String, description: String?, expectedLang: String? = null) {
-        // Priority 2: Description Fallback
-        if (!description.isNullOrBlank()) {
-            val extracted = extractLyricsFromDescription(description)
-            if (extracted.isNotEmpty()) {
-                val lines = extracted.map { 
-                     CaptionLine3(startMillis = Long.MAX_VALUE, endMillis = Long.MAX_VALUE, nativeText = it)
-                }
-                _captions.value = lines
-                _isError.value = false
-                detectAndTranslateCaptions(_captions.value.toList())
-                return
+        val lyrics = com.videhub.audio.LyricsManager.getLyrics(title, artist, 0L, emptyList(), description)
+        if (lyrics != null && lyrics.lines.isNotEmpty()) {
+            val lines = lyrics.lines.map { 
+                CaptionLine3(it.timeMs, if (it.timeMs < Long.MAX_VALUE - 1000) it.timeMs + 3000 else Long.MAX_VALUE, it.text)
             }
+            _captions.value = lines
+            _isError.value = false
+            detectAndTranslateCaptions(_captions.value.toList())
+        } else {
+            _isError.value = true
         }
-        
-        // Priority 3: LRCLIB API
-        try {
-            var cleanArtist = artist.replace(Regex("(?i)\\s*-\\s*topic$"), "")
-                .replace(Regex("(?i)vevo$"), "")
-                .replace(Regex("[\\(\\[【].*?[\\)\\]】]"), "")
-                .trim()
-            var cleanTitle = title.replace(Regex("[\\(\\[【].*?[\\)\\]】]"), "")
-                .replace(Regex("(?i)(official.*|music video|lyrics|audio|video|mv)"), "")
-                .trim()
-                
-            // Step 1: Try exact match first
-            val exactUrl = "https://lrclib.net/api/get?" +
-                "artist_name=${URLEncoder.encode(cleanArtist, "UTF-8")}" +
-                "&track_name=${URLEncoder.encode(cleanTitle, "UTF-8")}"
-            val exactRequest = okhttp3.Request.Builder().url(exactUrl).build()
-            val exactResponse = kotlinx.coroutines.withContext(Dispatchers.IO) { 
-                 client.newCall(exactRequest).execute() 
-             }
-            val exactBodyString = exactResponse.body?.string()
-            if (exactResponse.isSuccessful) {
-                val body = exactBodyString ?: ""
-                if (body.isNotBlank() && body != "null" && !body.startsWith("[")) {
-                    val json = org.json.JSONObject(body)
-                    
-                    suspend fun verifyAndAccept(lines: List<CaptionLine3>): Boolean {
-                        if (expectedLang == null) {
-                            _captions.value = lines
-                            detectAndTranslateCaptions(_captions.value.toList())
-                            return true
-                        }
-                        val sample = lines.take(3).joinToString(" ") { it.nativeText }.take(100)
-                        if (!isTextInExpectedScript(sample, expectedLang)) return false
-                        val langId = LanguageIdentification.getClient().identifyLanguage(sample).await()
-                        if (langId != "und" && langId != expectedLang) return false
-                        
-                        _captions.value = lines
-                        detectAndTranslateCaptions(_captions.value.toList())
-                        return true
-                    }
-
-                    val syncedLyrics = json.optString("syncedLyrics", "")
-                    if (syncedLyrics.isNotEmpty() && syncedLyrics != "null") {
-                        val lines = parseLrc(syncedLyrics)
-                        if (verifyAndAccept(lines)) return
-                    }
-                    val plainLyrics = json.optString("plainLyrics", "")
-                    if (plainLyrics.isNotEmpty() && plainLyrics != "null") {
-                        val lines = plainLyrics.lines().map {
-                            CaptionLine3(Long.MAX_VALUE, Long.MAX_VALUE, it)
-                        }
-                        if (verifyAndAccept(lines)) return
-                    }
-                }
-            }
-            
-            // Step 2: Fall back to search
-            val queries = mutableListOf<String>()
-            if (cleanTitle.contains("-")) {
-                val parts = cleanTitle.split("-", limit = 2)
-                if (parts.size == 2) {
-                    queries.add("${parts[0].trim()} ${parts[1].trim()}")
-                    queries.add(parts[1].trim())
-                }
-            } else if (cleanTitle.contains("|")) {
-                val parts = cleanTitle.split("|", limit = 2)
-                if (parts.size == 2) {
-                    queries.add("$cleanArtist ${parts[0].trim()}")
-                    queries.add(parts[0].trim())
-                }
-            }
-            queries.add("$cleanArtist $cleanTitle".trim())
-            queries.add(cleanTitle)
-            
-            for (query in queries.distinct()) {
-                if (query.isBlank() || query.length < 2) continue
-                
-                val searchUrl = "https://lrclib.net/api/search?q=${URLEncoder.encode(query, "UTF-8")}"
-                val request = okhttp3.Request.Builder().url(searchUrl).build()
-                val response = kotlinx.coroutines.withContext(Dispatchers.IO) { client.newCall(request).execute() }
-                
-                if (response.isSuccessful) {
-                    val res = response.body?.string() ?: ""
-                    if (res.isNotBlank() && res != "[]") {
-                        val jsonArray = org.json.JSONArray(res)
-                        
-                        suspend fun verifyAndAccept(lines: List<CaptionLine3>): Boolean {
-                            if (expectedLang == null) {
-                                _captions.value = lines
-                                detectAndTranslateCaptions(_captions.value.toList())
-                                return true
-                            }
-                            val sample = lines.take(3).joinToString(" ") { it.nativeText }.take(100)
-                            if (!isTextInExpectedScript(sample, expectedLang)) return false
-                            val langId = LanguageIdentification.getClient().identifyLanguage(sample).await()
-                            if (langId != "und" && langId != expectedLang) return false
-                            
-                            _captions.value = lines
-                            detectAndTranslateCaptions(_captions.value.toList())
-                            return true
-                        }
-                        
-                        for (i in 0 until jsonArray.length()) {
-                            val json = jsonArray.getJSONObject(i)
-                            val syncedLyrics = json.optString("syncedLyrics", "")
-                            if (syncedLyrics.isNotEmpty() && syncedLyrics != "null") {
-                                val lines = parseLrc(syncedLyrics)
-                                if (verifyAndAccept(lines)) return
-                            }
-                        }
-                        for (i in 0 until jsonArray.length()) {
-                            val json = jsonArray.getJSONObject(i)
-                            val plainLyrics = json.optString("plainLyrics", "")
-                            if (plainLyrics.isNotEmpty() && plainLyrics != "null") {
-                                val lines = plainLyrics.lines().map {
-                                    CaptionLine3(startMillis = Long.MAX_VALUE, endMillis = Long.MAX_VALUE, nativeText = it)
-                                }
-                                if (verifyAndAccept(lines)) return
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w("LiveCaptionsManager", "LRCLIB failed: ${e.message}")
-        }
-        _isError.value = true
     }
 
     
@@ -662,90 +533,12 @@ object LiveCaptionsManager {
     }
 
     private suspend fun getLrclibCaptions(artist: String, title: String, description: String?): List<CaptionLine3> {
-        // Priority 2: Description Fallback
-        if (!description.isNullOrBlank()) {
-            val extracted = extractLyricsFromDescription(description)
-            if (extracted.isNotEmpty()) {
-                return extracted.map { 
-                     CaptionLine3(startMillis = Long.MAX_VALUE, endMillis = Long.MAX_VALUE, nativeText = it)
-                }
+        val lyrics = com.videhub.audio.LyricsManager.getLyrics(title, artist, 0L, emptyList(), description)
+        if (lyrics != null && lyrics.lines.isNotEmpty()) {
+            return lyrics.lines.map { 
+                CaptionLine3(it.timeMs, if (it.timeMs < Long.MAX_VALUE - 1000) it.timeMs + 3000 else Long.MAX_VALUE, it.text) 
             }
         }
-        
-        // Priority 3: LRCLIB API
-        try {
-            var cleanArtist = artist.replace(Regex("(?i)\\s*-\\s*topic$"), "")
-                .replace(Regex("(?i)vevo$"), "")
-                .replace(Regex("[\\(\\[【].*?[\\)\\]】]"), "")
-                .trim()
-            var cleanTitle = title.replace(Regex("[\\(\\[【].*?[\\)\\]】]"), "")
-                .replace(Regex("(?i)(official.*|music video|lyrics|audio|video|mv)"), "")
-                .trim()
-                
-            val exactUrl = "https://lrclib.net/api/get?" +
-                "artist_name=${java.net.URLEncoder.encode(cleanArtist, "UTF-8")}" +
-                "&track_name=${java.net.URLEncoder.encode(cleanTitle, "UTF-8")}"
-            val exactRequest = okhttp3.Request.Builder().url(exactUrl).build()
-            val exactResponse = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { client.newCall(exactRequest).execute() }
-            val exactBodyString = exactResponse.body?.string()
-            if (exactResponse.isSuccessful && exactBodyString != null && exactBodyString.isNotBlank() && exactBodyString != "null" && !exactBodyString.startsWith("[")) {
-                val json = org.json.JSONObject(exactBodyString)
-                val syncedLyrics = json.optString("syncedLyrics", "")
-                if (syncedLyrics.isNotEmpty() && syncedLyrics != "null") {
-                    return parseLrc(syncedLyrics)
-                }
-                val plainLyrics = json.optString("plainLyrics", "")
-                if (plainLyrics.isNotEmpty() && plainLyrics != "null") {
-                    return plainLyrics.lines().map { CaptionLine3(Long.MAX_VALUE, Long.MAX_VALUE, it) }
-                }
-            }
-            
-            val queries = mutableListOf<String>()
-            if (cleanTitle.contains("-")) {
-                val parts = cleanTitle.split("-", limit = 2)
-                if (parts.size == 2) {
-                    queries.add("${parts[0].trim()} ${parts[1].trim()}")
-                    queries.add(parts[1].trim())
-                }
-            } else if (cleanTitle.contains("|")) {
-                val parts = cleanTitle.split("|", limit = 2)
-                if (parts.size == 2) {
-                    queries.add("$cleanArtist ${parts[0].trim()}")
-                    queries.add(parts[0].trim())
-                }
-            }
-            queries.add("$cleanArtist $cleanTitle".trim())
-            queries.add(cleanTitle)
-            
-            for (query in queries.distinct()) {
-                if (query.isBlank() || query.length < 2) continue
-                
-                val searchUrl = "https://lrclib.net/api/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
-                val request = okhttp3.Request.Builder().url(searchUrl).build()
-                val response = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { client.newCall(request).execute() }
-                
-                if (response.isSuccessful) {
-                    val res = response.body?.string() ?: ""
-                    if (res.isNotBlank() && res != "[]") {
-                        val jsonArray = org.json.JSONArray(res)
-                        for (i in 0 until jsonArray.length()) {
-                            val json = jsonArray.getJSONObject(i)
-                            val syncedLyrics = json.optString("syncedLyrics", "")
-                            if (syncedLyrics.isNotEmpty() && syncedLyrics != "null") {
-                                return parseLrc(syncedLyrics)
-                            }
-                        }
-                        for (i in 0 until jsonArray.length()) {
-                            val json = jsonArray.getJSONObject(i)
-                            val plainLyrics = json.optString("plainLyrics", "")
-                            if (plainLyrics.isNotEmpty() && plainLyrics != "null") {
-                                return plainLyrics.lines().map { CaptionLine3(Long.MAX_VALUE, Long.MAX_VALUE, it) }
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) { }
         return emptyList()
     }
 

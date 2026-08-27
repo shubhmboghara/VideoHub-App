@@ -778,12 +778,15 @@ fun NowPlayingActionRow(
 
         Box {
             var showTrackMenu by remember { mutableStateOf(false) }
+            val availableTracks by LiveCaptionsManager.availableTracks.collectAsStateWithLifecycle(initialValue = emptyList())
+            val selectedTrack by LiveCaptionsManager.selectedTrack.collectAsStateWithLifecycle(initialValue = null)
+
             IconButton(
                 onClick = { 
-        if (!isLyricsMode) {
-            onLyricsModeChange(true)
-        } else {
+        if (availableTracks.isNotEmpty()) {
             showTrackMenu = true
+        } else {
+            onLyricsModeChange(!isLyricsMode)
         }
                 },
                 modifier = Modifier.minimumInteractiveComponentSize()
@@ -799,17 +802,14 @@ fun NowPlayingActionRow(
                 )
             }
             
-            val availableTracks by LiveCaptionsManager.availableTracks.collectAsStateWithLifecycle(initialValue = emptyList())
-            val selectedTrack by LiveCaptionsManager.selectedTrack.collectAsStateWithLifecycle(initialValue = null)
-            
             androidx.compose.material3.DropdownMenu(
                 expanded = showTrackMenu,
                 onDismissRequest = { showTrackMenu = false }
             ) {
                 androidx.compose.material3.DropdownMenuItem(
-        text = { Text("Turn off lyrics") },
+        text = { Text(if (isLyricsMode) "Turn off lyrics" else "Turn on lyrics") },
         onClick = {
-            onLyricsModeChange(false)
+            onLyricsModeChange(!isLyricsMode)
             showTrackMenu = false
         }
                 )
@@ -824,6 +824,7 @@ fun NowPlayingActionRow(
                     )
                 },
                 onClick = {
+                    onLyricsModeChange(true)
                     LiveCaptionsManager.selectTrack(track)
                     LiveCaptionsManager.fetchCaptions(
             selectedUrl = track.url,

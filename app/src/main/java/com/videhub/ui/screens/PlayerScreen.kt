@@ -1447,6 +1447,7 @@ fun PlayerScreen(
             db = db,
             isLiked = isLiked,
             onLikedChange = { isLiked = it },
+            offlineCaptions = offlineCaptions,
             onBack = onBack,
             onDownloadClick = { showDownloadDialog = true },
             onMoreClick = { showVideoActionBottomSheet = true },
@@ -1461,7 +1462,6 @@ fun PlayerScreen(
             showCaptions = showCaptionsRef.value,
             onCaptionsRequested = { showCaptionSelector = true },
             activeCaptions = activeCaptions,
-            offlineCaptions = offlineCaptions,
             onVideoPlay = { url, t, th, musicMode -> onVideoPlay(url, t, th, musicMode, false) },
             isAudioOnly = isAudioOnlyDownload
         )

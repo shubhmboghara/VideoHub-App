@@ -113,7 +113,8 @@ fun BelowPlayerContent(
             isMusicMode = isMusicMode,
             onVideoPlay = { url, thumbTitle, thumb, _ -> 
                 onVideoPlay(url, thumbTitle, thumb, isMusicMode)
-            }
+            },
+            onChannelClick = onChannelClick
         )
     }
 }

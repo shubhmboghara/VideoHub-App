@@ -47,20 +47,41 @@ fun SyncedLyricsView(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    
+    val chapters = remember(description, offlineCaptions) { 
+        if (offlineCaptions.isNotEmpty()) emptyList() 
+        else LyricsManager.extractChapters(description ?: "") 
+    }
+    var currentChapter by remember { mutableStateOf<com.videhub.audio.VideoChapter?>(null) }
 
     // Fetch lyrics prioritizing CC -> Description -> Cleaned LRC search
-    LaunchedEffect(title, channelName, offlineCaptions, description) {
+    LaunchedEffect(title, channelName, offlineCaptions, description, currentChapter) {
         isLoading = true
         lyricsData = null
+        
+        val searchTitle = currentChapter?.title?.takeIf { it.isNotBlank() } ?: title
+        val searchArtist = currentChapter?.artist?.takeIf { it.isNotBlank() } ?: channelName
+        val searchDuration = if (currentChapter != null) {
+             val idx = chapters.indexOf(currentChapter)
+             if (idx >= 0 && idx < chapters.size - 1) {
+                 (chapters[idx+1].timeMs - chapters[idx].timeMs) / 1000L
+             } else 0L
+        } else durationSeconds
 
         val fetched = LyricsManager.getLyrics(
-            title = title,
-            channel = channelName,
-            durationSeconds = durationSeconds,
+            title = searchTitle,
+            channel = searchArtist,
+            durationSeconds = searchDuration,
             captions = offlineCaptions,
-            description = description
+            description = if (currentChapter != null) null else description
         )
-        lyricsData = fetched
+        
+        if (fetched != null && fetched.isSynced && currentChapter != null) {
+             val shiftMs = currentChapter!!.timeMs
+             lyricsData = fetched.copy(lines = fetched.lines.map { it.copy(timeMs = it.timeMs + shiftMs) }, source = fetched.source + " (Chapter)")
+        } else {
+             lyricsData = fetched
+        }
         isLoading = false
     }
 
@@ -70,6 +91,13 @@ fun SyncedLyricsView(
             mediaPlayer?.let { p ->
                 if (p.isPlaying) {
                     currentPositionMs = p.currentPosition
+                    
+                    if (chapters.isNotEmpty()) {
+                        val activeChapter = chapters.lastOrNull { it.timeMs <= currentPositionMs } ?: chapters.first()
+                        if (activeChapter != currentChapter) {
+                            currentChapter = activeChapter
+                        }
+                    }
                 }
             }
             delay(150L)
@@ -160,13 +188,31 @@ fun SyncedLyricsView(
                     onClick = {
                         scope.launch {
                             isLoading = true
-                            lyricsData = LyricsManager.getLyrics(
-                                title = title,
-                                channel = channelName,
-                                durationSeconds = durationSeconds,
+                            
+                            val searchTitle = currentChapter?.title?.takeIf { it.isNotBlank() } ?: title
+                            val searchArtist = currentChapter?.artist?.takeIf { it.isNotBlank() } ?: channelName
+                            val searchDuration = if (currentChapter != null) {
+                                 val idx = chapters.indexOf(currentChapter)
+                                 if (idx >= 0 && idx < chapters.size - 1) {
+                                     (chapters[idx+1].timeMs - chapters[idx].timeMs) / 1000L
+                                 } else 0L
+                            } else durationSeconds
+
+                            val fetched = LyricsManager.getLyrics(
+                                title = searchTitle,
+                                channel = searchArtist,
+                                durationSeconds = searchDuration,
                                 captions = offlineCaptions,
-                                description = description
+                                description = if (currentChapter != null) null else description
                             )
+                            
+                            if (fetched != null && fetched.isSynced && currentChapter != null) {
+                                 val shiftMs = currentChapter!!.timeMs
+                                 lyricsData = fetched.copy(lines = fetched.lines.map { it.copy(timeMs = it.timeMs + shiftMs) }, source = fetched.source + " (Chapter)")
+                            } else {
+                                 lyricsData = fetched
+                            }
+                            
                             isLoading = false
                         }
                     }

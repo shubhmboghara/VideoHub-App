@@ -135,6 +135,9 @@ object MediaSessionManager {
             }
 
             player!!.addListener(object : androidx.media3.common.Player.Listener {
+                override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                    com.videhub.audio.EqualizerManager.init(ctx, audioSessionId)
+                }
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     updateIsPlayingState()
                 }

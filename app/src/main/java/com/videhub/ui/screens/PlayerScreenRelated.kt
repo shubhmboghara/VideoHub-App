@@ -18,7 +18,8 @@ import org.schabi.newpipe.extractor.stream.StreamInfoItem
 fun LazyListScope.relatedVideosSection(
     relatedVideos: List<StreamInfoItem>,
     isMusicMode: Boolean,
-    onVideoPlay: (String, String, String, Boolean) -> Unit
+    onVideoPlay: (String, String, String, Boolean) -> Unit,
+    onChannelClick: (String) -> Unit
 ) {
     if (relatedVideos.isNotEmpty()) {
         item {
@@ -50,7 +51,12 @@ fun LazyListScope.relatedVideosSection(
                 viewCount = video.viewCount ?: 0,
                 uploadDate = video.textualUploadDate ?: "",
                 uploaderAvatarUrl = try { video.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null },
-                onChannelClick = {},
+                onChannelClick = { 
+                    val uploaderUrl = video.uploaderUrl
+                    if (!uploaderUrl.isNullOrBlank()) {
+                        onChannelClick(uploaderUrl)
+                    }
+                },
                 onClick = { 
                      val url = video.url ?: ""
                     if (url.isNotBlank()) {
