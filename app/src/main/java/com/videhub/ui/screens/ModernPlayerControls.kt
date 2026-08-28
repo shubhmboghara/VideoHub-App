@@ -204,12 +204,12 @@ fun ModernPlayerControls(
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.5f))
             ) {
-                // Center Playback Controls (Previous, Play/Pause, Next) perfectly centered
+                // Center Playback Controls (Previous, Play/Pause, Next) perfectly centered with balanced M3 proportions
                 Row(
                     modifier = Modifier
                         .align(Alignment.Center)
                         .fillMaxWidth()
-                        .padding(horizontal = 32.dp)
+                        .padding(horizontal = 24.dp)
                         .testTag("player_center_controls"),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
@@ -217,8 +217,8 @@ fun ModernPlayerControls(
                     IconButton(
                         onClick = onPreviousClick,
                         modifier = Modifier
-                            .size(60.dp)
-                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                            .size(48.dp)
+                            .background(Color.Black.copy(alpha = 0.45f), CircleShape)
                             .testTag("player_prev_button")
                             .semantics { contentDescription = "Previous video" }
                     ) {
@@ -226,11 +226,11 @@ fun ModernPlayerControls(
                             imageVector = Icons.Default.SkipPrevious,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(34.dp)
+                            modifier = Modifier.size(26.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(48.dp))
+                    Spacer(modifier = Modifier.width(32.dp))
 
                     IconButton(
                         onClick = {
@@ -249,34 +249,34 @@ fun ModernPlayerControls(
                             }
                         },
                         modifier = Modifier
-                            .size(80.dp)
-                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                            .size(64.dp)
+                            .background(Color.Black.copy(alpha = 0.55f), CircleShape)
                             .testTag("player_play_pause_button")
                             .semantics { contentDescription = if (isPlaying) "Pause video" else "Play video" }
                     ) {
                         if (isBuffering) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(40.dp),
+                                modifier = Modifier.size(32.dp),
                                 color = Color.White,
-                                strokeWidth = 3.5.dp
+                                strokeWidth = 3.dp
                             )
                         } else {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(48.dp)
+                                modifier = Modifier.size(36.dp)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(48.dp))
+                    Spacer(modifier = Modifier.width(32.dp))
 
                     IconButton(
                         onClick = onNextClick,
                         modifier = Modifier
-                            .size(60.dp)
-                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                            .size(48.dp)
+                            .background(Color.Black.copy(alpha = 0.45f), CircleShape)
                             .testTag("player_next_button")
                             .semantics { contentDescription = "Next video" }
                     ) {
@@ -284,7 +284,7 @@ fun ModernPlayerControls(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(34.dp)
+                            modifier = Modifier.size(26.dp)
                         )
                     }
                 }
