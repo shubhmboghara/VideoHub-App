@@ -725,7 +725,8 @@ fun PlayerScreen(
                                         artist = channelName,
                                         title = title,
                                         description = streamInfo?.description?.content,
-                                        isMusicMode = forceMusicMode
+                                        isMusicMode = forceMusicMode,
+                                        durationSeconds = streamInfo?.duration ?: 0L
                                     )
                                 }
                                 showCaptionSelector = false
@@ -1150,14 +1151,16 @@ fun PlayerScreen(
         com.videhub.PipState.canEnterPip = !isMusicMode
         if (streamInfo != null) {
             val currentCaptions = com.videhub.ui.components.LiveCaptionsManager.captions.value
-            if (currentCaptions.isEmpty()) {
+            // Re-fetch if empty, OR if we just switched to music mode (to prioritize description/LRCLIB over potentially noise CC)
+            if (currentCaptions.isEmpty() || isMusicMode) {
                 com.videhub.ui.components.LiveCaptionsManager.fetchCaptions(
                     selectedUrl = com.videhub.ui.components.LiveCaptionsManager.selectedTrack.value?.url,
                     availableTracks = com.videhub.ui.components.LiveCaptionsManager.availableTracks.value,
                     artist = channelName,
                     title = title,
                     description = streamInfo?.description?.content,
-                    isMusicMode = isMusicMode
+                    isMusicMode = isMusicMode,
+                    durationSeconds = streamInfo?.duration ?: 0L
                 )
             }
         }

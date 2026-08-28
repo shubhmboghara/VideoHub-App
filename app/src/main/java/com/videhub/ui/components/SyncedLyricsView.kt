@@ -73,7 +73,7 @@ fun SyncedLyricsView(
             channel = searchArtist,
             durationSeconds = searchDuration,
             captions = offlineCaptions,
-            description = if (currentChapter != null) null else description
+            description = description
         )
         
         if (fetched != null && fetched.isSynced && currentChapter != null) {

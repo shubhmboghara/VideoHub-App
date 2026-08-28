@@ -515,47 +515,87 @@ fun NowPlayingScreen(
                 }
             }
             
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Fixed Bottom Controls
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 32.dp)
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 20.dp)
             ) {
-                // Title Row
-                Column(
+                // Title & Favorite Row
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.Start
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = uiState.title,
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        modifier = Modifier.basicMarquee()
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = uiState.artist,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    Column(
                         modifier = Modifier
-                            .clickable { onChannelClick() }
-                            .padding(vertical = 4.dp)
-                    )
+                            .weight(1f)
+                            .padding(end = 12.dp),
+                        horizontalAlignment = Alignment.Start
+                    ) {
+                        Text(
+                            text = uiState.title,
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            modifier = Modifier.basicMarquee()
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = uiState.artist,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .clickable { onChannelClick() }
+                                .padding(vertical = 2.dp)
+                        )
+                    }
+
+                    val likeScale = remember { Animatable(1f) }
+                    val likeRotZ = remember { Animatable(0f) }
+
+                    IconButton(
+                        onClick = {
+                            onLikeClick()
+                            coroutineScope.launch {
+                                launch {
+                                    likeScale.animateTo(1.35f, tween(120, easing = FastOutSlowInEasing))
+                                    likeScale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = Spring.StiffnessMedium))
+                                }
+                                launch {
+                                    likeRotZ.animateTo(-15f, tween(80))
+                                    likeRotZ.animateTo(15f, tween(80))
+                                    likeRotZ.animateTo(0f, spring(dampingRatio = Spring.DampingRatioHighBouncy))
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .graphicsLayer {
+                                scaleX = likeScale.value
+                                scaleY = likeScale.value
+                                rotationZ = likeRotZ.value
+                            }
+                    ) {
+                        Icon(
+                            imageVector = if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                            contentDescription = if (isLiked) "Unlike" else "Like",
+                            tint = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 NowPlayingActionRow(
                     title = title,
                     artist = artist,
-                    isLiked = isLiked,
-                    onLikeClick = onLikeClick,
                     autoplayEnabled = autoplayEnabled,
                     context = context,
                     coroutineScope = coroutineScope,
@@ -563,9 +603,12 @@ fun NowPlayingScreen(
                     onLyricsModeChange = { isLyricsMode = it },
                     onDownloadClick = onDownloadClick,
                     onShareClick = onShareClick,
-                    onMoreClick = onMoreClick
+                    onMoreClick = onMoreClick,
+                    description = description,
+                    durationProvider = durationProvider
                 )
-                Spacer(modifier = Modifier.height(24.dp))
+                
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Modern Music Seek Bar with 3-Layer Track, Floating Time Bubble, Haptics & Toggleable Remaining Duration
                 MusicSeekBar(
@@ -579,11 +622,12 @@ fun NowPlayingScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 NowPlayingPlaybackControlsRow(
                     context = context,
                     isActuallyPlaying = isActuallyPlaying,
+                    isLoading = uiState.isLoading || (exoPlayer?.playbackState == androidx.media3.common.Player.STATE_BUFFERING),
                     onVideoPlay = onVideoPlay
                 )
             }
@@ -639,8 +683,6 @@ fun formatDuration(seconds: Long): String {
 fun NowPlayingActionRow(
     title: String,
     artist: String,
-    isLiked: Boolean,
-    onLikeClick: () -> Unit,
     autoplayEnabled: Boolean,
     context: android.content.Context,
     coroutineScope: kotlinx.coroutines.CoroutineScope,
@@ -648,90 +690,52 @@ fun NowPlayingActionRow(
     onLyricsModeChange: (Boolean) -> Unit,
     onDownloadClick: () -> Unit,
     onShareClick: () -> Unit,
-    onMoreClick: () -> Unit
+    onMoreClick: () -> Unit,
+    description: String? = null,
+    durationProvider: () -> Long = { 0L },
+    isLiked: Boolean = false,
+    onLikeClick: () -> Unit = {}
 ) {
-    // Action Row
+    // Action Row with 5 sleek, modern Material 3 actions
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val likeScale = remember { Animatable(1f) }
-        val likeRotZ = remember { Animatable(0f) }
-        
-        IconButton(
-            onClick = {
-                onLikeClick()
-                coroutineScope.launch {
-        launch {
-            likeScale.animateTo(1.4f, tween(150, easing = FastOutSlowInEasing))
-            likeScale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = Spring.StiffnessMedium))
-        }
-        launch {
-            likeRotZ.animateTo(-15f, tween(100))
-            likeRotZ.animateTo(15f, tween(100))
-            likeRotZ.animateTo(0f, spring(dampingRatio = Spring.DampingRatioHighBouncy))
-        }
-                }
-            }, 
-            modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .graphicsLayer {
-        scaleX = likeScale.value
-        scaleY = likeScale.value
-        rotationZ = likeRotZ.value
-                }
-        ) {
-            Icon(
-                imageVector = if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                contentDescription = "Like",
-                tint = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-            )
-        }
-        val autoplayTint by animateColorAsState(
-            targetValue = if (autoplayEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-            animationSpec = tween(200),
-            label = "autoplayTint"
-        )
-
-        IconButton(
-            onClick = {
-                coroutineScope.launch {
-        com.videhub.data.SettingsManager.setAutoplay(context, !autoplayEnabled)
-                }
-            },
-            modifier = Modifier.minimumInteractiveComponentSize()
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Autorenew,
-                contentDescription = "Autoplay",
-                tint = autoplayTint
-            )
-        }
-
+        // 1. Lyrics / Captions Toggle
         Box {
             var showTrackMenu by remember { mutableStateOf(false) }
             val availableTracks by LiveCaptionsManager.availableTracks.collectAsStateWithLifecycle(initialValue = emptyList())
             val selectedTrack by LiveCaptionsManager.selectedTrack.collectAsStateWithLifecycle(initialValue = null)
 
-            IconButton(
+            val lyricsContainerColor by animateColorAsState(
+                targetValue = if (isLyricsMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                label = "lyricsContainerColor"
+            )
+            val lyricsContentColor by animateColorAsState(
+                targetValue = if (isLyricsMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                label = "lyricsContentColor"
+            )
+
+            FilledTonalIconButton(
                 onClick = { 
-        if (availableTracks.isNotEmpty()) {
-            showTrackMenu = true
-        } else {
-            onLyricsModeChange(!isLyricsMode)
-        }
+                    if (availableTracks.isNotEmpty()) {
+                        showTrackMenu = true
+                    } else {
+                        onLyricsModeChange(!isLyricsMode)
+                    }
                 },
-                modifier = Modifier.minimumInteractiveComponentSize()
-            ) {
-                val lyricsTint by animateColorAsState(
-        targetValue = if (isLyricsMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-        label = "lyricsTint"
+                modifier = Modifier.size(44.dp),
+                shape = CircleShape,
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = lyricsContainerColor,
+                    contentColor = lyricsContentColor
                 )
+            ) {
                 Icon(
-        imageVector = Icons.Rounded.Subtitles,
-        contentDescription = "Lyrics",
-        tint = lyricsTint
+                    imageVector = Icons.Rounded.Subtitles,
+                    contentDescription = "Lyrics",
+                    modifier = Modifier.size(22.dp)
                 )
             }
             
@@ -740,61 +744,130 @@ fun NowPlayingActionRow(
                 onDismissRequest = { showTrackMenu = false }
             ) {
                 androidx.compose.material3.DropdownMenuItem(
-        text = { Text(if (isLyricsMode) "Turn off lyrics" else "Turn on lyrics") },
-        onClick = {
-            onLyricsModeChange(!isLyricsMode)
-            showTrackMenu = false
-        }
+                    text = { Text(if (isLyricsMode) "Turn off lyrics" else "Turn on lyrics") },
+                    onClick = {
+                        onLyricsModeChange(!isLyricsMode)
+                        showTrackMenu = false
+                    }
                 )
                 if (availableTracks.isNotEmpty()) {
-        androidx.compose.material3.Divider()
-        availableTracks.forEach { track ->
-            androidx.compose.material3.DropdownMenuItem(
-                text = { 
-                    Text(
-            text = track.displayName + (if (track.isAutoGenerated) " (auto)" else ""),
-            fontWeight = if (selectedTrack?.languageTag == track.languageTag) FontWeight.Bold else FontWeight.Normal
-                    )
-                },
-                onClick = {
-                    onLyricsModeChange(true)
-                    LiveCaptionsManager.selectTrack(track)
-                    LiveCaptionsManager.fetchCaptions(
-            selectedUrl = track.url,
-            availableTracks = availableTracks,
-            artist = artist,
-            title = title,
-            description = null,
-            isMusicMode = true
-                    )
-                    showTrackMenu = false
-                }
-            )
-        }
+                    androidx.compose.material3.HorizontalDivider()
+                    availableTracks.forEach { track ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { 
+                                Text(
+                                    text = track.displayName + (if (track.isAutoGenerated) " (auto)" else ""),
+                                    fontWeight = if (selectedTrack?.languageTag == track.languageTag) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            onClick = {
+                                onLyricsModeChange(true)
+                                LiveCaptionsManager.selectTrack(track)
+                                LiveCaptionsManager.fetchCaptions(
+                                    selectedUrl = track.url,
+                                    availableTracks = availableTracks,
+                                    artist = artist,
+                                    title = title,
+                                    description = description,
+                                    isMusicMode = true,
+                                    durationSeconds = (durationProvider() / 1000L).coerceAtLeast(0L)
+                                )
+                                showTrackMenu = false
+                            }
+                        )
+                    }
                 }
             }
         }
-        
 
-        IconButton(
-            onClick = onMoreClick, // Open bottom sheet which contains Add to Playlist etc.
-            modifier = Modifier.minimumInteractiveComponentSize()
+        // 2. Download Button
+        FilledTonalIconButton(
+            onClick = onDownloadClick,
+            modifier = Modifier.size(44.dp),
+            shape = CircleShape,
+            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Download,
+                contentDescription = "Download Song",
+                modifier = Modifier.size(22.dp)
+            )
+        }
+
+        // 3. Share Button
+        FilledTonalIconButton(
+            onClick = onShareClick,
+            modifier = Modifier.size(44.dp),
+            shape = CircleShape,
+            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Share,
+                contentDescription = "Share Song",
+                modifier = Modifier.size(22.dp)
+            )
+        }
+
+        // 4. Autoplay Toggle
+        val autoplayContainerColor by animateColorAsState(
+            targetValue = if (autoplayEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            label = "autoplayContainerColor"
+        )
+        val autoplayContentColor by animateColorAsState(
+            targetValue = if (autoplayEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            label = "autoplayContentColor"
+        )
+
+        FilledTonalIconButton(
+            onClick = {
+                coroutineScope.launch {
+                    com.videhub.data.SettingsManager.setAutoplay(context, !autoplayEnabled)
+                }
+            },
+            modifier = Modifier.size(44.dp),
+            shape = CircleShape,
+            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = autoplayContainerColor,
+                contentColor = autoplayContentColor
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Autorenew,
+                contentDescription = "Autoplay Next",
+                modifier = Modifier.size(22.dp)
+            )
+        }
+
+        // 5. More Options / Add to Playlist
+        FilledTonalIconButton(
+            onClick = onMoreClick,
+            modifier = Modifier.size(44.dp),
+            shape = CircleShape,
+            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         ) {
             Icon(
                 imageVector = Icons.Rounded.MoreVert,
-                contentDescription = "Add to Playlist",
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                contentDescription = "More Options",
+                modifier = Modifier.size(22.dp)
             )
         }
     }
-
-
 }
 
 @Composable
 fun NowPlayingPlaybackControlsRow(
     context: android.content.Context,
     isActuallyPlaying: Boolean,
+    isLoading: Boolean = false,
     onVideoPlay: (String, String, String) -> Unit = { _,_,_ -> }
 ) {
     var lastPreviousPressTime by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(0L) }
@@ -803,155 +876,169 @@ fun NowPlayingPlaybackControlsRow(
     // Playback Controls Row
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(
-            onClick = { 
-                com.videhub.QueueManager.toggleShuffle()
-            },
-            modifier = Modifier.size(44.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Shuffle,
-                contentDescription = "Shuffle Queue",
-                tint = if (isShuffled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.size(24.dp)
-            )
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            IconButton(
+                onClick = { 
+                    com.videhub.QueueManager.toggleShuffle()
+                },
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Shuffle,
+                    contentDescription = "Shuffle Queue",
+                    tint = if (isShuffled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
-        IconButton(
-            onClick = { 
-                val player = com.videhub.service.MediaSessionManager.getOrCreatePlayer(context)
-                val currentPosition = player.currentPosition
-                val now = System.currentTimeMillis()
-                val isDoubleTap = (now - lastPreviousPressTime) < 500L
-                val withinFirst3Seconds = currentPosition < 3000L
-                
-                fun playPreviousTrack() {
-                    val previousItem = com.videhub.PlaybackHistory.getPrevious()
-                    if (previousItem != null) {
-                        onVideoPlay(
-                            previousItem.url,
-                            previousItem.title,
-                            previousItem.thumbnailUrl
-                        )
-                    } else {
-                        // No history — restart current song
-                        player.seekTo(0)
-                    }
-                }
-                
-                if (isDoubleTap) {
-                    playPreviousTrack()
-                } else {
-                    if (withinFirst3Seconds) {
-                        if (com.videhub.PlaybackHistory.hasPrevious()) {
-                            playPreviousTrack()
+        
+        Box(modifier = Modifier.weight(1.2f), contentAlignment = Alignment.Center) {
+            IconButton(
+                onClick = { 
+                    val player = com.videhub.service.MediaSessionManager.getOrCreatePlayer(context)
+                    val currentPosition = player.currentPosition
+                    val now = System.currentTimeMillis()
+                    val isDoubleTap = (now - lastPreviousPressTime) < 500L
+                    val withinFirst3Seconds = currentPosition < 3000L
+                    
+                    fun playPreviousTrack() {
+                        val previousItem = com.videhub.PlaybackHistory.getPrevious()
+                        if (previousItem != null) {
+                            onVideoPlay(
+                                previousItem.url,
+                                previousItem.title,
+                                previousItem.thumbnailUrl
+                            )
                         } else {
                             player.seekTo(0)
                         }
-                    } else {
-                        player.seekTo(0)
                     }
-                }
-                lastPreviousPressTime = now
-            },
-            modifier = Modifier.size(48.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.SkipPrevious,
-                contentDescription = "Skip Previous",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(32.dp)
-            )
+                    
+                    if (isDoubleTap) {
+                        playPreviousTrack()
+                    } else {
+                        if (withinFirst3Seconds) {
+                            if (com.videhub.PlaybackHistory.hasPrevious()) {
+                                playPreviousTrack()
+                            } else {
+                                player.seekTo(0)
+                            }
+                        } else {
+                            player.seekTo(0)
+                        }
+                    }
+                    lastPreviousPressTime = now
+                },
+                modifier = Modifier.size(56.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.SkipPrevious,
+                    contentDescription = "Skip Previous",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
         }
         
-        // isActuallyPlaying now comes from MediaSessionManager
-        
-        val playInteractionSource = remember { MutableInteractionSource() }
-        val isPlayPressed by playInteractionSource.collectIsPressedAsState()
-        
-        val playButtonScale by animateFloatAsState(
-            targetValue = if (isPlayPressed) 0.85f else 1f,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-            label = "playButtonScale"
-        )
-        val playButtonRotX by animateFloatAsState(
-            targetValue = if (isPlayPressed) -15f else 0f,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-            label = "playButtonRotX"
-        )
-        FilledIconButton(
-            onClick = { 
-                val player = com.videhub.service.MediaSessionManager.getOrCreatePlayer(context)
-                if (player.playbackState == androidx.media3.common.Player.STATE_IDLE) {
-                    player.prepare()
-                    player.play()
-                } else if (player.playbackState == androidx.media3.common.Player.STATE_ENDED) {
-                    player.seekTo(0)
-                    player.play()
-                } else if (player.playWhenReady) {
-                    player.pause()
-                } else {
-                    player.play()
-                }
-            },
-            interactionSource = playInteractionSource,
-            modifier = Modifier
-                .size(64.dp)
-                .graphicsLayer {
-                    cameraDistance = 8f * density
-                    scaleX = playButtonScale
-                    scaleY = playButtonScale
-                    rotationX = playButtonRotX
-                },
-            shape = CircleShape,
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
+        Box(modifier = Modifier.weight(1.5f), contentAlignment = Alignment.Center) {
+            val playInteractionSource = remember { MutableInteractionSource() }
+            val isPlayPressed by playInteractionSource.collectIsPressedAsState()
+            
+            val playButtonScale by animateFloatAsState(
+                targetValue = if (isPlayPressed) 0.9f else 1f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                label = "playButtonScale"
             )
-        ) {
-            AnimatedContent(targetState = isActuallyPlaying, label = "play_pause") { playing ->
+            val playButtonRotX by animateFloatAsState(
+                targetValue = if (isPlayPressed) -15f else 0f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                label = "playButtonRotX"
+            )
+            FilledIconButton(
+                onClick = { 
+                    val player = com.videhub.service.MediaSessionManager.getOrCreatePlayer(context)
+                    if (player.playbackState == androidx.media3.common.Player.STATE_IDLE) {
+                        player.prepare()
+                        player.play()
+                    } else if (player.playbackState == androidx.media3.common.Player.STATE_ENDED) {
+                        player.seekTo(0)
+                        player.play()
+                    } else if (player.isPlaying || player.playWhenReady) {
+                        player.pause()
+                    } else {
+                        player.play()
+                    }
+                },
+                interactionSource = playInteractionSource,
+                modifier = Modifier
+                    .size(80.dp)
+                    .graphicsLayer {
+                        cameraDistance = 8f * density
+                        scaleX = playButtonScale
+                        scaleY = playButtonScale
+                        rotationX = playButtonRotX
+                    },
+                shape = CircleShape,
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(32.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 3.5.dp
+                    )
+                } else {
+                    AnimatedContent(targetState = isActuallyPlaying, label = "play_pause") { playing ->
+                        Icon(
+                            imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription = if (playing) "Pause" else "Play",
+                            modifier = Modifier.size(42.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Box(modifier = Modifier.weight(1.2f), contentAlignment = Alignment.Center) {
+            IconButton(
+                onClick = { 
+                    com.videhub.service.MediaSessionManager.getOrCreatePlayer(context).seekToNext()
+                },
+                modifier = Modifier.size(56.dp)
+            ) {
                 Icon(
-                    imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (playing) "Pause" else "Play",
-                    modifier = Modifier
-                        .size(36.dp)
-                        .then(if (!playing) Modifier.offset(x = 6.dp) else Modifier)
+                    imageVector = Icons.Rounded.SkipNext,
+                    contentDescription = "Skip Next",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(36.dp)
                 )
             }
         }
 
-        IconButton(
-            onClick = { 
-                com.videhub.service.MediaSessionManager.getOrCreatePlayer(context).seekToNext()
-            },
-            modifier = Modifier.size(48.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.SkipNext,
-                contentDescription = "Skip Next",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(32.dp)
-            )
-        }
-
-        var isRepeatEnabled by remember { mutableStateOf(false) }
-        IconButton(
-            onClick = { 
-                val player = com.videhub.service.MediaSessionManager.getOrCreatePlayer(context)
-                val newRepeat = player.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF
-                player.repeatMode = if (newRepeat) androidx.media3.common.Player.REPEAT_MODE_ONE else androidx.media3.common.Player.REPEAT_MODE_OFF
-                isRepeatEnabled = newRepeat
-            },
-            modifier = Modifier.size(44.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Repeat,
-                contentDescription = "Repeat",
-                tint = if (isRepeatEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.size(24.dp)
-            )
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            var isRepeatEnabled by remember { mutableStateOf(false) }
+            IconButton(
+                onClick = { 
+                    val player = com.videhub.service.MediaSessionManager.getOrCreatePlayer(context)
+                    val newRepeat = player.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF
+                    player.repeatMode = if (newRepeat) androidx.media3.common.Player.REPEAT_MODE_ONE else androidx.media3.common.Player.REPEAT_MODE_OFF
+                    isRepeatEnabled = newRepeat
+                },
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Repeat,
+                    contentDescription = "Repeat",
+                    tint = if (isRepeatEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
     }
 }

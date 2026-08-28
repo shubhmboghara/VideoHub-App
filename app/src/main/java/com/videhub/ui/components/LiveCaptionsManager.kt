@@ -514,7 +514,7 @@ object LiveCaptionsManager {
         return matchingTrack?.url
     }
 
-    fun fetchCaptions(selectedUrl: String?, availableTracks: List<CaptionTrack>, artist: String, title: String, description: String?, isMusicMode: Boolean) {
+    fun fetchCaptions(selectedUrl: String?, availableTracks: List<CaptionTrack>, artist: String, title: String, description: String?, isMusicMode: Boolean, durationSeconds: Long = 0L) {
         currentFetchJob?.cancel()
         currentTransliterationJob?.cancel()
         currentFetchJob = scope.launch {
@@ -531,54 +531,70 @@ object LiveCaptionsManager {
             val urlToUse = finalTrackUrl ?: selectedUrl
             _selectedLanguageCode.value = trackToUse?.languageTag ?: extractLangFromUrl(urlToUse ?: "")
 
-            // Priority 1: Native Subtitles
+            var parsedCC: List<CaptionLine3> = emptyList()
+
+            // Step 1: Fetch Native Subtitles (YouTube CC)
             if (!urlToUse.isNullOrBlank()) {
                 try {
-                    var parsed: List<CaptionLine3> = emptyList()
                     val urlToFetch = urlToUse
-                    
                     val json = kotlinx.coroutines.withContext(Dispatchers.IO) {
                         try {
                             org.schabi.newpipe.extractor.NewPipe.getDownloader().get(urlToFetch, org.schabi.newpipe.extractor.localization.Localization.DEFAULT).responseBody()
                         } catch (e: Exception) {
-                            val request = okhttp3.Request.Builder().url(urlToFetch).header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36").build()
+                            val request = okhttp3.Request.Builder().url(urlToFetch).header("User-Agent", "Mozilla/5.0").build()
                             client.newCall(request).execute().body?.string()
                         }
                     }
                     
                     if (json != null) {
                         val content = json.trim()
-                        if (content.startsWith("{")) {
-                            try {
-                                parsed = parseSubtitlesJson(content)
-                            } catch (e: Exception) { }
-                        } else if (content.startsWith("WEBVTT") || content.contains("-->")) {
-                            try {
-                                parsed = parseVttOrSrt(content)
-                            } catch (e: Exception) { }
-                        } else if (content.startsWith("<?xml") || content.startsWith("<")) {
-                            try {
-                                parsed = parseXml(content)
-                            } catch (e: Exception) { }
+                        parsedCC = when {
+                            content.startsWith("{") -> parseSubtitlesJson(content)
+                            content.startsWith("WEBVTT") || content.contains("-->") -> parseVttOrSrt(content)
+                            content.startsWith("<?xml") || content.startsWith("<") -> parseXml(content)
+                            else -> emptyList()
                         }
-                    }
-
-                    if (parsed.isNotEmpty()) {
-                        _captions.value = parsed
-                        val track = availableTracks.find { it.url == urlToUse }
-                        if (track != null && !track.languageTag.startsWith("en", ignoreCase = true)) {
-                            detectAndTranslateCaptions(_captions.value.toList())
-                        }
-                        return@launch
-                    } else {
-                        Log.e("LiveCaptionsManager", "Parsed lines is empty after trying all formats.")
                     }
                 } catch (e: Exception) {
-                    Log.e("LiveCaptionsManager", "Failed to fetch subtitles from url", e)
+                    Log.e("LiveCaptionsManager", "Failed to fetch subtitles", e)
                 }
             }
 
-            // Fallback chain
+            // Step 2: Use LyricsManager for Intelligent Priority (Music Mode)
+            if (isMusicMode) {
+                val lyrics = com.videhub.audio.LyricsManager.getLyrics(title, artist, durationSeconds, parsedCC, description)
+                if (lyrics != null && lyrics.lines.isNotEmpty()) {
+                    val lines = lyrics.lines.map { 
+                        CaptionLine3(it.timeMs, if (it.timeMs < Long.MAX_VALUE - 1000) it.timeMs + 3000 else Long.MAX_VALUE, it.text)
+                    }
+                    _captions.value = lines
+                    _isError.value = false
+                    if (trackToUse != null && !trackToUse.languageTag.startsWith("en", ignoreCase = true)) {
+                        detectAndTranslateCaptions(_captions.value.toList())
+                    }
+                    return@launch
+                }
+            }
+
+            // Step 3: Fallback for Video Mode or if getLyrics failed
+            if (parsedCC.isNotEmpty()) {
+                val isNoise = parsedCC.all { line ->
+                    val text = line.nativeText.trim()
+                    text.isBlank() || com.videhub.audio.LyricsManager.isPureSoundAnnotation(text) ||
+                        text.equals("[Music]", ignoreCase = true) || text.equals("[Applause]", ignoreCase = true) ||
+                        text == "♪" || text == "♪♪" || text == "♫"
+                } || parsedCC.count { !com.videhub.audio.LyricsManager.isPureSoundAnnotation(it.nativeText) } < 2
+
+                if (!isNoise) {
+                    _captions.value = parsedCC
+                    if (trackToUse != null && !trackToUse.languageTag.startsWith("en", ignoreCase = true)) {
+                        detectAndTranslateCaptions(_captions.value.toList())
+                    }
+                    return@launch
+                }
+            }
+
+            // Step 4: Final Fallback Chain (Description Lyrics -> LRCLIB) if CC was noise
             tryFallbackLyrics(artist, title, description, extractLangFromUrl(urlToUse ?: ""))
         }
     }

@@ -147,42 +147,36 @@ fun MusicSeekBar(
                 contentDescription = "Music playback track, position ${formatMusicDuration(displayPositionMs)} of ${formatMusicDuration(safeDuration)}"
             }
     ) {
-        // Scrubbing Preview Bubble (Shown when actively dragging)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(28.dp),
-            contentAlignment = Alignment.BottomCenter
+        // Scrubbing Preview Bubble (Shown dynamically only when actively dragging)
+        AnimatedVisibility(
+            visible = isDragging,
+            enter = fadeIn() + scaleIn(initialScale = 0.8f),
+            exit = fadeOut() + scaleOut(targetScale = 0.8f),
+            modifier = Modifier.align(Alignment.CenterHorizontally)
         ) {
-            androidx.compose.animation.AnimatedVisibility(
-                visible = isDragging,
-                enter = fadeIn() + scaleIn(initialScale = 0.8f),
-                exit = fadeOut() + scaleOut(targetScale = 0.8f)
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shadowElevation = 6.dp,
+                modifier = Modifier.padding(bottom = 4.dp)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.padding(bottom = 2.dp)
-                ) {
-                    Text(
-                        text = formatMusicDuration(displayPositionMs),
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        ),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                    )
-                }
+                Text(
+                    text = formatMusicDuration(displayPositionMs),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                )
             }
         }
 
-        // 48dp Minimum Accessible Touch Region
+        // Sleek Touch Region
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .height(32.dp)
                 .testTag("music_seek_bar_touch_area")
                 .pointerInput(displaySafeDuration) {
                     detectTapGestures(

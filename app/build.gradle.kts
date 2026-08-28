@@ -81,6 +81,7 @@ secrets {
 // This makes it easy to add them back in the future if needed.
 dependencies {
     implementation(libs.mlkit.text.recognition)
+    implementation(libs.mlkit.language.id)
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.androidx.datastore.preferences)
     implementation("androidx.core:core-splashscreen:1.0.1")

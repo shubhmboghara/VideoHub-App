@@ -73,6 +73,7 @@ fun ModernPlayerControls(
     val coroutineScope = rememberCoroutineScope()
 
     var isPlaying by remember { mutableStateOf(mediaPlayer?.isPlaying ?: false) }
+    var isBuffering by remember { mutableStateOf(mediaPlayer?.playbackState == Player.STATE_BUFFERING) }
     var currentTime by remember { mutableStateOf(mediaPlayer?.currentPosition ?: 0L) }
     var totalTime by remember { mutableStateOf(mediaPlayer?.duration?.coerceAtLeast(0L) ?: 0L) }
     var bufferedTime by remember { mutableStateOf(mediaPlayer?.bufferedPosition?.coerceAtLeast(0L) ?: 0L) }
@@ -87,6 +88,7 @@ fun ModernPlayerControls(
         while (true) {
             mediaPlayer?.let {
                 isPlaying = it.isPlaying
+                isBuffering = it.playbackState == Player.STATE_BUFFERING || (it.playbackState == Player.STATE_IDLE && it.playWhenReady)
                 currentTime = it.currentPosition
                 totalTime = it.duration.coerceAtLeast(0L)
                 bufferedTime = it.bufferedPosition.coerceAtLeast(0L)
@@ -206,14 +208,16 @@ fun ModernPlayerControls(
                 Row(
                     modifier = Modifier
                         .align(Alignment.Center)
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp)
                         .testTag("player_center_controls"),
-                    horizontalArrangement = Arrangement.spacedBy(32.dp),
+                    horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
                         onClick = onPreviousClick,
                         modifier = Modifier
-                            .size(52.dp)
+                            .size(60.dp)
                             .background(Color.Black.copy(alpha = 0.5f), CircleShape)
                             .testTag("player_prev_button")
                             .semantics { contentDescription = "Previous video" }
@@ -222,34 +226,56 @@ fun ModernPlayerControls(
                             imageVector = Icons.Default.SkipPrevious,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(30.dp)
+                            modifier = Modifier.size(34.dp)
                         )
                     }
 
+                    Spacer(modifier = Modifier.width(48.dp))
+
                     IconButton(
                         onClick = {
-                            if (isPlaying) mediaPlayer?.pause() else mediaPlayer?.play()
+                            mediaPlayer?.let { player ->
+                                if (player.playbackState == Player.STATE_IDLE) {
+                                    player.prepare()
+                                    player.play()
+                                } else if (player.playbackState == Player.STATE_ENDED) {
+                                    player.seekTo(0)
+                                    player.play()
+                                } else if (player.isPlaying || player.playWhenReady) {
+                                    player.pause()
+                                } else {
+                                    player.play()
+                                }
+                            }
                         },
                         modifier = Modifier
-                            .size(68.dp)
-                            .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                            .size(80.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
                             .testTag("player_play_pause_button")
                             .semantics { contentDescription = if (isPlaying) "Pause video" else "Play video" }
                     ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier
-                                .size(44.dp)
-                                .then(if (!isPlaying) Modifier.offset(x = 6.dp) else Modifier)
-                        )
+                        if (isBuffering) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(40.dp),
+                                color = Color.White,
+                                strokeWidth = 3.5.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(48.dp)
+                            )
+                        }
                     }
+
+                    Spacer(modifier = Modifier.width(48.dp))
 
                     IconButton(
                         onClick = onNextClick,
                         modifier = Modifier
-                            .size(52.dp)
+                            .size(60.dp)
                             .background(Color.Black.copy(alpha = 0.5f), CircleShape)
                             .testTag("player_next_button")
                             .semantics { contentDescription = "Next video" }
@@ -258,7 +284,7 @@ fun ModernPlayerControls(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(30.dp)
+                            modifier = Modifier.size(34.dp)
                         )
                     }
                 }
