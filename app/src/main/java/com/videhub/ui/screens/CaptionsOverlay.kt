@@ -92,32 +92,35 @@ fun BoxScope.CaptionsOverlay(
                     com.videhub.ui.components.LyricsMode.PHONETIC -> currentOfflineCaption.value?.romanizedText ?: currentOfflineCaption.value?.nativeText ?: ""
                     com.videhub.ui.components.LyricsMode.TRANSLATION -> currentOfflineCaption.value?.englishText ?: currentOfflineCaption.value?.nativeText ?: ""
                     com.videhub.ui.components.LyricsMode.NATIVE -> currentOfflineCaption.value?.nativeText ?: ""
-                }
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Bottom,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = bottomPadding, start = 16.dp, end = 16.dp)
-                ) {
-                    Text(
-                        text = textToShow,
-                        color = Color.White,
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            lineHeight = 24.sp,
-                            fontWeight = FontWeight.Medium,
-                            shadow = Shadow(
-                                color = Color.Black.copy(alpha = 0.8f),
-                                offset = Offset(2f, 2f),
-                                blurRadius = 4f
-                            )
-                        ),
+                }.let { com.videhub.audio.LyricsManager.cleanLyricsText(it) }
+                
+                if (textToShow.isNotBlank()) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom,
                         modifier = Modifier
-                            .background(Color.Black.copy(alpha = 0.5f), shape = RoundedCornerShape(12.dp))
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
+                            .fillMaxWidth()
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = bottomPadding, start = 16.dp, end = 16.dp)
+                    ) {
+                        Text(
+                            text = textToShow,
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                lineHeight = 24.sp,
+                                fontWeight = FontWeight.Medium,
+                                shadow = Shadow(
+                                    color = Color.Black.copy(alpha = 0.8f),
+                                    offset = Offset(2f, 2f),
+                                    blurRadius = 4f
+                                )
+                            ),
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha = 0.5f), shape = RoundedCornerShape(12.dp))
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
                 }
             }
 
@@ -126,7 +129,7 @@ fun BoxScope.CaptionsOverlay(
             activeCaptions.isNotEmpty() -> {
                 val captionText = activeCaptions
                     .mapNotNull { it?.toString() }
-                    .map { it.trim() }
+                    .map { com.videhub.audio.LyricsManager.cleanLyricsText(it) }
                     .filter { it.isNotBlank() }
                     .distinct()
                     .joinToString("\n")

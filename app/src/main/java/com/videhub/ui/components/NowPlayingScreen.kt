@@ -86,7 +86,8 @@ fun NowPlayingScreen(
     onCaptionsRequested: () -> Unit = {},
     onVideoPlay: (String, String, String) -> Unit = { _,_,_ -> },
     isAudioOnly: Boolean = false,
-    description: String? = null
+    description: String? = null,
+    videoId: String? = null
 ) {
     var uiState by remember { 
         mutableStateOf(
@@ -163,7 +164,7 @@ fun NowPlayingScreen(
     // 1. Observe Player currentPosition in real-time
     val lyrics by LiveCaptionsManager.captions.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    var isLyricsMode by remember { mutableStateOf(false) }
+    var isLyricsMode by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var showEqualizerSheet by remember { mutableStateOf(false) }
     var showSleepTimerSheet by remember { mutableStateOf(false) }
 
@@ -362,6 +363,7 @@ fun NowPlayingScreen(
                             mediaPlayer = exoPlayer,
                             offlineCaptions = if (lyrics.isNotEmpty()) lyrics else offlineCaptions,
                             description = description,
+                            videoId = videoId,
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
@@ -595,7 +597,7 @@ fun NowPlayingScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(22.dp))
 
                 NowPlayingActionRow(
                     title = title,
@@ -703,7 +705,7 @@ fun NowPlayingActionRow(
     // Action Row with 5 sleek, modern Material 3 actions
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 1. Lyrics / Captions Toggle

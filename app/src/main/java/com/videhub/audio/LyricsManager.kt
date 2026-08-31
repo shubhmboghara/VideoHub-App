@@ -4,6 +4,7 @@ import android.util.Log
 import com.videhub.ui.components.CaptionLine3
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -97,7 +98,8 @@ object LyricsManager {
                 val ms = if (msStr.length == 2) msStr.toLong() * 10 else msStr.toLong()
                 
                 val timeMs = (mm * 60 + ss) * 1000 + ms
-                val text = matcher.group(matcher.groupCount())?.trim() ?: ""
+                val rawText = matcher.group(matcher.groupCount())?.trim() ?: ""
+                val text = cleanLyricsText(rawText)
                 
                 if (text.isNotBlank() && !isPureSoundAnnotation(text)) {
                     result.add(LyricLine(timeMs, text))
@@ -107,13 +109,22 @@ object LyricsManager {
         return result.sortedBy { it.timeMs }
     }
 
+    fun cleanLyricsText(text: String): String {
+        return text.replace(Regex("\\[.*?\\]"), "")
+            .replace(Regex("\\(.*?\\)"), "")
+            .replace(Regex("【.*?】"), "")
+            .replace(Regex("（.*?）"), "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
     fun fromSubtitles(captionLines: List<CaptionLine3>): LyricsData? {
         if (captionLines.isEmpty()) return null
 
         val filtered = captionLines.mapNotNull { line ->
-            val text = line.nativeText.trim()
-            if (text.isBlank() || isPureSoundAnnotation(text)) null
-            else LyricLine(timeMs = line.startMillis, text = text)
+            val cleaned = cleanLyricsText(line.nativeText)
+            if (cleaned.isBlank() || isPureSoundAnnotation(cleaned)) null
+            else LyricLine(timeMs = line.startMillis, text = cleaned)
         }
 
         if (filtered.size < 2) return null
@@ -127,13 +138,105 @@ object LyricsManager {
 
     fun isPureSoundAnnotation(text: String): Boolean {
         val lower = text.lowercase().trim()
-        val noiseTags = listOf(
-            "[music]", "(music)", "♪", "♪♪", "[applause]", "(applause)",
-            "[cheering]", "[sound]", "[instrumental]", "---", "***", "[laughter]",
-            "[lyrics]", "(lyrics)", "lyric", "lyrics", "[intro]", "[verse]", "[chorus]", "[bridge]"
+        val noiseTags = setOf(
+            // English
+            "music", "[music]", "(music)", "♪", "♪♪", "♫", "♫♫", "[applause]", "(applause)",
+            "cheering", "[cheering]", "sound", "[sound]", "instrumental", "[instrumental]",
+            "laughter", "[laughter]", "laughing", "lyrics", "[lyrics]", "lyric",
+            "intro", "[intro]", "verse", "[verse]", "chorus", "[chorus]", "bridge", "[bridge]", "outro", "[outro]",
+            
+            // Hindi
+            "संगीत", "[संगीत]", "(संगीत)", "तालियां", "[तालियां]", "हंसी", "[हंसी]", "शांति", "शोर",
+            
+            // Spanish & Portuguese
+            "musica", "[musica]", "música", "[música]", "aplauso", "aplausos", "risas", "risos",
+            
+            // French
+            "musique", "applaudissements", "rires",
+            
+            // German
+            "musik", "applaus", "gelächter",
+            
+            // Italian
+            "musica", "applausi", "risate",
+            
+            // Russian
+            "музыка", "аплодисменты", "смех",
+            
+            // Japanese
+            "音楽", "拍手", "笑い",
+            
+            // Chinese
+            "音乐", "掌声", "笑声",
+            
+            // Korean
+            "음악", "박수", "웃음",
+            
+            // Arabic
+            "موسيقى", "تصفيق", "ضحك",
+
+            // Turkish
+            "müzik", "alkış", "kahkaha",
+            
+            // Vietnamese
+            "âm nhạc", "vỗ tay", "tiếng cười",
+            
+            // Indonesian
+            "musik", "tepuk tangan", "tawa",
+            
+            // Thai
+            "ดนตรี", "เสียงปรบมือ", "เสียงหัวเราะ",
+            
+            // Bengali
+            "সঙ্গীত", "তালি", "হাসি",
+            
+            // Punjabi
+            "ਸੰਗੀਤ", "ਤਾੜੀਆਂ", "ਹਾਸਾ",
+            
+            // Marathi
+            "संगीत", "टाळ्या", "हसणे",
+            
+            // Telugu
+            "సంగీతం", "చప్పట్లు", "నవ్వు",
+            
+            // Tamil
+            "இசை", "கைதட்டல்", "சிரிப்பு",
+            
+            // Urdu
+            "موسیقی", "تالیاں", "ہنسی",
+            
+            // Gujarati
+            "સંગીત", "તાળીઓ", "હાસ્ય",
+            
+            // Kannada
+            "ಸಂಗೀತ", "ಚಪ್ಪಾಳೆ", "ನಗೆ",
+            
+            // Malayalam
+            "സംഗീതം", "കൈയടി", "ചിരി",
+            
+            // General Markers
+            "---", "***", "===", "...", "instrumental version", "musica instrumental"
         )
+        
+        // Single character symbols or punctuation
         if (lower.length == 1 && !lower[0].isLetterOrDigit()) return true
-        return noiseTags.contains(lower) || (lower.startsWith("[") && lower.endsWith("]") && lower.length < 16)
+        
+        // Direct match in our multi-lang set
+        if (noiseTags.contains(lower)) return true
+        
+        // Catch any bracketed or parenthesized short text (usually sound effects)
+        // We increase length to 40 to catch descriptive ones like [Intense orchestral music playing]
+        if ((lower.startsWith("[") && lower.endsWith("]")) || 
+            (lower.startsWith("(") && lower.endsWith(")")) ||
+            (lower.startsWith("（") && lower.endsWith("）")) || // Full-width parens (Asian)
+            (lower.startsWith("【") && lower.endsWith("】"))) { // Square brackets (Asian)
+            if (lower.length < 40) return true
+        }
+        
+        // Check if string is purely non-alphanumeric (e.g. "!!!", "---", "♪ ♪")
+        if (lower.isNotBlank() && lower.all { !it.isLetterOrDigit() && !it.isWhitespace() }) return true
+        
+        return false
     }
 
     private suspend fun scoreBlock(text: String): Int {
@@ -412,7 +515,9 @@ object LyricsManager {
         channel: String,
         durationSeconds: Long = 0,
         captions: List<CaptionLine3> = emptyList(),
-        description: String? = null
+        description: String? = null,
+        context: android.content.Context? = null,
+        videoId: String? = null
     ): LyricsData? = withContext(Dispatchers.IO) {
         val cacheKey = "$title|$channel|$durationSeconds"
 
@@ -438,25 +543,48 @@ object LyricsManager {
         }
 
         val (cleanTrackOriginal, cleanArtistOriginal) = cleanTrackAndArtist(title, channel)
-        var lrclibLyrics = fetchLrclibExact(cleanTrackOriginal, cleanArtistOriginal, durationSeconds)
-
-        if (lrclibLyrics == null) {
+        
+        // Priority 2 & 3: LRCLIB Parallel Fetch
+        val result = kotlinx.coroutines.coroutineScope {
+            val exactJob = async { fetchLrclibExact(cleanTrackOriginal, cleanArtistOriginal, durationSeconds) }
             val query = "$cleanArtistOriginal $cleanTrackOriginal".trim()
-            lrclibLyrics = fetchLrclibSearch(query, cleanTrackOriginal, cleanArtistOriginal, durationSeconds)
+            val searchJob = async { fetchLrclibSearch(query, cleanTrackOriginal, cleanArtistOriginal, durationSeconds) }
+            
+            val exact = exactJob.await()
+            if (exact != null && exact.isSynced) return@coroutineScope exact
+            
+            val search = searchJob.await()
+            if (search != null && search.isSynced) return@coroutineScope search
+            
+            exact ?: search ?: if (cleanTrackOriginal.isNotBlank()) {
+                fetchLrclibSearch(cleanTrackOriginal, cleanTrackOriginal, cleanArtistOriginal, durationSeconds)
+            } else null
         }
 
-        if (lrclibLyrics == null && cleanTrackOriginal.isNotBlank()) {
-            lrclibLyrics = fetchLrclibSearch(cleanTrackOriginal, cleanTrackOriginal, cleanArtistOriginal, durationSeconds)
-        }
-
-        if (lrclibLyrics != null && lrclibLyrics.isSynced) {
-            lyricsCache[cacheKey] = lrclibLyrics
-            return@withContext lrclibLyrics
-        }
-
-        if (lrclibLyrics != null && lrclibLyrics.lines.isNotEmpty()) {
-            lyricsCache[cacheKey] = lrclibLyrics
-            return@withContext lrclibLyrics
+        if (result != null) {
+            lyricsCache[cacheKey] = result
+            if (context != null && videoId != null) {
+                try {
+                    val db = com.videhub.data.AppDatabase.getDatabase(context)
+                    val json = JSONObject().apply {
+                        put("isSynced", result.isSynced)
+                        put("source", result.source)
+                        put("plainLyrics", result.plainLyrics)
+                        val linesArray = JSONArray()
+                        result.lines.forEach { line ->
+                            linesArray.put(JSONObject().apply {
+                                put("timeMs", line.timeMs)
+                                put("text", line.text)
+                            })
+                        }
+                        put("lines", linesArray)
+                    }
+                    db.savedLyricsDao().insertLyrics(com.videhub.data.entity.SavedLyricsEntity(videoId, json.toString()))
+                } catch (e: Exception) {
+                    Log.e("LyricsManager", "Failed to save lyrics to DB: ${e.message}")
+                }
+            }
+            return@withContext result
         }
 
         lyricsCache[cacheKey] = EMPTY_LYRICS

@@ -13,5 +13,7 @@ data class VideoMetadataEntity(
     val duration: Long,
     val streamUrl: String?,
     val audioUrl: String?,
+    val uploaderUrl: String? = null,
+    val description: String? = null,
     val cachedAt: Long = System.currentTimeMillis()
 )

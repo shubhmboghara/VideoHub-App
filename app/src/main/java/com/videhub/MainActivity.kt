@@ -14,6 +14,7 @@ import androidx.activity.SystemBarStyle
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
@@ -156,7 +157,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        handleIntent(intent)
+        if (savedInstanceState == null) {
+            handleIntent(intent)
+        }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
             window.attributes.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
@@ -288,6 +291,13 @@ fun MainScreen() {
     val isMiniPlayerVisible by MiniPlayerState.isVisible.collectAsState()
     val miniPlayerMusicMode by MiniPlayerState.isMusicMode.collectAsState()
     val miniPlayerArtworkUrl by MiniPlayerState.currentThumbnailUrl.collectAsState()
+    
+    LaunchedEffect(context) {
+        val lang = com.videhub.data.SettingsManager.getContentLanguage(context).first()
+        val country = com.videhub.data.SettingsManager.getContentCountry(context).first()
+        com.videhub.extractor.ExtractorHelper.updateLocalization(lang, country)
+    }
+    
     val scope = rememberCoroutineScope()
     var globalAutoplayJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
@@ -330,6 +340,10 @@ fun MainScreen() {
             mediaPlayer?.stop()
             mediaPlayer?.clearMediaItems()
             com.videhub.ui.components.LiveCaptionsManager.clear()
+            if (sharedViewModel.currentPlayerUrl != safeUrl) {
+                sharedViewModel.playerStreamInfoCache = null
+                sharedViewModel.playerRelatedItemsCache = null
+            }
         } else {
             if (mediaPlayer?.playbackState == androidx.media3.common.Player.STATE_ENDED) {
                 mediaPlayer?.seekTo(0)
@@ -337,6 +351,10 @@ fun MainScreen() {
             }
         }
         if (safeUrl.isNotBlank()) {
+            sharedViewModel.currentPlayerUrl = safeUrl
+            sharedViewModel.currentPlayerTitle = t
+            sharedViewModel.currentPlayerThumbnailUrl = thumb
+            
             val isCurrentlyOnPlayer = navController.currentDestination?.route?.startsWith("player") == true
             navController.navigate(
                 Screen.Player.createRoute(
@@ -507,6 +525,9 @@ fun MainScreen() {
                     mediaPlayer?.stop()
                     mediaPlayer?.clearMediaItems()
                     MiniPlayerState.hide()
+                    sharedViewModel.currentPlayerUrl = null
+                    sharedViewModel.playerStreamInfoCache = null
+                    sharedViewModel.playerRelatedItemsCache = null
                 }
             )
         }

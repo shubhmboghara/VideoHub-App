@@ -18,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -40,6 +41,7 @@ fun SyncedLyricsView(
     mediaPlayer: Player?,
     offlineCaptions: List<CaptionLine3> = emptyList(),
     description: String? = null,
+    videoId: String? = null,
     modifier: Modifier = Modifier
 ) {
     var lyricsData by remember { mutableStateOf<LyricsData?>(null) }
@@ -48,6 +50,8 @@ fun SyncedLyricsView(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     
+    val context = LocalContext.current
+    
     val chapters = remember(description, offlineCaptions) { 
         if (offlineCaptions.isNotEmpty()) emptyList() 
         else LyricsManager.extractChapters(description ?: "") 
@@ -55,7 +59,7 @@ fun SyncedLyricsView(
     var currentChapter by remember { mutableStateOf<com.videhub.audio.VideoChapter?>(null) }
 
     // Fetch lyrics prioritizing CC -> Description -> Cleaned LRC search
-    LaunchedEffect(title, channelName, offlineCaptions, description, currentChapter) {
+    LaunchedEffect(title, channelName, offlineCaptions, description, currentChapter, videoId) {
         isLoading = true
         lyricsData = null
         
@@ -73,7 +77,9 @@ fun SyncedLyricsView(
             channel = searchArtist,
             durationSeconds = searchDuration,
             captions = offlineCaptions,
-            description = description
+            description = description,
+            context = context,
+            videoId = videoId
         )
         
         if (fetched != null && fetched.isSynced && currentChapter != null) {
@@ -258,7 +264,7 @@ fun SyncedLyricsView(
                     )
 
                     Text(
-                        text = line.text,
+                        text = com.videhub.audio.LyricsManager.cleanLyricsText(line.text),
                         fontSize = if (isActive) 24.sp else 19.sp,
                         fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Medium,
                         lineHeight = if (isActive) 32.sp else 26.sp,

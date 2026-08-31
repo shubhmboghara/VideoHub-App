@@ -172,15 +172,16 @@ fun MusicModeUI(
                     onVideoPlay = { url, t, thumb -> onVideoPlay(url, t, thumb, true) },
                     onCaptionsRequested = onCaptionsRequested,
                     showCaptions = showCaptions,
-                    isAudioOnly = isAudioOnly
+                    isAudioOnly = isAudioOnly,
+                    videoId = videoUrl
                 )
                     }
                 
-                if (isBuffering) {
+                /* if (isBuffering) {
                     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))) {
                         CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.primary)
                     }
-                }
+                } */
             }
         }
     }

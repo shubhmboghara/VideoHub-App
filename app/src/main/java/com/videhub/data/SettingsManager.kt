@@ -25,6 +25,14 @@ object SettingsManager {
     private val LOOP_VIDEO_KEY = booleanPreferencesKey("loop_video")
     private val USER_INTERESTS_KEY = androidx.datastore.preferences.core.stringPreferencesKey("user_interests_list")
     private val HAS_CONFIGURED_INTERESTS_KEY = booleanPreferencesKey("has_configured_interests")
+    private val CONTENT_LANGUAGE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("content_language")
+    private val CONTENT_COUNTRY_KEY = androidx.datastore.preferences.core.stringPreferencesKey("content_country")
+
+    fun getContentLanguage(context: Context): Flow<String> = context.dataStore.data.map { it[CONTENT_LANGUAGE_KEY] ?: "en" }
+    suspend fun setContentLanguage(context: Context, lang: String) = context.dataStore.edit { it[CONTENT_LANGUAGE_KEY] = lang }
+
+    fun getContentCountry(context: Context): Flow<String> = context.dataStore.data.map { it[CONTENT_COUNTRY_KEY] ?: "US" }
+    suspend fun setContentCountry(context: Context, country: String) = context.dataStore.edit { it[CONTENT_COUNTRY_KEY] = country }
 
     fun getUserInterests(context: Context): Flow<List<String>> {
         return context.dataStore.data.map { preferences ->

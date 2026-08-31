@@ -482,18 +482,37 @@ fun ExploreScreen(
                             )
                         }
 
-                        // Trailing Clear Button
-                        if (query.isNotEmpty()) {
+                        // Trailing Clear and Language Buttons
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            var showContentSettings by remember { mutableStateOf(false) }
+                            if (showContentSettings) {
+                                com.videhub.ui.components.ContentSettingsDialog(onDismiss = { showContentSettings = false })
+                            }
+
+                            if (query.isNotEmpty()) {
+                                IconButton(
+                                    onClick = {
+                                        query = ""
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = "Clear search",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            
                             IconButton(
-                                onClick = {
-                                    query = ""
-                                },
+                                onClick = { showContentSettings = true },
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = "Clear search",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    imageVector = Icons.Default.Language,
+                                    contentDescription = "Content Language",
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }

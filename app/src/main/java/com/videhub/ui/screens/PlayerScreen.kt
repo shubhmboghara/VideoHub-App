@@ -122,12 +122,14 @@ fun PlayerScreen(
     val db = remember { AppDatabase.getDatabase(context) }
     val downloadViewModel: com.videhub.viewmodel.DownloadViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 
-    var allStreams by remember { mutableStateOf<List<VideoStream>>(emptyList()) }
-    var fallbackIndex by remember { mutableIntStateOf(0) }
-    var hasInitializedPlayer by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var allStreams by remember(videoUrl) { mutableStateOf<List<VideoStream>>(emptyList()) }
+    var fallbackIndex by remember(videoUrl) { mutableIntStateOf(0) }
+    var lastInitializedMediaId by remember(videoUrl) { mutableStateOf<String?>(null) }
     
-    val isSameVideo = sharedViewModel.currentPlayerUrl == videoUrl
-    var streamInfo by remember { mutableStateOf<StreamInfo?>(
+    val isSameVideo = (sharedViewModel.currentPlayerUrl == videoUrl) && 
+        (sharedViewModel.playerStreamInfoCache?.let { it.url == videoUrl || it.originalUrl == videoUrl } == true)
+    
+    var streamInfo by remember(videoUrl) { mutableStateOf<StreamInfo?>(
         if (isSameVideo) {
             sharedViewModel.playerStreamInfoCache
         } else if (com.videhub.service.BackgroundAutoplayHandler.currentStreamInfo?.url == videoUrl || com.videhub.service.BackgroundAutoplayHandler.currentStreamInfo?.originalUrl == videoUrl) {
@@ -173,28 +175,27 @@ fun PlayerScreen(
         }
     }
 
-    var channelId by remember { mutableStateOf<String?>(if (isSameVideo) streamInfo?.uploaderUrl else null) }
-    var channelName by remember { mutableStateOf(if (isSameVideo) streamInfo?.uploaderName ?: "" else "") }
+    var channelId by remember(videoUrl) { mutableStateOf<String?>(if (isSameVideo) streamInfo?.uploaderUrl else null) }
+    var channelName by remember(videoUrl) { mutableStateOf(if (isSameVideo) streamInfo?.uploaderName ?: "" else "") }
     
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var sleepTimerMinutes by remember { mutableStateOf<Int?>(null) }
-    var sponsorSegments by remember { mutableStateOf<List<com.videhub.extractor.SponsorSegment>>(emptyList()) }
+    var sponsorSegments by remember(videoUrl) { mutableStateOf<List<com.videhub.extractor.SponsorSegment>>(emptyList()) }
     
-    var isSubscribed by remember { mutableStateOf(false) }
-    var isLiked by remember { mutableStateOf(false) }
-    var activeMediaId by remember { mutableStateOf(videoUrl) }
+    var isSubscribed by remember(videoUrl) { mutableStateOf(false) }
+    var isLiked by remember(videoUrl) { mutableStateOf(false) }
+    var activeMediaId by remember(videoUrl) { mutableStateOf(videoUrl) }
     LaunchedEffect(activeMediaId) {
         withContext(kotlinx.coroutines.Dispatchers.IO) {
             isLiked = db.likedVideoDao().isLiked(activeMediaId)
         }
     }
-    var isInWatchLater by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isInWatchLater by remember(videoUrl) { mutableStateOf(false) }
+    var errorMessage by remember(videoUrl) { mutableStateOf<String?>(null) }
 
-    
-    var retryTrigger by remember { mutableIntStateOf(0) }
-    var offlineStreamUri by remember { mutableStateOf<String?>(null) }
-    var offlineAudioUri by remember { mutableStateOf<String?>(null) }
+    var retryTrigger by remember(videoUrl) { mutableIntStateOf(0) }
+    var offlineStreamUri by remember(videoUrl) { mutableStateOf<String?>(null) }
+    var offlineAudioUri by remember(videoUrl) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(videoUrl, retryTrigger) {
         com.videhub.PlaybackHistory.addToHistory(
@@ -208,7 +209,7 @@ fun PlayerScreen(
         )
     }
 
-    var selectedQuality by remember { mutableStateOf("Auto") }
+    var selectedQuality by remember(videoUrl) { mutableStateOf("Auto") }
     var showQualitySelector by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showPlaybackSpeedMenu by remember { mutableStateOf(false) }
@@ -234,10 +235,12 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(videoUrl, retryTrigger) {
-        if (retryTrigger == 0 && sharedViewModel.currentPlayerUrl == videoUrl && sharedViewModel.playerStreamInfoCache != null) {
-            streamInfo = sharedViewModel.playerStreamInfoCache
-            channelId = streamInfo?.uploaderUrl
-            channelName = streamInfo?.uploaderName ?: channelName
+        val cachedInfo = sharedViewModel.playerStreamInfoCache
+        val isCachedForThisVideo = cachedInfo != null && (cachedInfo.url == videoUrl || cachedInfo.originalUrl == videoUrl)
+        if (retryTrigger == 0 && isCachedForThisVideo) {
+            streamInfo = cachedInfo
+            channelId = cachedInfo?.uploaderUrl
+            channelName = cachedInfo?.uploaderName ?: channelName
             return@LaunchedEffect
         }
         val bgInfo = com.videhub.service.BackgroundAutoplayHandler.currentStreamInfo
@@ -480,12 +483,16 @@ fun PlayerScreen(
                     val currentMediaId = player.currentMediaItem?.mediaId
                     val isDifferentMedia = currentMediaId != mediaItem.mediaId
                     
-                    val shouldUpdate = if (hasInitializedPlayer && isDifferentMedia && currentMediaId != null) {
-                        false // Player moved on to autoplay/queue, do not interrupt
-                    } else if (!hasInitializedPlayer && !isDifferentMedia && player.playbackState != androidx.media3.common.Player.STATE_IDLE) {
-                        false // Player is already playing this video (e.g. from autoplay)
-                    } else {
-                        true
+                    val shouldUpdate = when {
+                        // Case 1: Player is already playing or prepared for this specific video
+                        !isDifferentMedia && player.playbackState != androidx.media3.common.Player.STATE_IDLE -> false
+                        
+                        // Case 2: Different video is playing, but this specific screen instance already 
+                        // initialized the player for this videoUrl (e.g. queue/autoplay moved forward)
+                        lastInitializedMediaId == videoUrl && isDifferentMedia && currentMediaId != null -> false
+                        
+                        // Default: Initialize the player for the video specified in the arguments
+                        else -> true
                     }
 
                     if (shouldUpdate) {
@@ -526,9 +533,9 @@ fun PlayerScreen(
                             player.playWhenReady = wasPlaying || currentPos == 0L
                         }
                         
-                        hasInitializedPlayer = true
-                    } else if (!hasInitializedPlayer) {
-                        hasInitializedPlayer = true
+                        lastInitializedMediaId = videoUrl
+                    } else if (lastInitializedMediaId == null) {
+                        lastInitializedMediaId = videoUrl
                     }
                 }
             } else {
@@ -540,7 +547,7 @@ fun PlayerScreen(
         }
     }
 
-    var relatedVideos by remember { mutableStateOf<List<StreamInfoItem>>(if (isSameVideo) sharedViewModel.playerRelatedItemsCache?.filterIsInstance<StreamInfoItem>() ?: emptyList() else emptyList()) }
+    var relatedVideos by remember(videoUrl) { mutableStateOf<List<StreamInfoItem>>(if (isSameVideo) sharedViewModel.playerRelatedItemsCache?.filterIsInstance<StreamInfoItem>() ?: emptyList() else emptyList()) }
     LaunchedEffect(streamInfo) {
         if (streamInfo != null) {
             val direct = streamInfo!!.relatedItems?.filterIsInstance<StreamInfoItem>() ?: emptyList()
@@ -1160,7 +1167,9 @@ fun PlayerScreen(
                     title = title,
                     description = streamInfo?.description?.content,
                     isMusicMode = isMusicMode,
-                    durationSeconds = streamInfo?.duration ?: 0L
+                    durationSeconds = streamInfo?.duration ?: 0L,
+                    context = context,
+                    videoId = videoUrl
                 )
             }
         }
@@ -1333,7 +1342,7 @@ fun PlayerScreen(
                 )
                 
                 val isLocalFile = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
-                if (isBuffering && !isLocalFile) {
+                if (isBuffering && !isLocalFile && !isMusicMode) {
                     CircularProgressIndicator(
                         modifier = Modifier.align(Alignment.Center),
                         color = MaterialTheme.colorScheme.primary

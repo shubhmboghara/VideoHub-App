@@ -84,10 +84,30 @@ object ExtractorHelper {
         }
     }
 
+    private var currentLanguage = "en"
+    private var currentCountry = "US"
+
     @Synchronized
     fun init(context: Context) {
         appContext = context.applicationContext
         ProxyManager.init(appContext)
+        
+        // Initial load of settings (blocking for simplicity on first init)
+        try {
+            val prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(appContext)
+            // Note: we might want to use DataStore but for init we can fallback or use runBlocking
+            // For now let's just use defaults and update when changed
+        } catch (e: Exception) {}
+        
+        initNewPipe()
+    }
+
+    @Synchronized
+    fun updateLocalization(language: String, country: String) {
+        if (currentLanguage == language && currentCountry == country) return
+        currentLanguage = language
+        currentCountry = country
+        initialized = false
         initNewPipe()
     }
 
@@ -135,7 +155,7 @@ object ExtractorHelper {
                                 addHeader("User-Agent", userAgent)
                             }
                             if (!hasAcceptLanguage) {
-                                addHeader("Accept-Language", "en-US,en;q=0.9")
+                                addHeader("Accept-Language", "$currentLanguage-$currentCountry,$currentLanguage;q=0.9")
                             }
                             
                             val method = request.httpMethod()
@@ -209,7 +229,7 @@ object ExtractorHelper {
                     )
                 }
             },
-            Localization("en", "US")
+            org.schabi.newpipe.extractor.localization.Localization(currentLanguage, currentCountry)
         )
         initialized = true
     }

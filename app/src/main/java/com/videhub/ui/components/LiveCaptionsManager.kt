@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.cancel
 import org.json.JSONObject
@@ -315,8 +317,8 @@ object LiveCaptionsManager {
         null
     }
 
-    private suspend fun tryFallbackLyrics(artist: String, title: String, description: String?, expectedLang: String? = null) {
-        val lyrics = com.videhub.audio.LyricsManager.getLyrics(title, artist, 0L, emptyList(), description)
+    private suspend fun tryFallbackLyrics(artist: String, title: String, description: String?, expectedLang: String? = null, context: android.content.Context? = null, videoId: String? = null) {
+        val lyrics = com.videhub.audio.LyricsManager.getLyrics(title, artist, 0L, emptyList(), description, context, videoId)
         if (lyrics != null && lyrics.lines.isNotEmpty()) {
             val lines = lyrics.lines.map { 
                 CaptionLine3(it.timeMs, if (it.timeMs < Long.MAX_VALUE - 1000) it.timeMs + 3000 else Long.MAX_VALUE, it.text)
@@ -383,7 +385,7 @@ object LiveCaptionsManager {
 
             var lrclibParsed: List<CaptionLine3> = emptyList()
             if (allParsed.isEmpty()) {
-                lrclibParsed = getLrclibCaptions(artist, title, description)
+                lrclibParsed = getLrclibCaptions(artist, title, description, context, videoId)
             }
 
             if (allParsed.isNotEmpty() || lrclibParsed.isNotEmpty()) {
@@ -516,8 +518,8 @@ object LiveCaptionsManager {
         }
     }
 
-    private suspend fun getLrclibCaptions(artist: String, title: String, description: String?): List<CaptionLine3> {
-        val lyrics = com.videhub.audio.LyricsManager.getLyrics(title, artist, 0L, emptyList(), description)
+    private suspend fun getLrclibCaptions(artist: String, title: String, description: String?, context: android.content.Context? = null, videoId: String? = null): List<CaptionLine3> {
+        val lyrics = com.videhub.audio.LyricsManager.getLyrics(title, artist, 0L, emptyList(), description, context, videoId)
         if (lyrics != null && lyrics.lines.isNotEmpty()) {
             return lyrics.lines.map { 
                 CaptionLine3(it.timeMs, if (it.timeMs < Long.MAX_VALUE - 1000) it.timeMs + 3000 else Long.MAX_VALUE, it.text) 
@@ -555,7 +557,17 @@ object LiveCaptionsManager {
         return matchingTrack?.url
     }
 
-    fun fetchCaptions(selectedUrl: String?, availableTracks: List<CaptionTrack>, artist: String, title: String, description: String?, isMusicMode: Boolean, durationSeconds: Long = 0L) {
+    fun fetchCaptions(
+        selectedUrl: String?, 
+        availableTracks: List<CaptionTrack>, 
+        artist: String, 
+        title: String, 
+        description: String?, 
+        isMusicMode: Boolean, 
+        durationSeconds: Long = 0L,
+        context: android.content.Context? = null,
+        videoId: String? = null
+    ) {
         currentFetchJob?.cancel()
         currentTransliterationJob?.cancel()
         currentFetchJob = scope.launch {
@@ -572,71 +584,62 @@ object LiveCaptionsManager {
             val urlToUse = finalTrackUrl ?: selectedUrl
             _selectedLanguageCode.value = trackToUse?.languageTag ?: extractLangFromUrl(urlToUse ?: "")
 
-            var parsedCC: List<CaptionLine3> = emptyList()
-
-            // Step 1: Fetch Native Subtitles (YouTube CC) with direct high-speed HTTP
-            if (!urlToUse.isNullOrBlank()) {
+            // Parallel Execution: Fetch CC and Lyrics simultaneously
+            val ccJob = async(Dispatchers.IO) {
+                if (urlToUse.isNullOrBlank()) return@async emptyList<CaptionLine3>()
                 try {
                     val content = fetchSubtitleContentDirect(urlToUse)?.trim()
                     if (!content.isNullOrBlank()) {
-                        parsedCC = when {
+                        when {
                             content.startsWith("{") -> parseSubtitlesJson(content)
                             content.startsWith("WEBVTT") || content.contains("-->") -> parseVttOrSrt(content)
                             content.startsWith("<?xml") || content.startsWith("<") -> parseXml(content)
                             else -> emptyList()
                         }
-                    }
-                } catch (e: Exception) {
-                    Log.e("LiveCaptionsManager", "Failed to fetch subtitles", e)
-                }
+                    } else emptyList()
+                } catch (e: Exception) { emptyList() }
             }
 
-            // Immediately set CC if valid to give instant responsiveness
-            if (parsedCC.isNotEmpty()) {
-                val isNoise = parsedCC.all { line ->
-                    val text = line.nativeText.trim()
-                    text.isBlank() || com.videhub.audio.LyricsManager.isPureSoundAnnotation(text) ||
-                        text.equals("[Music]", ignoreCase = true) || text.equals("[Applause]", ignoreCase = true) ||
-                        text == "♪" || text == "♪♪" || text == "♫"
-                } || parsedCC.count { !com.videhub.audio.LyricsManager.isPureSoundAnnotation(it.nativeText) } < 2
+            val lyricsJob = if (isMusicMode) {
+                async(Dispatchers.IO) {
+                    com.videhub.audio.LyricsManager.getLyrics(title, artist, durationSeconds, emptyList(), description, context, videoId)
+                }
+            } else null
 
-                if (!isNoise) {
+            // Wait for CC first as it is usually the fastest (Priority 1)
+            val rawCC = ccJob.await()
+            val parsedCC = rawCC.filter { line ->
+                val text = line.nativeText.trim()
+                text.isNotBlank() && !com.videhub.audio.LyricsManager.isPureSoundAnnotation(text)
+            }
+
+            if (parsedCC.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
                     _captions.value = parsedCC
                     _isError.value = false
-                    if (!isMusicMode) {
-                        if (trackToUse != null && !trackToUse.languageTag.startsWith("en", ignoreCase = true)) {
-                            detectAndTranslateCaptions(_captions.value.toList())
-                        }
-                        return@launch
-                    }
                 }
+                if (!isMusicMode) return@launch
             }
 
-            // Step 2: In Music Mode, check if high-fidelity synced lyrics from LRCLIB/Description are preferred or available
-            if (isMusicMode) {
-                val lyrics = com.videhub.audio.LyricsManager.getLyrics(title, artist, durationSeconds, parsedCC, description)
-                if (lyrics != null && lyrics.lines.isNotEmpty()) {
-                    val lines = lyrics.lines.map { 
+            // Now wait for High-Fidelity Lyrics (Priority 2)
+            if (lyricsJob != null) {
+                val highFidLyrics = lyricsJob.await()
+                if (highFidLyrics != null && highFidLyrics.lines.isNotEmpty()) {
+                    val lines = highFidLyrics.lines.map { 
                         CaptionLine3(it.timeMs, if (it.timeMs < Long.MAX_VALUE - 1000) it.timeMs + 3000 else Long.MAX_VALUE, it.text)
                     }
-                    _captions.value = lines
-                    _isError.value = false
-                    if (trackToUse != null && !trackToUse.languageTag.startsWith("en", ignoreCase = true)) {
-                        detectAndTranslateCaptions(_captions.value.toList())
+                    withContext(Dispatchers.Main) {
+                        _captions.value = lines
+                        _isError.value = false
                     }
                     return@launch
                 }
             }
 
-            // If parsedCC was available and not noise, keep it
-            if (parsedCC.isNotEmpty()) {
-                _captions.value = parsedCC
-                _isError.value = false
-                return@launch
+            // Final fallbacks if still empty
+            if (_captions.value.isEmpty()) {
+                tryFallbackLyrics(artist, title, description, extractLangFromUrl(urlToUse ?: ""), context, videoId)
             }
-
-            // Step 4: Final Fallback Chain (Description Lyrics -> LRCLIB) if CC was noise or unavailable
-            tryFallbackLyrics(artist, title, description, extractLangFromUrl(urlToUse ?: ""))
         }
     }
 

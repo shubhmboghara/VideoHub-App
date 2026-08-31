@@ -75,16 +75,31 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         set(value) { savedStateHandle.set("home_tab", value) }
 
     // Explore screen cache
-    var exploreQueryCache: String = ""
+    var exploreQueryCache: String
+        get() = savedStateHandle.get<String>("explore_query") ?: ""
+        set(value) { savedStateHandle.set("explore_query", value) }
+        
     var exploreVideosCache: List<Any>? = null
     var explorePagingSourceCache: com.videhub.extractor.ListExtractorPagingSource? = null
-    var exploreScrollIndexCache: Int = 0
-    var exploreScrollOffsetCache: Int = 0
+    
+    var exploreScrollIndexCache: Int
+        get() = savedStateHandle.get<Int>("explore_scroll_index") ?: 0
+        set(value) { savedStateHandle.set("explore_scroll_index", value) }
+        
+    var exploreScrollOffsetCache: Int
+        get() = savedStateHandle.get<Int>("explore_scroll_offset") ?: 0
+        set(value) { savedStateHandle.set("explore_scroll_offset", value) }
 
     // Shorts screen cache
     var shortsListCache: List<org.schabi.newpipe.extractor.stream.StreamInfoItem>? = null
-    var shortsCategoryCache: String = "All"
-    var shortsCurrentIndexCache: Int = 0
+    
+    var shortsCategoryCache: String
+        get() = savedStateHandle.get<String>("shorts_category") ?: "All"
+        set(value) { savedStateHandle.set("shorts_category", value) }
+        
+    var shortsCurrentIndexCache: Int
+        get() = savedStateHandle.get<Int>("shorts_index") ?: 0
+        set(value) { savedStateHandle.set("shorts_index", value) }
 
     // Subscriptions screen cache
     var subscriptionsSelectedChannelCache: String?
@@ -113,7 +128,18 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     var channelScrollOffsetCache: Int = 0
 
     // Player screen cache
-    var currentPlayerUrl: String? = null
+    var currentPlayerUrl: String?
+        get() = savedStateHandle.get<String>("current_player_url")
+        set(value) { savedStateHandle.set("current_player_url", value) }
+
+    var currentPlayerTitle: String?
+        get() = savedStateHandle.get<String>("current_player_title")
+        set(value) { savedStateHandle.set("current_player_title", value) }
+
+    var currentPlayerThumbnailUrl: String?
+        get() = savedStateHandle.get<String>("current_player_thumbnail")
+        set(value) { savedStateHandle.set("current_player_thumbnail", value) }
+        
     var playerStreamInfoCache: org.schabi.newpipe.extractor.stream.StreamInfo? = null
     var playerRelatedItemsCache: List<org.schabi.newpipe.extractor.InfoItem>? = null
     var playerScrollIndexCache: Int = 0
