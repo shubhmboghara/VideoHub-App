@@ -74,7 +74,7 @@ fun BoxScope.CaptionsOverlay(
         while(true) {
             val pos = seekedPosition.value ?: mediaPlayer?.currentPosition ?: 0L
             currentOfflineCaption.value = offlineCaptions.lastOrNull { pos >= it.startMillis && pos <= it.endMillis }
-            kotlinx.coroutines.delay(200)
+            kotlinx.coroutines.delay(100)
         }
     }
 
@@ -84,49 +84,53 @@ fun BoxScope.CaptionsOverlay(
             label = "captionPadding"
         )
 
+        val selectedTrack by com.videhub.ui.components.LiveCaptionsManager.selectedTrack.collectAsStateWithLifecycle()
+
         when {
-            // ✅ Case 1: If we have offline/manually fetched captions (lyrics or JSON3), show them
-            hasOfflineCaptions && currentOfflineCaption.value != null -> {
-                val lyricsModeState by com.videhub.ui.components.LyricsPreferenceManager.lyricsMode.collectAsStateWithLifecycle()
-                val textToShow = when (lyricsModeState) {
-                    com.videhub.ui.components.LyricsMode.PHONETIC -> currentOfflineCaption.value?.romanizedText ?: currentOfflineCaption.value?.nativeText ?: ""
-                    com.videhub.ui.components.LyricsMode.TRANSLATION -> currentOfflineCaption.value?.englishText ?: currentOfflineCaption.value?.nativeText ?: ""
-                    com.videhub.ui.components.LyricsMode.NATIVE -> currentOfflineCaption.value?.nativeText ?: ""
-                }.let { com.videhub.audio.LyricsManager.cleanLyricsText(it) }
-                
-                if (textToShow.isNotBlank()) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Bottom,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = bottomPadding, start = 16.dp, end = 16.dp)
-                    ) {
-                        Text(
-                            text = textToShow,
-                            color = Color.White,
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                lineHeight = 24.sp,
-                                fontWeight = FontWeight.Medium,
-                                shadow = Shadow(
-                                    color = Color.Black.copy(alpha = 0.8f),
-                                    offset = Offset(2f, 2f),
-                                    blurRadius = 4f
-                                )
-                            ),
+            // ✅ Case 1: If we have offline/manually fetched captions (lyrics or JSON3/VTT), show them
+            hasOfflineCaptions -> {
+                val caption = currentOfflineCaption.value
+                if (caption != null) {
+                    val lyricsModeState by com.videhub.ui.components.LyricsPreferenceManager.lyricsMode.collectAsStateWithLifecycle()
+                    val textToShow = when (lyricsModeState) {
+                        com.videhub.ui.components.LyricsMode.PHONETIC -> caption.romanizedText ?: caption.nativeText
+                        com.videhub.ui.components.LyricsMode.TRANSLATION -> caption.englishText ?: caption.nativeText
+                        com.videhub.ui.components.LyricsMode.NATIVE -> caption.nativeText
+                    }.let { com.videhub.audio.LyricsManager.cleanLyricsText(it) }
+                    
+                    if (textToShow.isNotBlank()) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Bottom,
                             modifier = Modifier
-                                .background(Color.Black.copy(alpha = 0.5f), shape = RoundedCornerShape(12.dp))
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = bottomPadding, start = 16.dp, end = 16.dp)
+                        ) {
+                            Text(
+                                text = textToShow,
+                                color = Color.White,
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    lineHeight = 24.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    shadow = Shadow(
+                                        color = Color.Black.copy(alpha = 0.8f),
+                                        offset = Offset(2f, 2f),
+                                        blurRadius = 4f
+                                    )
+                                ),
+                                modifier = Modifier
+                                    .background(Color.Black.copy(alpha = 0.5f), shape = RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                        }
                     }
                 }
             }
 
-            // ✅ Case 2: Video mode → ALWAYS use ExoPlayer activeCaptions
-            // Never use offlineCaptions in video mode — they conflict
-            activeCaptions.isNotEmpty() -> {
+            // ✅ Case 2: Only if no custom track is chosen and no custom captions exist, fall back to ExoPlayer cues
+            selectedTrack == null && activeCaptions.isNotEmpty() -> {
                 val captionText = activeCaptions
                     .mapNotNull { it?.toString() }
                     .map { com.videhub.audio.LyricsManager.cleanLyricsText(it) }

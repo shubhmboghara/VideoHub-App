@@ -524,7 +524,6 @@ object LyricsManager {
         if (captions.isNotEmpty()) {
             val ccLyrics = fromSubtitles(captions)
             if (ccLyrics != null && ccLyrics.lines.isNotEmpty()) {
-                lyricsCache[cacheKey] = ccLyrics
                 return@withContext ccLyrics
             }
         }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -165,6 +166,9 @@ fun NowPlayingScreen(
     val lyrics by LiveCaptionsManager.captions.collectAsStateWithLifecycle(initialValue = emptyList())
 
     var isLyricsMode by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showTrackDialog by remember { mutableStateOf(false) }
+    val availableTracks by LiveCaptionsManager.availableTracks.collectAsStateWithLifecycle(initialValue = emptyList())
+    val selectedTrack by LiveCaptionsManager.selectedTrack.collectAsStateWithLifecycle(initialValue = null)
     var showEqualizerSheet by remember { mutableStateOf(false) }
     var showSleepTimerSheet by remember { mutableStateOf(false) }
 
@@ -356,16 +360,59 @@ fun NowPlayingScreen(
                     label = "ArtworkVsLyrics"
                 ) { showLyrics ->
                     if (showLyrics) {
-                        SyncedLyricsView(
-                            title = uiState.title,
-                            channelName = uiState.artist,
-                            durationSeconds = (durationProvider() / 1000L).coerceAtLeast(0L),
-                            mediaPlayer = exoPlayer,
-                            offlineCaptions = if (lyrics.isNotEmpty()) lyrics else offlineCaptions,
-                            description = description,
-                            videoId = videoId,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // Header row for lyrics with Language Switcher chip
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                    modifier = Modifier.clickable { showTrackDialog = true }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Translate,
+                                            contentDescription = "Change Language",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = selectedTrack?.displayName ?: if (availableTracks.isNotEmpty()) "Change Language" else "Language",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            SyncedLyricsView(
+                                title = uiState.title,
+                                channelName = uiState.artist,
+                                durationSeconds = (durationProvider() / 1000L).coerceAtLeast(0L),
+                                mediaPlayer = exoPlayer,
+                                offlineCaptions = if (lyrics.isNotEmpty()) lyrics else offlineCaptions,
+                                description = description,
+                                videoId = videoId,
+                                modifier = Modifier.weight(1f).fillMaxWidth()
+                            )
+                        }
                     } else {
                         Box(
                             modifier = Modifier.fillMaxWidth(),
@@ -611,7 +658,8 @@ fun NowPlayingScreen(
                     onShareClick = onShareClick,
                     onMoreClick = onMoreClick,
                     description = description,
-                    durationProvider = durationProvider
+                    durationProvider = durationProvider,
+                    onOpenLanguageDialog = { showTrackDialog = true }
                 )
                 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -650,6 +698,45 @@ fun NowPlayingScreen(
             SleepTimerBottomSheet(
                 mediaPlayer = exoPlayer,
                 onDismiss = { showSleepTimerSheet = false }
+            )
+        }
+
+        if (showTrackDialog) {
+            CaptionTrackSelectorDialog(
+                availableTracks = availableTracks,
+                selectedTrack = selectedTrack,
+                onTrackSelected = { track ->
+                    showTrackDialog = false
+                    if (track != null) {
+                        isLyricsMode = true
+                        LiveCaptionsManager.selectTrack(track)
+                        LiveCaptionsManager.fetchCaptions(
+                            selectedUrl = track.url,
+                            availableTracks = availableTracks,
+                            artist = artist,
+                            title = title,
+                            description = description,
+                            isMusicMode = true,
+                            durationSeconds = (durationProvider() / 1000L).coerceAtLeast(0L),
+                            context = context,
+                            videoId = videoId
+                        )
+                    } else {
+                        LiveCaptionsManager.selectTrack(null)
+                        LiveCaptionsManager.fetchCaptions(
+                            selectedUrl = null,
+                            availableTracks = availableTracks,
+                            artist = artist,
+                            title = title,
+                            description = description,
+                            isMusicMode = true,
+                            durationSeconds = (durationProvider() / 1000L).coerceAtLeast(0L),
+                            context = context,
+                            videoId = videoId
+                        )
+                    }
+                },
+                onDismiss = { showTrackDialog = false }
             )
         }
     }
@@ -700,84 +787,73 @@ fun NowPlayingActionRow(
     description: String? = null,
     durationProvider: () -> Long = { 0L },
     isLiked: Boolean = false,
-    onLikeClick: () -> Unit = {}
+    onLikeClick: () -> Unit = {},
+    onOpenLanguageDialog: () -> Unit = {}
 ) {
-    // Action Row with 5 sleek, modern Material 3 actions
+    // Action Row with sleek, modern Material 3 actions
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically
     ) {
+        val availableTracks by LiveCaptionsManager.availableTracks.collectAsStateWithLifecycle(initialValue = emptyList())
+        val selectedTrack by LiveCaptionsManager.selectedTrack.collectAsStateWithLifecycle(initialValue = null)
+
+        val lyricsContainerColor by animateColorAsState(
+            targetValue = if (isLyricsMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            label = "lyricsContainerColor"
+        )
+        val lyricsContentColor by animateColorAsState(
+            targetValue = if (isLyricsMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            label = "lyricsContentColor"
+        )
+
         // 1. Lyrics / Captions Toggle
-        Box {
-            var showTrackDialog by remember { mutableStateOf(false) }
-            val availableTracks by LiveCaptionsManager.availableTracks.collectAsStateWithLifecycle(initialValue = emptyList())
-            val selectedTrack by LiveCaptionsManager.selectedTrack.collectAsStateWithLifecycle(initialValue = null)
-
-            val lyricsContainerColor by animateColorAsState(
-                targetValue = if (isLyricsMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                label = "lyricsContainerColor"
+        FilledTonalIconButton(
+            onClick = {
+                val nextMode = !isLyricsMode
+                onLyricsModeChange(nextMode)
+                if (nextMode) {
+                    LiveCaptionsManager.fetchCaptions(
+                        selectedUrl = selectedTrack?.url,
+                        availableTracks = availableTracks,
+                        artist = artist,
+                        title = title,
+                        description = description,
+                        isMusicMode = true,
+                        durationSeconds = (durationProvider() / 1000L).coerceAtLeast(0L)
+                    )
+                }
+            },
+            modifier = Modifier.size(44.dp),
+            shape = CircleShape,
+            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = lyricsContainerColor,
+                contentColor = lyricsContentColor
             )
-            val lyricsContentColor by animateColorAsState(
-                targetValue = if (isLyricsMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                label = "lyricsContentColor"
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Subtitles,
+                contentDescription = if (isLyricsMode) "Hide Lyrics" else "Show Lyrics",
+                modifier = Modifier.size(22.dp)
             )
+        }
 
-            FilledTonalIconButton(
-                onClick = {
-                    val nextMode = !isLyricsMode
-                    onLyricsModeChange(nextMode)
-                    if (nextMode) {
-                        LiveCaptionsManager.fetchCaptions(
-                            selectedUrl = selectedTrack?.url,
-                            availableTracks = availableTracks,
-                            artist = artist,
-                            title = title,
-                            description = description,
-                            isMusicMode = true,
-                            durationSeconds = (durationProvider() / 1000L).coerceAtLeast(0L)
-                        )
-                    }
-                },
-                modifier = Modifier.size(44.dp),
-                shape = CircleShape,
-                colors = IconButtonDefaults.filledTonalIconButtonColors(
-                    containerColor = lyricsContainerColor,
-                    contentColor = lyricsContentColor
-                )
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Subtitles,
-                    contentDescription = if (isLyricsMode) "Hide Lyrics" else "Show Lyrics",
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-
-            if (showTrackDialog && availableTracks.isNotEmpty()) {
-                CaptionTrackSelectorDialog(
-                    availableTracks = availableTracks,
-                    selectedTrack = selectedTrack,
-                    onTrackSelected = { track ->
-                        showTrackDialog = false
-                        if (track != null) {
-                            onLyricsModeChange(true)
-                            LiveCaptionsManager.selectTrack(track)
-                            LiveCaptionsManager.fetchCaptions(
-                                selectedUrl = track.url,
-                                availableTracks = availableTracks,
-                                artist = artist,
-                                title = title,
-                                description = description,
-                                isMusicMode = true,
-                                durationSeconds = (durationProvider() / 1000L).coerceAtLeast(0L)
-                            )
-                        } else {
-                            onLyricsModeChange(false)
-                        }
-                    },
-                    onDismiss = { showTrackDialog = false }
-                )
-            }
+        // 2. Language Switcher Button (shown if captions/lyrics exist)
+        FilledTonalIconButton(
+            onClick = onOpenLanguageDialog,
+            modifier = Modifier.size(44.dp),
+            shape = CircleShape,
+            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = if (selectedTrack != null) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                contentColor = if (selectedTrack != null) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Translate,
+                contentDescription = "Change Language",
+                modifier = Modifier.size(20.dp)
+            )
         }
 
         // 2. Download Button

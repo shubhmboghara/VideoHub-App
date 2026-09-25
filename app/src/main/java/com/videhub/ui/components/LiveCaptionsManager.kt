@@ -58,6 +58,12 @@ object LiveCaptionsManager {
 
     fun selectTrack(track: CaptionTrack?) {
         _selectedTrack.value = track
+        _selectedLanguageCode.value = track?.languageTag
+        if (track == null) {
+            currentFetchJob?.cancel()
+            currentTransliterationJob?.cancel()
+            _captions.value = emptyList()
+        }
     }
 
     fun loadSubtitles(subtitlesJson: String?, autoTranslate: Boolean) {
@@ -152,22 +158,29 @@ object LiveCaptionsManager {
 
     private fun parseSubtitlesJson(json: String): List<CaptionLine3> {
         val list = mutableListOf<CaptionLine3>()
-        val array = JSONObject(json).getJSONArray("events")
-        for (i in 0 until array.length()) {
-            val event = array.getJSONObject(i)
-            val start = event.optLong("tStartMs", 0)
-            val duration = event.optLong("dDurationMs", 0)
-            val segments = event.optJSONArray("segs")
-            if (segments != null) {
-                val textBuilder = StringBuilder()
-                for (j in 0 until segments.length()) {
-                    textBuilder.append(segments.getJSONObject(j).optString("utf8", ""))
-                }
-                val text = textBuilder.toString().trim()
-                if (text.isNotEmpty()) {
-                    list.add(CaptionLine3(start, start + duration, text, null, null))
+        try {
+            val root = JSONObject(json)
+            val array = root.optJSONArray("events") ?: return emptyList()
+            for (i in 0 until array.length()) {
+                val event = array.getJSONObject(i)
+                val start = event.optLong("tStartMs", 0)
+                val duration = event.optLong("dDurationMs", 0)
+                val segments = event.optJSONArray("segs")
+                if (segments != null) {
+                    val textBuilder = StringBuilder()
+                    for (j in 0 until segments.length()) {
+                        textBuilder.append(segments.getJSONObject(j).optString("utf8", ""))
+                    }
+                    val text = textBuilder.toString().trim()
+                    if (text.isNotEmpty() && text != "\n") {
+                        val end = if (duration > 0) start + duration else start + 3500L
+                        val safeEnd = maxOf(start + 1500L, end)
+                        list.add(CaptionLine3(start, safeEnd, text, null, null))
+                    }
                 }
             }
+        } catch (e: Exception) {
+            Log.e("LiveCaptionsManager", "Error parsing json3 subtitles", e)
         }
         return list
     }
@@ -179,13 +192,14 @@ object LiveCaptionsManager {
         for (i in matches.indices) {
             val match = matches[i]
             val start = parseTime(match.groupValues[1])
-            val end = parseTime(match.groupValues[2])
+            var end = parseTime(match.groupValues[2])
+            if (end <= start) end = start + 3500L
             val textStartIndex = match.range.last + 1
             val textEndIndex = if (i + 1 < matches.size) matches[i+1].range.first else text.length
             
             var content = text.substring(textStartIndex, textEndIndex)
                 .lines()
-                .filter { it.isNotBlank() && !it.trim().matches(Regex("^\\d+$")) && !it.trim().startsWith("WEBVTT") }
+                .filter { it.isNotBlank() && !it.trim().matches(Regex("^\\d+$")) && !it.trim().startsWith("WEBVTT") && !it.trim().startsWith("Kind:") && !it.trim().startsWith("Language:") }
                 .joinToString("\n")
                 .replace(Regex("<[^>]*>"), "")
                 .trim()
@@ -217,57 +231,60 @@ object LiveCaptionsManager {
 
     private fun parseXml(xmlText: String): List<CaptionLine3> {
         val lines = mutableListOf<CaptionLine3>()
-        val srv1Regex = Regex("<text\\s+start=\"([\\d.]+)\"\\s+dur=\"([\\d.]+)\"[^>]*>(.*?)</text>", RegexOption.DOT_MATCHES_ALL)
-        var hasSrv1 = false
-        srv1Regex.findAll(xmlText).forEach { match ->
-            hasSrv1 = true
-            val startSec = match.groupValues[1].toDoubleOrNull() ?: 0.0
-            val durSec = match.groupValues[2].toDoubleOrNull() ?: 0.0
-            var content = match.groupValues[3].replace(Regex("<[^>]*>"), "").trim()
-            content = content.replace("&#39;", "'").replace("&apos;", "'").replace("&#x27;", "'").replace("&amp;apos;", "'").replace("&amp;", "&").replace("&quot;", "\"")
-            content = android.text.Html.fromHtml(content, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
-            if (content.isNotEmpty()) {
-                val start = (startSec * 1000).toLong()
-                val end = ((startSec + durSec) * 1000).toLong()
-                lines.add(CaptionLine3(start, end, content, null, null))
-            }
-        }
-        if (hasSrv1) return lines
+        try {
+            val textTagRegex = Regex("<text\\b([^>]*)>(.*?)</text>", RegexOption.DOT_MATCHES_ALL)
+            val startSecRegex = Regex("start=\"([\\d.]+)\"")
+            val durSecRegex = Regex("dur=\"([\\d.]+)\"")
 
-        val srv3Regex = Regex("<p\\s+[^>]*t=\"([\\d]+)\"(?:\\s+[^>]*d=\"([\\d]+)\")?[^>]*>(.*?)</p>", RegexOption.DOT_MATCHES_ALL)
-        var hasSrv3 = false
-        srv3Regex.findAll(xmlText).forEach { match ->
-            hasSrv3 = true
-            val startMs = match.groupValues[1].toLongOrNull() ?: 0L
-            val durMs = match.groupValues[2].toLongOrNull() ?: 0L
-            var content = match.groupValues[3].replace(Regex("<[^>]*>"), "").trim()
-            content = content.replace("&#39;", "'").replace("&apos;", "'").replace("&#x27;", "'").replace("&amp;apos;", "'").replace("&amp;", "&").replace("&quot;", "\"")
-            content = android.text.Html.fromHtml(content, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
-            if (content.isNotEmpty()) {
-                val start = startMs
-                val end = startMs + durMs
-                lines.add(CaptionLine3(start, end, content, null, null))
+            var hasMatches = false
+            textTagRegex.findAll(xmlText).forEach { match ->
+                hasMatches = true
+                val attrs = match.groupValues[1]
+                val body = match.groupValues[2]
+                val startMatch = startSecRegex.find(attrs)
+                if (startMatch != null) {
+                    val startSec = startMatch.groupValues[1].toDoubleOrNull() ?: 0.0
+                    val durSec = durSecRegex.find(attrs)?.groupValues?.get(1)?.toDoubleOrNull() ?: 3.5
+                    var content = body.replace(Regex("<[^>]*>"), "").trim()
+                    content = content.replace("&#39;", "'").replace("&apos;", "'").replace("&#x27;", "'").replace("&amp;apos;", "'").replace("&amp;", "&").replace("&quot;", "\"")
+                    content = android.text.Html.fromHtml(content, android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim()
+                    if (content.isNotEmpty()) {
+                        val start = (startSec * 1000).toLong()
+                        val end = maxOf(start + 1500L, ((startSec + durSec) * 1000).toLong())
+                        lines.add(CaptionLine3(start, end, content, null, null))
+                    }
+                }
             }
-        }
-        if (hasSrv3) return lines
+            if (hasMatches && lines.isNotEmpty()) return lines
 
-        val ttmlRegex = Regex("<p\\s+[^>]*begin=\"([^\"]+)\"\\s+[^>]*end=\"([^\"]+)\"[^>]*>(.*?)</p>", RegexOption.DOT_MATCHES_ALL)
-        ttmlRegex.findAll(xmlText).forEach { match ->
-            val start = parseTime(match.groupValues[1])
-            val end = parseTime(match.groupValues[2])
-            var content = match.groupValues[3].replace(Regex("<[^>]*>"), "").trim()
-            content = content.replace("&#39;", "'").replace("&apos;", "'").replace("&#x27;", "'").replace("&amp;apos;", "'").replace("&amp;", "&").replace("&quot;", "\"")
-            content = android.text.Html.fromHtml(content, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
-            if (content.isNotEmpty()) {
-                lines.add(CaptionLine3(start, end, content, null, null))
+            val pTagRegex = Regex("<p\\b([^>]*)>(.*?)</p>", RegexOption.DOT_MATCHES_ALL)
+            val tRegex = Regex("t=\"([\\d]+)\"")
+            val dRegex = Regex("d=\"([\\d]+)\"")
+            pTagRegex.findAll(xmlText).forEach { match ->
+                val attrs = match.groupValues[1]
+                val body = match.groupValues[2]
+                val tMatch = tRegex.find(attrs)
+                if (tMatch != null) {
+                    val startMs = tMatch.groupValues[1].toLongOrNull() ?: 0L
+                    val durMs = dRegex.find(attrs)?.groupValues?.get(1)?.toLongOrNull() ?: 3500L
+                    var content = body.replace(Regex("<[^>]*>"), "").trim()
+                    content = content.replace("&#39;", "'").replace("&apos;", "'").replace("&#x27;", "'").replace("&amp;apos;", "'").replace("&amp;", "&").replace("&quot;", "\"")
+                    content = android.text.Html.fromHtml(content, android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim()
+                    if (content.isNotEmpty()) {
+                        val end = maxOf(startMs + 1500L, startMs + durMs)
+                        lines.add(CaptionLine3(startMs, end, content, null, null))
+                    }
+                }
             }
+        } catch (e: Exception) {
+            Log.e("LiveCaptionsManager", "Error parsing XML subtitles", e)
         }
         return lines
     }
 
     private val client = okhttp3.OkHttpClient.Builder()
-        .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
         .addInterceptor { chain ->
             val request = chain.request().newBuilder()
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -280,38 +297,44 @@ object LiveCaptionsManager {
     private suspend fun fetchSubtitleContentDirect(rawUrl: String): String? = kotlinx.coroutines.withContext(Dispatchers.IO) {
         if (rawUrl.isBlank()) return@withContext null
         
-        // Optimize for YouTube timedtext: JSON3 is 5x faster and lighter than XML
-        val urlWithJson3 = if ((rawUrl.contains("youtube.com") || rawUrl.contains("timedtext")) && !rawUrl.contains("fmt=")) {
-            if (rawUrl.contains("?")) "$rawUrl&fmt=json3" else "$rawUrl?fmt=json3"
-        } else {
-            rawUrl
+        val urlsToTry = mutableListOf<String>()
+        val json3Url = when {
+            rawUrl.contains("fmt=") -> rawUrl.replace(Regex("fmt=[^&]*"), "fmt=json3")
+            rawUrl.contains("?") -> "$rawUrl&fmt=json3"
+            else -> "$rawUrl?fmt=json3"
         }
+        urlsToTry.add(json3Url)
 
-        try {
-            val request = okhttp3.Request.Builder()
-                .url(urlWithJson3)
-                .build()
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string()
-                if (!body.isNullOrBlank()) return@withContext body
-            }
-        } catch (e: Exception) {
-            Log.w("LiveCaptionsManager", "Direct json3 subtitle fetch failed, trying raw: ${e.message}")
+        val vttUrl = when {
+            rawUrl.contains("fmt=") -> rawUrl.replace(Regex("fmt=[^&]*"), "fmt=vtt")
+            rawUrl.contains("?") -> "$rawUrl&fmt=vtt"
+            else -> "$rawUrl?fmt=vtt"
         }
+        urlsToTry.add(vttUrl)
+        urlsToTry.add(rawUrl)
 
-        // Fallback to raw URL
-        try {
-            val request = okhttp3.Request.Builder()
-                .url(rawUrl)
-                .build()
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string()
+        for (targetUrl in urlsToTry.distinct()) {
+            try {
+                val body = org.schabi.newpipe.extractor.NewPipe.getDownloader()
+                    .get(targetUrl, org.schabi.newpipe.extractor.localization.Localization.DEFAULT)
+                    .responseBody()
                 if (!body.isNullOrBlank()) return@withContext body
+            } catch (e: Exception) {
+                // Try fallback to OkHttp
             }
-        } catch (e: Exception) {
-            Log.w("LiveCaptionsManager", "Direct raw subtitle fetch failed: ${e.message}")
+
+            try {
+                val request = okhttp3.Request.Builder()
+                    .url(targetUrl)
+                    .build()
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank()) return@withContext body
+                }
+            } catch (e: Exception) {
+                Log.w("LiveCaptionsManager", "Fetch failed for $targetUrl: ${e.message}")
+            }
         }
 
         null
@@ -600,7 +623,9 @@ object LiveCaptionsManager {
                 } catch (e: Exception) { emptyList() }
             }
 
-            val lyricsJob = if (isMusicMode) {
+            // Only fetch LRCLIB lyrics if we don't have an explicit user-selected caption track
+            val isExplicitUserTrack = selectedUrl != null
+            val lyricsJob = if (isMusicMode && !isExplicitUserTrack) {
                 async(Dispatchers.IO) {
                     com.videhub.audio.LyricsManager.getLyrics(title, artist, durationSeconds, emptyList(), description, context, videoId)
                 }
@@ -618,7 +643,8 @@ object LiveCaptionsManager {
                     _captions.value = parsedCC
                     _isError.value = false
                 }
-                if (!isMusicMode) return@launch
+                // If user selected an explicit track or not music mode, do not override!
+                if (!isMusicMode || isExplicitUserTrack) return@launch
             }
 
             // Now wait for High-Fidelity Lyrics (Priority 2)
