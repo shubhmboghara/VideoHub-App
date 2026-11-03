@@ -38,6 +38,32 @@ class DownloadService : Service() {
     private val channelId = "DownloadChannel"
     private var notificationId = 2000
     private val activeDownloads = AtomicInteger(0)
+    private val FOREGROUND_NOTIFICATION_ID = 10000
+
+    private fun ensureForegroundStarted() {
+        val foregroundNotification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("VideHub Downloads")
+            .setContentText("Download service active")
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setOngoing(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(FOREGROUND_NOTIFICATION_ID, foregroundNotification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(FOREGROUND_NOTIFICATION_ID, foregroundNotification)
+        }
+    }
+
+    private fun stopForegroundSafely() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                stopForeground(true)
+            }
+        } catch (_: Exception) {}
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -50,12 +76,19 @@ class DownloadService : Service() {
             )
             notificationManager.createNotificationChannel(channel)
         }
+        ensureForegroundStarted()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent == null) return START_NOT_STICKY
-        
+        ensureForegroundStarted()
 
+        if (intent == null) {
+            if (activeDownloads.get() == 0) {
+                stopForegroundSafely()
+                stopSelf()
+            }
+            return START_NOT_STICKY
+        }
 
         if (intent.action?.startsWith("CANCEL_PLAYLIST_") == true) {
             val pId = intent.action?.removePrefix("CANCEL_PLAYLIST_")
@@ -68,14 +101,10 @@ class DownloadService : Service() {
                     notificationManager.cancel(id)
                     com.videhub.utils.DownloadProgressTracker.removeDownload(id)
                 }
-                if (activeDownloads.get() == 0) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                    } else {
-                        stopForeground(true)
-                    }
-                    stopSelf()
-                }
+            }
+            if (activeDownloads.get() == 0) {
+                stopForegroundSafely()
+                stopSelf()
             }
             return START_NOT_STICKY
         }
@@ -86,26 +115,27 @@ class DownloadService : Service() {
                 val job = downloadJobs[id]
                 if (job != null) {
                     job.cancel()
-                } else {
-                    if (activeDownloads.get() == 0) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                            stopForeground(STOP_FOREGROUND_REMOVE)
-                        } else {
-                            stopForeground(true)
-                        }
-                        stopSelf()
-                    }
                 }
                 downloadJobs.remove(id)
                 jobPlaylistMap.remove(id)
                 notificationManager.cancel(id)
                 com.videhub.utils.DownloadProgressTracker.removeDownload(id)
             }
+            if (activeDownloads.get() == 0) {
+                stopForegroundSafely()
+                stopSelf()
+            }
             return START_NOT_STICKY
         }
 
-
-        val url = intent.getStringExtra("url") ?: return START_NOT_STICKY
+        val url = intent.getStringExtra("url")
+        if (url == null) {
+            if (activeDownloads.get() == 0) {
+                stopForegroundSafely()
+                stopSelf()
+            }
+            return START_NOT_STICKY
+        }
         val title = intent.getStringExtra("title") ?: "Unknown"
         val suffix = intent.getStringExtra("suffix") ?: ".mp4"
         val videoId = intent.getStringExtra("videoId") ?: ""
@@ -114,6 +144,7 @@ class DownloadService : Service() {
         val viewCount = intent.getLongExtra("viewCount", 0L)
         val uploadDate = intent.getStringExtra("uploadDate") ?: ""
         val isAudioOnly = intent.getBooleanExtra("isAudioOnly", false)
+        val quality = intent.getStringExtra("quality") ?: if (isAudioOnly) "Audio" else "Video"
         val description = intent.getStringExtra("description") ?: ""
         val nativeUrl = intent.getStringExtra("nativeUrl")
         val englishUrl = intent.getStringExtra("englishUrl")
@@ -145,23 +176,20 @@ class DownloadService : Service() {
             .setProgress(100, 0, true)
             .addAction(android.R.drawable.ic_delete, "Cancel", cancelPending)
             .build()
-
-        val foregroundNotification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("VideHub Downloads")
-            .setContentText("Downloads in progress...")
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .build()
-            
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            startForeground(10000, foregroundNotification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(10000, foregroundNotification)
-        }
         
         if (playlistId == null) {
             notificationManager.notify(currentNotificationId, notification)
         }
-        com.videhub.utils.DownloadProgressTracker.updateProgress(currentNotificationId, safeTitle, -1, videoId = downloadKey, playlistId = playlistId)
+        com.videhub.utils.DownloadProgressTracker.updateProgress(
+            id = currentNotificationId,
+            title = safeTitle,
+            progress = -1,
+            videoId = downloadKey,
+            playlistId = playlistId,
+            thumbnailUrl = thumbnailUrl,
+            isAudioOnly = isAudioOnly,
+            quality = quality
+        )
 
         activeDownloads.incrementAndGet()
 
@@ -212,6 +240,24 @@ class DownloadService : Service() {
                         subArr.put(o)
                     }
                     subArrStr = subArr.toString()
+
+                    val extractedQuality = if (selectedStream != null) {
+                        selectedStream.resolution ?: "${selectedStream.height}p"
+                    } else if (audioStream != null && audioStream.averageBitrate > 0) {
+                        "${audioStream.averageBitrate}kbps"
+                    } else {
+                        quality
+                    }
+                    com.videhub.utils.DownloadProgressTracker.updateProgress(
+                        id = currentNotificationId,
+                        title = safeTitle,
+                        progress = -1,
+                        videoId = downloadKey,
+                        playlistId = playlistId,
+                        thumbnailUrl = finalThumb,
+                        isAudioOnly = finalAudioOnly,
+                        quality = extractedQuality
+                    )
                 }
 
                 val finalFileNameForSave = "${safeTitle}_$finalSuffix"
@@ -407,35 +453,37 @@ class DownloadService : Service() {
         var lastNotifUpdate = 0L
         var count: Int
 
-        while (input.read(buffer).also { count = it } != -1) {
-            kotlinx.coroutines.yield()
-            output.write(buffer, 0, count)
-            downloaded += count
+        try {
+            while (input.read(buffer).also { count = it } != -1) {
+                kotlinx.coroutines.yield()
+                output.write(buffer, 0, count)
+                downloaded += count
 
-            // Update every 500ms to avoid notification spam
-            val now = System.currentTimeMillis()
-            if (now - lastNotifUpdate > 500) {
-                lastNotifUpdate = now
-                val percent = ((downloaded * 100) / totalBytes).toInt()
-                val dlMb = downloaded / (1024 * 1024)
-                val totalMb = totalBytes / (1024 * 1024)
+                // Update every 500ms to avoid notification spam
+                val now = System.currentTimeMillis()
+                if (now - lastNotifUpdate > 500) {
+                    lastNotifUpdate = now
+                    val percent = ((downloaded * 100) / totalBytes).toInt()
+                    val dlMb = downloaded / (1024 * 1024)
+                    val totalMb = totalBytes / (1024 * 1024)
 
-                // Update in-app tracker with byte info
-                com.videhub.utils.DownloadProgressTracker.updateProgress(
-                    notifId, title, percent,
-                    downloadedBytes = downloaded,
-                    totalBytes = totalBytes
-                )
+                    // Update in-app tracker with byte info
+                    com.videhub.utils.DownloadProgressTracker.updateProgress(
+                        notifId, title, percent,
+                        downloadedBytes = downloaded,
+                        totalBytes = totalBytes
+                    )
 
-                // Update notification
-                updateNotificationProgress(playlistId, notifId, title, percent, dlMb, totalMb)
+                    // Update notification
+                    updateNotificationProgress(playlistId, notifId, title, percent, dlMb, totalMb)
+                }
             }
+            output.flush()
+        } finally {
+            try { output.close() } catch (_: Exception) {}
+            try { input.close() } catch (_: Exception) {}
+            try { connection.disconnect() } catch (_: Exception) {}
         }
-
-        output.flush()
-        output.close()
-        input.close()
-        connection.disconnect()
     }
 
     private fun updateNotificationProgress(playlistId: String?,

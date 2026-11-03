@@ -33,6 +33,22 @@ class PlaylistDownloadService : Service() {
 
     private val downloadJobs = ConcurrentHashMap<Int, Job>()
     private val activePlaylists = ConcurrentHashMap<String, Int>()
+    private val FOREGROUND_NOTIFICATION_ID = 20000
+
+    private fun ensureForegroundStarted() {
+        val foregroundNotification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("VideHub Playlist Downloads")
+            .setContentText("Playlist download service active")
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setOngoing(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(FOREGROUND_NOTIFICATION_ID, foregroundNotification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(FOREGROUND_NOTIFICATION_ID, foregroundNotification)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -45,15 +61,28 @@ class PlaylistDownloadService : Service() {
             )
             notificationManager.createNotificationChannel(channel)
         }
+        ensureForegroundStarted()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent == null) return START_NOT_STICKY
+        ensureForegroundStarted()
+
+        if (intent == null) {
+            if (activePlaylists.isEmpty() && downloadJobs.isEmpty()) {
+                stopForeground(true)
+                stopSelf()
+            }
+            return START_NOT_STICKY
+        }
 
         if (intent.action?.startsWith("CANCEL_PLAYLIST_") == true) {
             val pId = intent.action?.removePrefix("CANCEL_PLAYLIST_")
             if (pId != null) {
                 cancelPlaylist(pId)
+            }
+            if (activePlaylists.isEmpty() && downloadJobs.isEmpty()) {
+                stopForeground(true)
+                stopSelf()
             }
             return START_NOT_STICKY
         }
@@ -83,6 +112,7 @@ class PlaylistDownloadService : Service() {
         var playlistThumbnail = intent.getStringExtra("playlistThumbnail") ?: ""
 
         if ((urls == null || urls.isEmpty()) && singleUrl == null) {
+            stopForeground(true)
             stopSelf(startId)
             return START_NOT_STICKY
         }

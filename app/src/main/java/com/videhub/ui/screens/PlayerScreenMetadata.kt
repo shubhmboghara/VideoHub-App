@@ -153,11 +153,18 @@ fun PlayerScreenMetadata(
                                             Toast.makeText(context, "Unsubscribed", Toast.LENGTH_SHORT).show()
                                         } else {
                                             withContext(Dispatchers.IO) {
+                                                val finalAvatar = avatarUrl?.takeIf { it.isNotBlank() }
+                                                    ?: runCatching {
+                                                        val channelUrl = if (chId.startsWith("http") || chId.startsWith("@")) chId else "https://www.youtube.com/channel/$chId"
+                                                        com.videhub.extractor.ExtractorHelper.getChannelInfo(channelUrl).avatars?.firstOrNull()?.url
+                                                    }.getOrNull()
+                                                    ?: ""
+
                                                 db.channelDao().insert(
                                                     ChannelEntity(
                                                         channelId = chId,
                                                         name = channelName,
-                                                        thumbnailUrl = thumbnailUrl
+                                                        thumbnailUrl = finalAvatar
                                                     )
                                                 )
                                             }

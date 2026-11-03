@@ -95,7 +95,8 @@ class DownloadViewModel : ViewModel() {
                     }
                     if (freshStream != null && freshStream.content != null) {
                         intent.putExtra("url", freshStream.content ?: "")
-                        val res = freshStream.resolution ?: "unknown"
+                        val res = resolution ?: freshStream.resolution ?: "Video"
+                        intent.putExtra("quality", res)
                         intent.putExtra("suffix", "${res}.mp4")
                         startService(context, intent)
                     } else {
@@ -109,6 +110,8 @@ class DownloadViewModel : ViewModel() {
                         
                     if (freshAudio != null && freshAudio.content != null) {
                         intent.putExtra("url", freshAudio.content ?: "")
+                        val qual = if (bitrate != null && bitrate > 0) "${bitrate}kbps" else (freshAudio.format?.name ?: "Audio")
+                        intent.putExtra("quality", qual)
                         val suffix = if (freshAudio.format?.name?.contains("WEBM", ignoreCase = true) == true) "${bitrate}kbps.webm" else "${bitrate}kbps.m4a"
                         intent.putExtra("suffix", suffix)
                         startService(context, intent)

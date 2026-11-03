@@ -102,6 +102,7 @@ object MediaSessionManager {
             com.videhub.audio.EqualizerManager.init(ctx, player!!.audioSessionId)
             com.videhub.audio.CrossfadeManager.init(ctx)
                 
+            var lastSnapshotTime = 0L
             prefetchJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
                 while(true) {
                     val p = player
@@ -113,6 +114,13 @@ object MediaSessionManager {
                         
                         // Crossfade check
                         com.videhub.audio.CrossfadeManager.checkAndApplyFadeOut(p)
+
+                        // Periodically persist playback snapshot every 5 seconds
+                        val now = System.currentTimeMillis()
+                        if (now - lastSnapshotTime > 5000L) {
+                            lastSnapshotTime = now
+                            saveCurrentPlaybackSnapshot(ctx)
+                        }
 
                         if (dur > 0 && dur - pos < 25000 && currentMediaId != null && lastPrefetchedMediaId != currentMediaId) {
                             if (p.currentTimeline.windowCount == currentIndex + 1) {
@@ -140,12 +148,15 @@ object MediaSessionManager {
                 }
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     updateIsPlayingState()
+                    saveCurrentPlaybackSnapshot(ctx)
                 }
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                     updateIsPlayingState()
+                    saveCurrentPlaybackSnapshot(ctx)
                 }
                 override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                     player?.let { com.videhub.audio.CrossfadeManager.applyFadeIn(it) }
+                    saveCurrentPlaybackSnapshot(ctx)
                     if (mediaItem != null) {
                         val title = mediaItem.mediaMetadata.title?.toString() ?: ""
                         val artist = mediaItem.mediaMetadata.artist?.toString() ?: ""
@@ -301,6 +312,48 @@ object MediaSessionManager {
                 .build()
         }
         return mediaSession!!
+    }
+
+    fun saveCurrentPlaybackSnapshot(context: Context) {
+        val p = player ?: return
+        val item = p.currentMediaItem ?: return
+        val url = item.mediaId
+        if (url.isNotBlank()) {
+            val title = item.mediaMetadata.title?.toString() ?: ""
+            val artist = item.mediaMetadata.artist?.toString() ?: ""
+            val artwork = item.mediaMetadata.artworkUri?.toString() ?: ""
+            val cleanArtwork = if (artwork == "none") "" else artwork
+            val pos = p.currentPosition.coerceAtLeast(0L)
+            val dur = p.duration.coerceAtLeast(0L)
+            val isMusic = com.videhub.MiniPlayerState.isMusicMode.value
+
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    com.videhub.data.SettingsManager.saveLastPlaybackState(
+                        context,
+                        com.videhub.data.SettingsManager.LastPlaybackState(
+                            videoUrl = url,
+                            title = title,
+                            channel = artist,
+                            thumbnailUrl = cleanArtwork,
+                            position = pos,
+                            duration = dur,
+                            isMusicMode = isMusic
+                        )
+                    )
+                    val db = com.videhub.data.AppDatabase.getDatabase(context)
+                    db.watchProgressDao().save(
+                        com.videhub.data.entity.WatchProgressEntity(
+                            videoId = url,
+                            positionMs = pos,
+                            durationMs = dur
+                        )
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e("MediaSessionManager", "Error saving playback snapshot", e)
+                }
+            }
+        }
     }
 
     fun release() {

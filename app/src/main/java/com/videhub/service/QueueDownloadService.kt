@@ -28,6 +28,23 @@ class QueueDownloadService : Service() {
     private val channelId = "DownloadChannel"
     private var notificationId = 4000
 
+    private val FOREGROUND_NOTIFICATION_ID = 10001
+
+    private fun ensureForegroundStarted() {
+        val foregroundNotification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("VideHub Downloads")
+            .setContentText("Queue download service active")
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setOngoing(true)
+            .build()
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            startForeground(FOREGROUND_NOTIFICATION_ID, foregroundNotification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(FOREGROUND_NOTIFICATION_ID, foregroundNotification)
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -39,17 +56,22 @@ class QueueDownloadService : Service() {
             )
             notificationManager.createNotificationChannel(channel)
         }
+        ensureForegroundStarted()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent == null) return START_NOT_STICKY
-        
+        ensureForegroundStarted()
 
+        if (intent == null) {
+            stopForeground(true)
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
-        val urls = intent.getStringArrayListExtra("urls") ?: return START_NOT_STICKY
-        val titles = intent.getStringArrayListExtra("titles") ?: return START_NOT_STICKY
+        val urls = intent.getStringArrayListExtra("urls")
+        val titles = intent.getStringArrayListExtra("titles")
 
-        if (urls.isEmpty() || titles.isEmpty() || urls.size != titles.size) {
+        if (urls == null || titles == null || urls.isEmpty() || titles.isEmpty() || urls.size != titles.size) {
             stopForeground(true)
             stopSelf(startId)
             return START_NOT_STICKY
@@ -66,17 +88,7 @@ class QueueDownloadService : Service() {
             .setProgress(0, 0, true)
             .build()
 
-        val foregroundNotification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("VideHub Downloads")
-            .setContentText("Downloads in progress...")
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .build()
-            
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            startForeground(10001, foregroundNotification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(10001, foregroundNotification)
-        }
+        ensureForegroundStarted()
         
         notificationManager.notify(currentNotificationId, notification)
         com.videhub.utils.DownloadProgressTracker.updateProgress(currentNotificationId, "Queue Download", -1)

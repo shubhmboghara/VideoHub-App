@@ -28,6 +28,64 @@ object SettingsManager {
     private val CONTENT_LANGUAGE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("content_language")
     private val CONTENT_COUNTRY_KEY = androidx.datastore.preferences.core.stringPreferencesKey("content_country")
 
+    private val LAST_VIDEO_URL_KEY = androidx.datastore.preferences.core.stringPreferencesKey("last_video_url")
+    private val LAST_VIDEO_TITLE_KEY = androidx.datastore.preferences.core.stringPreferencesKey("last_video_title")
+    private val LAST_VIDEO_CHANNEL_KEY = androidx.datastore.preferences.core.stringPreferencesKey("last_video_channel")
+    private val LAST_VIDEO_THUMBNAIL_KEY = androidx.datastore.preferences.core.stringPreferencesKey("last_video_thumbnail")
+    private val LAST_VIDEO_POSITION_KEY = androidx.datastore.preferences.core.longPreferencesKey("last_video_position")
+    private val LAST_VIDEO_DURATION_KEY = androidx.datastore.preferences.core.longPreferencesKey("last_video_duration")
+    private val LAST_VIDEO_IS_MUSIC_MODE_KEY = booleanPreferencesKey("last_video_is_music_mode")
+
+    data class LastPlaybackState(
+        val videoUrl: String,
+        val title: String,
+        val channel: String,
+        val thumbnailUrl: String,
+        val position: Long,
+        val duration: Long,
+        val isMusicMode: Boolean
+    )
+
+    fun getLastPlaybackState(context: Context): Flow<LastPlaybackState?> {
+        return context.dataStore.data.map { preferences ->
+            val url = preferences[LAST_VIDEO_URL_KEY]
+            if (url.isNullOrBlank()) null
+            else LastPlaybackState(
+                videoUrl = url,
+                title = preferences[LAST_VIDEO_TITLE_KEY] ?: "",
+                channel = preferences[LAST_VIDEO_CHANNEL_KEY] ?: "",
+                thumbnailUrl = preferences[LAST_VIDEO_THUMBNAIL_KEY] ?: "",
+                position = preferences[LAST_VIDEO_POSITION_KEY] ?: 0L,
+                duration = preferences[LAST_VIDEO_DURATION_KEY] ?: 0L,
+                isMusicMode = preferences[LAST_VIDEO_IS_MUSIC_MODE_KEY] ?: false
+            )
+        }
+    }
+
+    suspend fun saveLastPlaybackState(context: Context, state: LastPlaybackState) {
+        context.dataStore.edit { preferences ->
+            preferences[LAST_VIDEO_URL_KEY] = state.videoUrl
+            preferences[LAST_VIDEO_TITLE_KEY] = state.title
+            preferences[LAST_VIDEO_CHANNEL_KEY] = state.channel
+            preferences[LAST_VIDEO_THUMBNAIL_KEY] = state.thumbnailUrl
+            preferences[LAST_VIDEO_POSITION_KEY] = state.position
+            preferences[LAST_VIDEO_DURATION_KEY] = state.duration
+            preferences[LAST_VIDEO_IS_MUSIC_MODE_KEY] = state.isMusicMode
+        }
+    }
+
+    suspend fun clearLastPlaybackState(context: Context) {
+        context.dataStore.edit { preferences ->
+            preferences.remove(LAST_VIDEO_URL_KEY)
+            preferences.remove(LAST_VIDEO_TITLE_KEY)
+            preferences.remove(LAST_VIDEO_CHANNEL_KEY)
+            preferences.remove(LAST_VIDEO_THUMBNAIL_KEY)
+            preferences.remove(LAST_VIDEO_POSITION_KEY)
+            preferences.remove(LAST_VIDEO_DURATION_KEY)
+            preferences.remove(LAST_VIDEO_IS_MUSIC_MODE_KEY)
+        }
+    }
+
     fun getContentLanguage(context: Context): Flow<String> = context.dataStore.data.map { it[CONTENT_LANGUAGE_KEY] ?: "en" }
     suspend fun setContentLanguage(context: Context, lang: String) = context.dataStore.edit { it[CONTENT_LANGUAGE_KEY] = lang }
 

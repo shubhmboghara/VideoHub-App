@@ -40,6 +40,8 @@ import java.io.File
 import com.videhub.data.entity.DownloadedVideoEntity
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
+import androidx.compose.ui.platform.testTag
+import com.videhub.utils.DownloadProgress
 import com.videhub.utils.DownloadProgressTracker
 
 data class DownloadItemData(
@@ -102,19 +104,10 @@ fun DownloadsScreen(navController: androidx.navigation.NavController, onVideoCli
     val playlistDownloads by db.downloadedVideoDao().getPlaylistDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
     val activeSingleDownloadsMap by com.videhub.utils.DownloadProgressTracker.activeDownloads.collectAsStateWithLifecycle(initialValue = emptyMap())
     
-    val activeDownloads: List<com.videhub.service.ActiveDownloadItem> = remember(activeSingleDownloadsMap) {
+    val activeDownloads: List<DownloadProgress> = remember(activeSingleDownloadsMap) {
         activeSingleDownloadsMap.values
-            .filter { it.playlistId == null }
-            .map { 
-                com.videhub.service.ActiveDownloadItem(
-                    videoId = it.notificationId.toString(),
-                    title = it.title,
-                    progress = it.progress,
-                    downloadedBytes = it.downloadedBytes,
-                    totalBytes = it.totalBytes,
-                    isComplete = it.isComplete
-                )
-            }
+            .filter { it.playlistId == null && !it.isComplete }
+            .sortedBy { it.notificationId }
     }
 
     var filesOnDisk by remember { mutableStateOf<List<File>>(emptyList()) }
@@ -251,8 +244,27 @@ fun DownloadsScreen(navController: androidx.navigation.NavController, onVideoCli
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 10.dp))
                     }
-                    itemsIndexed(activeDownloads, key = { index, progress -> "${progress.videoId}_$index" }) { index, progress ->
-                        ActiveDownloadCard(item = progress)
+                    itemsIndexed(activeDownloads, key = { index, progress -> "${progress.notificationId}_$index" }) { index, progress ->
+                        ActiveDownloadCard(
+                            item = progress,
+                            onCancel = {
+                                val cancelIntent = android.content.Intent(context, com.videhub.service.DownloadService::class.java).apply {
+                                    action = "CANCEL_${progress.notificationId}"
+                                }
+                                context.startService(cancelIntent)
+
+                                // Immediate local removal from UI state
+                                com.videhub.utils.DownloadProgressTracker.removeDownload(progress.notificationId)
+                                com.videhub.viewmodel.DownloadViewModel.removeActiveDownload(progress.videoId)
+
+                                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    try {
+                                        db.downloadedVideoDao().deletePlaceholderByVideoId(progress.videoId)
+                                    } catch (_: Exception) {}
+                                }
+                                android.widget.Toast.makeText(context, "Download cancelled", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        )
                     }
                 }
 
@@ -345,110 +357,208 @@ fun DownloadsScreen(navController: androidx.navigation.NavController, onVideoCli
 }
 
 @Composable
-fun ActiveDownloadCard(item: com.videhub.service.ActiveDownloadItem) {
+fun ActiveDownloadCard(
+    item: com.videhub.utils.DownloadProgress,
+    onCancel: () -> Unit
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .testTag("active_download_card_${item.notificationId}"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (item.isComplete)
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
             else
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
         )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(12.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                // Media Thumbnail Preview (16:9 ratio, width 96.dp, height 54.dp)
+                Box(
+                    modifier = Modifier
+                        .width(96.dp)
+                        .height(54.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
+                    if (!item.thumbnailUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = item.thumbnailUrl,
+                            contentDescription = item.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Icon(
+                            imageVector = if (item.isAudioOnly) Icons.Default.MusicNote else Icons.Default.Movie,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    // Mini badge overlay on thumbnail indicating VIDEO or AUDIO
+                    Surface(
                         modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (item.isComplete) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                            ),
-                        contentAlignment = Alignment.Center
+                            .align(Alignment.BottomStart)
+                            .padding(3.dp),
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color.Black.copy(alpha = 0.75f)
                     ) {
-                        if (item.isComplete) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
                             Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "Complete",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
+                                imageVector = if (item.isAudioOnly) Icons.Default.MusicNote else Icons.Default.Videocam,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(10.dp)
                             )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = "Downloading",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
+                            Spacer(Modifier.width(2.dp))
+                            Text(
+                                text = if (item.isAudioOnly) "AUDIO" else "VIDEO",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = item.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                // Title and Quality Pills / Download Stats
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = cleanTitle(item.title),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // Quality/Resolution pill
+                        val qualityText = item.quality?.takeIf { it.isNotBlank() } ?: if (item.isAudioOnly) "Audio" else "Video"
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                        ) {
+                            Text(
+                                text = qualityText,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        // Size or status
                         Text(
                             text = if (item.isComplete)
-                                "Download complete"
+                                "Complete"
                             else if (item.totalBytes > 0)
-                                "${String.format(java.util.Locale.US, "%.1f", item.downloadedBytes / (1024f * 1024f))} MB / ${String.format(java.util.Locale.US, "%.1f", item.totalBytes / (1024f * 1024f))} MB"
+                                "${String.format(java.util.Locale.US, "%.1f", item.downloadedBytes / (1024f * 1024f))} / ${String.format(java.util.Locale.US, "%.1f", item.totalBytes / (1024f * 1024f))} MB"
+                            else if (item.progress >= 0)
+                                "${item.progress}%"
                             else
-                                "Downloading ${item.progress}%",
+                                "Connecting...",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))
-                if (!item.isComplete) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Text(
-                            text = "${item.progress}%",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+
+                // Right: Percentage and Direct Cancel Button
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (!item.isComplete) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = if (item.progress >= 0) "${item.progress}%" else "...",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = onCancel,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f))
+                                .testTag("cancel_download_button_${item.notificationId}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Cancel Download",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Completed",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
             }
 
+            // Progress Bar
             if (!item.isComplete) {
                 Spacer(modifier = Modifier.height(10.dp))
-                LinearProgressIndicator(
-                    progress = { (item.progress / 100f).coerceIn(0f, 1f) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
-                )
+                if (item.progress >= 0) {
+                    LinearProgressIndicator(
+                        progress = { (item.progress / 100f).coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                }
             }
         }
     }

@@ -15,6 +15,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
@@ -380,6 +381,23 @@ fun MainScreen() {
         sharedViewModel.getOrCreateMediaController(context)
         val player = com.videhub.service.MediaSessionManager.getOrCreatePlayer(context)
         mediaPlayer = player
+
+        launch {
+            if (!MiniPlayerState.isVisible.value && player.currentMediaItem == null) {
+                val lastState = com.videhub.data.SettingsManager.getLastPlaybackState(context).firstOrNull()
+                if (lastState != null && lastState.videoUrl.isNotBlank()) {
+                    MiniPlayerState.restore(
+                        url = lastState.videoUrl,
+                        title = lastState.title,
+                        thumb = lastState.thumbnailUrl,
+                        channel = lastState.channel,
+                        position = lastState.position,
+                        duration = lastState.duration,
+                        musicMode = lastState.isMusicMode
+                    )
+                }
+            }
+        }
         
         launch {
             MainActivity.pendingDeepLink.collect { rawText ->
@@ -516,8 +534,8 @@ fun MainScreen() {
                 player = mediaPlayer,
                 isMusicMode = miniPlayerMusicMode,
                 onExpand = {
-                    if (currentMediaItem != null) {
-                        val id = currentMediaItem!!.mediaId
+                    val id = currentMediaItem?.mediaId ?: MiniPlayerState.currentVideoUrl.value
+                    if (!id.isNullOrBlank()) {
                         navigateToPlayer(id, MiniPlayerState.currentTitle.value ?: "", miniPlayerArtworkUrl, miniPlayerMusicMode)
                     }
                 },
@@ -525,9 +543,15 @@ fun MainScreen() {
                     mediaPlayer?.stop()
                     mediaPlayer?.clearMediaItems()
                     MiniPlayerState.hide()
+                    scope.launch(Dispatchers.IO) {
+                        com.videhub.data.SettingsManager.clearLastPlaybackState(context)
+                    }
                     sharedViewModel.currentPlayerUrl = null
                     sharedViewModel.playerStreamInfoCache = null
                     sharedViewModel.playerRelatedItemsCache = null
+                },
+                onVideoPlay = { url, t, thumb ->
+                    navigateToPlayer(url, t, thumb, miniPlayerMusicMode)
                 }
             )
         }

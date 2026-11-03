@@ -80,14 +80,14 @@ fun HomeScreen(
 
     // Use state map directly for videos
     val videos = sharedViewModel.homeVideosCacheMap[selectedTab] ?: emptyList()
-    var isLoading by remember { mutableStateOf(sharedViewModel.homeVideosCacheMap[selectedTab] == null) }
+    var isLoading by remember { mutableStateOf(sharedViewModel.homeVideosCacheMap[selectedTab] == null && selectedTab != 0) }
     var isPaginating by remember { mutableStateOf(false) }
     var pagingSource by remember { mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(sharedViewModel.homePagingSourceMap[selectedTab]) }
     
     // We remember the scroll state for each tab so we can restore it immediately.
     val listState = androidx.compose.foundation.lazy.rememberLazyListState(
-        initialFirstVisibleItemIndex = sharedViewModel.homeScrollStateMap[selectedTab]?.first ?: 0,
-        initialFirstVisibleItemScrollOffset = sharedViewModel.homeScrollStateMap[selectedTab]?.second ?: 0
+        initialFirstVisibleItemIndex = sharedViewModel.homeScrollStateMap[selectedTab]?.first ?: if (selectedTab == 0) sharedViewModel.homeScrollIndexCache else 0,
+        initialFirstVisibleItemScrollOffset = sharedViewModel.homeScrollStateMap[selectedTab]?.second ?: if (selectedTab == 0) sharedViewModel.homeScrollOffsetCache else 0
     )
     
     val customTabsString by com.videhub.data.SettingsManager.getCustomTabs(context).collectAsStateWithLifecycle(initialValue = "Music,Gaming,News,Sports")
@@ -199,9 +199,21 @@ fun HomeScreen(
         }
     }
 
+    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+        sharedViewModel.homeScrollStateMap[selectedTab] = Pair(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+        if (selectedTab == 0) {
+            sharedViewModel.homeScrollIndexCache = listState.firstVisibleItemIndex
+            sharedViewModel.homeScrollOffsetCache = listState.firstVisibleItemScrollOffset
+        }
+    }
+
     DisposableEffect(selectedTab) {
         onDispose {
             sharedViewModel.homeScrollStateMap[selectedTab] = Pair(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+            if (selectedTab == 0) {
+                sharedViewModel.homeScrollIndexCache = listState.firstVisibleItemIndex
+                sharedViewModel.homeScrollOffsetCache = listState.firstVisibleItemScrollOffset
+            }
         }
     }
 
@@ -280,17 +292,30 @@ fun HomeScreen(
             isLoading = false
             return@LaunchedEffect
         }
-        isLoading = true
+        val safeTab = if (tabs.isNotEmpty()) selectedTab.coerceIn(0, tabs.size - 1) else 0
+
+        // If on All tab, check Room database first to display cached feed instantly without spinner
+        if (safeTab == 0) {
+            val cachedFeed = withContext(Dispatchers.IO) { db.feedCacheDao().getAll() }
+            if (cachedFeed.isNotEmpty()) {
+                sharedViewModel.homeVideosCacheMap[0] = cachedFeed
+                isLoading = false
+            } else {
+                isLoading = true
+            }
+        } else {
+            isLoading = true
+        }
+
         errorText = null
         try {
-            val safeTab = if (tabs.isNotEmpty()) selectedTab.coerceIn(0, tabs.size - 1) else 0
             val newVideos = mutableListOf<Any>()
             when (safeTab) {
                 0 -> {
                     pagingSource = null
                     try {
                         val cachedFeed = db.feedCacheDao().getAll()
-                        if (cachedFeed.isNotEmpty()) {
+                        if (cachedFeed.isNotEmpty() && sharedViewModel.homeVideosCacheMap[0].isNullOrEmpty()) {
                             sharedViewModel.homeVideosCacheMap[0] = cachedFeed
                             isLoading = false
                         }

@@ -26,8 +26,43 @@ object MiniPlayerState {
     private val _isLoadingNext = MutableStateFlow(false)
     val isLoadingNext: StateFlow<Boolean> = _isLoadingNext.asStateFlow()
 
+    private val _lastSavedPosition = MutableStateFlow(0L)
+    val lastSavedPosition: StateFlow<Long> = _lastSavedPosition.asStateFlow()
+
+    private val _lastSavedDuration = MutableStateFlow(0L)
+    val lastSavedDuration: StateFlow<Long> = _lastSavedDuration.asStateFlow()
+
+    private val _isRestoredFromSavedState = MutableStateFlow(false)
+    val isRestoredFromSavedState: StateFlow<Boolean> = _isRestoredFromSavedState.asStateFlow()
+
     fun setLoadingNext(loading: Boolean) {
         _isLoadingNext.value = loading
+    }
+
+    fun markPlaybackStarted() {
+        _isRestoredFromSavedState.value = false
+    }
+
+    fun restore(
+        url: String,
+        title: String,
+        thumb: String,
+        channel: String,
+        position: Long,
+        duration: Long,
+        musicMode: Boolean = false
+    ) {
+        _currentVideoUrl.value = url
+        _currentTitle.value = title
+        _currentThumbnailUrl.value = thumb
+        _currentChannelName.value = channel
+        _lastSavedPosition.value = position
+        _lastSavedDuration.value = duration
+        _isMusicMode.value = musicMode
+        _isRestoredFromSavedState.value = true
+        
+        _isVisible.value = true
+        MiniPlayerGlobalState.state.value = MiniPlayerStateEnum.FloatingPip
     }
 
     fun show(url: String, title: String, thumb: String, channel: String, musicMode: Boolean = false) {
@@ -36,6 +71,7 @@ object MiniPlayerState {
         _currentThumbnailUrl.value = thumb
         _currentChannelName.value = channel
         _isMusicMode.value = musicMode
+        _isRestoredFromSavedState.value = false
         
         _isVisible.value = true
         MiniPlayerGlobalState.state.value = MiniPlayerStateEnum.FloatingPip

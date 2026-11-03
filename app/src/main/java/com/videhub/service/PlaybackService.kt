@@ -83,6 +83,11 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        return START_STICKY
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return MediaSessionManager.getOrCreateSession(this)
     }
@@ -91,7 +96,11 @@ class PlaybackService : MediaSessionService() {
         val session = MediaSessionManager.getOrCreateSession(this)
         val player = session.player
 
-        if (!player.playWhenReady || player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+        // Save current playback state so that whenever user returns, everything is remembered
+        MediaSessionManager.saveCurrentPlaybackSnapshot(applicationContext)
+
+        // Only stop if playback is truly ended or empty (no media item loaded)
+        if ((player.playbackState == Player.STATE_IDLE && player.mediaItemCount == 0) || player.playbackState == Player.STATE_ENDED) {
             val exoPlayer = player as? androidx.media3.exoplayer.ExoPlayer
             player.stop()
             player.clearMediaItems()
@@ -103,6 +112,8 @@ class PlaybackService : MediaSessionService() {
             }
             MediaSessionManager.release()
             stopSelf()
+        } else {
+            // Keep the media session active and notification visible with controls so user can resume anytime!
         }
         super.onTaskRemoved(rootIntent)
     }

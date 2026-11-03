@@ -135,11 +135,19 @@ fun MiniPlayer(
 
   // ─── PROGRESS BAR ────────────────────────────────────────
   var progress by remember { mutableFloatStateOf(0f) }
-  LaunchedEffect(player) {
+  val isRestored by com.videhub.MiniPlayerState.isRestoredFromSavedState.collectAsState()
+  val savedPos by com.videhub.MiniPlayerState.lastSavedPosition.collectAsState()
+  val savedDur by com.videhub.MiniPlayerState.lastSavedDuration.collectAsState()
+
+  LaunchedEffect(player, isRestored, savedPos, savedDur) {
     while (true) {
-      val duration = player.duration.takeIf { it > 0 } ?: 1L
-      progress = (player.currentPosition.toFloat() / duration.toFloat())
-        .coerceIn(0f, 1f)
+      if (isRestored && (player.mediaItemCount == 0 || player.playbackState == Player.STATE_IDLE)) {
+        val duration = savedDur.takeIf { it > 0 } ?: 1L
+        progress = (savedPos.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+      } else {
+        val duration = player.duration.takeIf { it > 0 } ?: 1L
+        progress = (player.currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+      }
       delay(1000) // update every 1 second
     }
   }
@@ -602,7 +610,21 @@ fun MiniPlayer(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .size(64.dp)
-                    .clickable { if (isPlaying) player.pause() else player.play() },
+                    .clickable {
+                        if (isPlaying) {
+                            player.pause()
+                        } else {
+                            if (player.mediaItemCount == 0 || isRestored) {
+                                com.videhub.MiniPlayerState.markPlaybackStarted()
+                                val url = com.videhub.MiniPlayerState.currentVideoUrl.value ?: ""
+                                val t = com.videhub.MiniPlayerState.currentTitle.value ?: ""
+                                val thumb = com.videhub.MiniPlayerState.currentThumbnailUrl.value ?: artworkUrl
+                                onVideoPlay(url, t, thumb)
+                            } else {
+                                player.play()
+                            }
+                        }
+                    },
                 contentAlignment = Alignment.TopStart
             ) {
                 Icon(

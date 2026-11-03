@@ -1,0 +1,6 @@
+{
+  "summary": "Implementation plan to resolve DownloadService foreground crash, fix video vs channel thumbnail mix-up when subscribing from the player screen, and add rich media thumbnails with video/audio badges and resolution pills to active downloads.",
+  "updatedAt": "2026-11-03T10:30:01.017609866Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

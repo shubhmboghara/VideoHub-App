@@ -15,7 +15,9 @@ data class DownloadProgress(
     val totalBytes: Long = 0L,
     val thumbnailUrl: String? = null,
     val videoId: String = "",
-    val playlistId: String? = null
+    val playlistId: String? = null,
+    val isAudioOnly: Boolean = false,
+    val quality: String? = null
 )
 
 object DownloadProgressTracker {
@@ -32,7 +34,9 @@ object DownloadProgressTracker {
         totalBytes: Long = 0L,
         thumbnailUrl: String? = null,
         videoId: String = "",
-        playlistId: String? = null
+        playlistId: String? = null,
+        isAudioOnly: Boolean? = null,
+        quality: String? = null
     ) {
         _activeDownloads.update { current ->
             val updated = current.toMutableMap()
@@ -40,11 +44,39 @@ object DownloadProgressTracker {
             val finalThumbnail = thumbnailUrl ?: existing?.thumbnailUrl
             val finalVideoId = if (videoId.isNotEmpty()) videoId else (existing?.videoId ?: "")
             val finalPlaylistId = playlistId ?: existing?.playlistId
+            val finalIsAudioOnly = isAudioOnly ?: existing?.isAudioOnly ?: false
+            val finalQuality = quality ?: existing?.quality
             
             if (isComplete && progress == 100) {
-                updated[id] = DownloadProgress(id, title, 100, true, false, downloadedBytes, totalBytes, finalThumbnail, finalVideoId, finalPlaylistId)
+                updated[id] = DownloadProgress(
+                    notificationId = id,
+                    title = title,
+                    progress = 100,
+                    isComplete = true,
+                    isError = false,
+                    downloadedBytes = downloadedBytes,
+                    totalBytes = totalBytes,
+                    thumbnailUrl = finalThumbnail,
+                    videoId = finalVideoId,
+                    playlistId = finalPlaylistId,
+                    isAudioOnly = finalIsAudioOnly,
+                    quality = finalQuality
+                )
             } else {
-                updated[id] = DownloadProgress(id, title, progress, isComplete, isError, downloadedBytes, totalBytes, finalThumbnail, finalVideoId, finalPlaylistId)
+                updated[id] = DownloadProgress(
+                    notificationId = id,
+                    title = title,
+                    progress = progress,
+                    isComplete = isComplete,
+                    isError = isError,
+                    downloadedBytes = downloadedBytes,
+                    totalBytes = totalBytes,
+                    thumbnailUrl = finalThumbnail,
+                    videoId = finalVideoId,
+                    playlistId = finalPlaylistId,
+                    isAudioOnly = finalIsAudioOnly,
+                    quality = finalQuality
+                )
             }
             updated
         }

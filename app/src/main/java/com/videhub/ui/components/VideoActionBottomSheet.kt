@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -46,6 +47,8 @@ fun VideoActionBottomSheet(
     var showAddToPlaylist by remember { mutableStateOf(false) }
     var showDownloadDialog by remember { mutableStateOf(false) }
     var streamInfo by remember { mutableStateOf<org.schabi.newpipe.extractor.stream.StreamInfo?>(null) }
+    val autoplayFlow = remember { com.videhub.data.SettingsManager.getAutoplay(context) }
+    val autoplayEnabled by autoplayFlow.collectAsState(initial = true)
 
     if (showDownloadDialog) {
         VideoDownloadDialog(
@@ -179,6 +182,27 @@ fun VideoActionBottomSheet(
                                 Toast.makeText(context, "Could not fetch video info.", Toast.LENGTH_SHORT).show()
                                 showDownloadDialog = false
                             }
+                        }
+                    }
+                )
+
+                ListItem(
+                    headlineContent = { Text("Autoplay next") },
+                    supportingContent = { Text(if (autoplayEnabled) "Automatically play next track" else "Autoplay disabled") },
+                    leadingContent = { Icon(Icons.Default.Autorenew, contentDescription = null) },
+                    trailingContent = {
+                        Switch(
+                            checked = autoplayEnabled,
+                            onCheckedChange = { checked ->
+                                scope.launch {
+                                    com.videhub.data.SettingsManager.setAutoplay(context, checked)
+                                }
+                            }
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        scope.launch {
+                            com.videhub.data.SettingsManager.setAutoplay(context, !autoplayEnabled)
                         }
                     }
                 )

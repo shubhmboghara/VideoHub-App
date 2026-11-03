@@ -54,6 +54,7 @@ fun SubscriptionsScreen(
     var isInitialLoadingChannels by remember { mutableStateOf(sharedViewModel.isInitialSubLoadingCache) }
     var selectedChannelId by remember { mutableStateOf<String?>(sharedViewModel.subscriptionsSelectedChannelCache) }
     val cacheKey = "${selectedChannelId}"
+    val selectedChannel = remember(channels, selectedChannelId) { channels.find { it.channelId == selectedChannelId } }
     val latestVideos by remember(cacheKey) { derivedStateOf { (sharedViewModel.subscriptionsVideosCacheMap[cacheKey] ?: emptyList()).filterIsInstance<StreamInfoItem>() } }
     
     var isLoadingVideos by remember { mutableStateOf(selectedChannelId != null && sharedViewModel.subscriptionsVideosCacheMap["${selectedChannelId}"] == null) }
@@ -132,6 +133,14 @@ fun SubscriptionsScreen(
                 }
                 val items = withContext(Dispatchers.IO) {
                     val info = ExtractorHelper.getChannelInfo(url)
+                    val realAvatar = try { info.avatars?.firstOrNull()?.url } catch (_: Exception) { null }
+                    if (!realAvatar.isNullOrBlank()) {
+                        val db = AppDatabase.getDatabase(context)
+                        val existing = db.channelDao().getById(chId)
+                        if (existing != null && (existing.thumbnailUrl.isNullOrBlank() || existing.thumbnailUrl == "none" || existing.thumbnailUrl?.contains("vi/") == true || existing.thumbnailUrl?.contains("hqdefault") == true || existing.thumbnailUrl?.contains("mqdefault") == true)) {
+                            db.channelDao().insert(existing.copy(thumbnailUrl = realAvatar))
+                        }
+                    }
                     val source = ExtractorHelper.getChannelPagingSource(info)
                     pagingSource = source
                     sharedViewModel.subscriptionsPagingSourceMap[chId] = source
@@ -207,7 +216,6 @@ fun SubscriptionsScreen(
             
             // ── Latest videos header ─────────────────────────────────────────
             item {
-                val selectedChannel = channels.find { it.channelId == selectedChannelId }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -258,7 +266,7 @@ fun SubscriptionsScreen(
                             viewCount = video.viewCount ?: 0,
                             uploadDate = video.textualUploadDate ?: "",
                             uploaderUrl = video.uploaderUrl,
-                            uploaderAvatarUrl = try { video.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null },
+                            uploaderAvatarUrl = (try { video.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null }) ?: selectedChannel?.thumbnailUrl,
                             onChannelClick = onChannelClick,
                             onClick = { 
                                 val url = video.url ?: ""

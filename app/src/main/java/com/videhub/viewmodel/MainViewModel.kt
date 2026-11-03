@@ -74,6 +74,14 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         get() = savedStateHandle.get<Int>("home_tab") ?: 0
         set(value) { savedStateHandle.set("home_tab", value) }
 
+    var homeScrollIndexCache: Int
+        get() = savedStateHandle.get<Int>("home_scroll_index") ?: 0
+        set(value) { savedStateHandle.set("home_scroll_index", value) }
+
+    var homeScrollOffsetCache: Int
+        get() = savedStateHandle.get<Int>("home_scroll_offset") ?: 0
+        set(value) { savedStateHandle.set("home_scroll_offset", value) }
+
     // Explore screen cache
     var exploreQueryCache: String
         get() = savedStateHandle.get<String>("explore_query") ?: ""

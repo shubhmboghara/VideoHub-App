@@ -628,7 +628,7 @@ fun NowPlayingScreen(
                             }
                         },
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(44.dp)
                             .graphicsLayer {
                                 scaleX = likeScale.value
                                 scaleY = likeScale.value
@@ -639,30 +639,54 @@ fun NowPlayingScreen(
                             imageVector = if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                             contentDescription = if (isLiked) "Unlike" else "Like",
                             tint = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+
+                    // Lyrics Toggle Button
+                    IconButton(
+                        onClick = {
+                            val nextMode = !isLyricsMode
+                            isLyricsMode = nextMode
+                            if (nextMode) {
+                                LiveCaptionsManager.fetchCaptions(
+                                    selectedUrl = selectedTrack?.url,
+                                    availableTracks = availableTracks,
+                                    artist = artist,
+                                    title = title,
+                                    description = description,
+                                    isMusicMode = true,
+                                    durationSeconds = (durationProvider() / 1000L).coerceAtLeast(0L),
+                                    context = context,
+                                    videoId = videoId
+                                )
+                            }
+                        },
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Subtitles,
+                            contentDescription = if (isLyricsMode) "Hide Lyrics" else "Show Lyrics",
+                            tint = if (isLyricsMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    // 3-dots Menu Button (Opens menu with Download, Share, Autoplay, Radio, Playlist, Watch Later)
+                    IconButton(
+                        onClick = onMoreClick,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = "More Options",
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(22.dp))
-
-                NowPlayingActionRow(
-                    title = title,
-                    artist = artist,
-                    autoplayEnabled = autoplayEnabled,
-                    context = context,
-                    coroutineScope = coroutineScope,
-                    isLyricsMode = isLyricsMode,
-                    onLyricsModeChange = { isLyricsMode = it },
-                    onDownloadClick = onDownloadClick,
-                    onShareClick = onShareClick,
-                    onMoreClick = onMoreClick,
-                    description = description,
-                    durationProvider = durationProvider,
-                    onOpenLanguageDialog = { showTrackDialog = true }
-                )
-                
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
                 // Modern Music Seek Bar with 3-Layer Track, Floating Time Bubble, Haptics & Toggleable Remaining Duration
                 MusicSeekBar(
@@ -767,175 +791,6 @@ fun formatDuration(seconds: Long): String {
         "%d:%02d:%02d".format(h, m, s)
     } else {
         "%d:%02d".format(m, s)
-    }
-}
-
-
-
-@Composable
-fun NowPlayingActionRow(
-    title: String,
-    artist: String,
-    autoplayEnabled: Boolean,
-    context: android.content.Context,
-    coroutineScope: kotlinx.coroutines.CoroutineScope,
-    isLyricsMode: Boolean,
-    onLyricsModeChange: (Boolean) -> Unit,
-    onDownloadClick: () -> Unit,
-    onShareClick: () -> Unit,
-    onMoreClick: () -> Unit,
-    description: String? = null,
-    durationProvider: () -> Long = { 0L },
-    isLiked: Boolean = false,
-    onLikeClick: () -> Unit = {},
-    onOpenLanguageDialog: () -> Unit = {}
-) {
-    // Action Row with sleek, modern Material 3 actions
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceAround,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        val availableTracks by LiveCaptionsManager.availableTracks.collectAsStateWithLifecycle(initialValue = emptyList())
-        val selectedTrack by LiveCaptionsManager.selectedTrack.collectAsStateWithLifecycle(initialValue = null)
-
-        val lyricsContainerColor by animateColorAsState(
-            targetValue = if (isLyricsMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-            label = "lyricsContainerColor"
-        )
-        val lyricsContentColor by animateColorAsState(
-            targetValue = if (isLyricsMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            label = "lyricsContentColor"
-        )
-
-        // 1. Lyrics / Captions Toggle
-        FilledTonalIconButton(
-            onClick = {
-                val nextMode = !isLyricsMode
-                onLyricsModeChange(nextMode)
-                if (nextMode) {
-                    LiveCaptionsManager.fetchCaptions(
-                        selectedUrl = selectedTrack?.url,
-                        availableTracks = availableTracks,
-                        artist = artist,
-                        title = title,
-                        description = description,
-                        isMusicMode = true,
-                        durationSeconds = (durationProvider() / 1000L).coerceAtLeast(0L)
-                    )
-                }
-            },
-            modifier = Modifier.size(44.dp),
-            shape = CircleShape,
-            colors = IconButtonDefaults.filledTonalIconButtonColors(
-                containerColor = lyricsContainerColor,
-                contentColor = lyricsContentColor
-            )
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Subtitles,
-                contentDescription = if (isLyricsMode) "Hide Lyrics" else "Show Lyrics",
-                modifier = Modifier.size(22.dp)
-            )
-        }
-
-        // 2. Language Switcher Button (shown if captions/lyrics exist)
-        FilledTonalIconButton(
-            onClick = onOpenLanguageDialog,
-            modifier = Modifier.size(44.dp),
-            shape = CircleShape,
-            colors = IconButtonDefaults.filledTonalIconButtonColors(
-                containerColor = if (selectedTrack != null) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                contentColor = if (selectedTrack != null) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Translate,
-                contentDescription = "Change Language",
-                modifier = Modifier.size(20.dp)
-            )
-        }
-
-        // 2. Download Button
-        FilledTonalIconButton(
-            onClick = onDownloadClick,
-            modifier = Modifier.size(44.dp),
-            shape = CircleShape,
-            colors = IconButtonDefaults.filledTonalIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Download,
-                contentDescription = "Download Song",
-                modifier = Modifier.size(22.dp)
-            )
-        }
-
-        // 3. Share Button
-        FilledTonalIconButton(
-            onClick = onShareClick,
-            modifier = Modifier.size(44.dp),
-            shape = CircleShape,
-            colors = IconButtonDefaults.filledTonalIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Share,
-                contentDescription = "Share Song",
-                modifier = Modifier.size(22.dp)
-            )
-        }
-
-        // 4. Autoplay Toggle
-        val autoplayContainerColor by animateColorAsState(
-            targetValue = if (autoplayEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-            label = "autoplayContainerColor"
-        )
-        val autoplayContentColor by animateColorAsState(
-            targetValue = if (autoplayEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            label = "autoplayContentColor"
-        )
-
-        FilledTonalIconButton(
-            onClick = {
-                coroutineScope.launch {
-                    com.videhub.data.SettingsManager.setAutoplay(context, !autoplayEnabled)
-                }
-            },
-            modifier = Modifier.size(44.dp),
-            shape = CircleShape,
-            colors = IconButtonDefaults.filledTonalIconButtonColors(
-                containerColor = autoplayContainerColor,
-                contentColor = autoplayContentColor
-            )
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Autorenew,
-                contentDescription = "Autoplay Next",
-                modifier = Modifier.size(22.dp)
-            )
-        }
-
-        // 5. More Options / Add to Playlist
-        FilledTonalIconButton(
-            onClick = onMoreClick,
-            modifier = Modifier.size(44.dp),
-            shape = CircleShape,
-            colors = IconButtonDefaults.filledTonalIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.MoreVert,
-                contentDescription = "More Options",
-                modifier = Modifier.size(22.dp)
-            )
-        }
     }
 }
 

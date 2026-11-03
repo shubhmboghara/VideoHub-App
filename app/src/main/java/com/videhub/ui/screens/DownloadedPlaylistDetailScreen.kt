@@ -9,11 +9,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -266,18 +268,51 @@ fun DownloadedPlaylistDetailScreen(
                         thumbnailUrl = video.thumbnailUrl.takeIf { !it.isNullOrBlank() } ?: playlist?.thumbnailUrl,
                         onClick = {},
                         trailingIcon = {
-                            Column(horizontalAlignment = Alignment.End) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = if (progressPercent < 0) "Queued..." else "${progressPercent}%",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Column(horizontalAlignment = Alignment.End) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(22.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = if (progressPercent < 0) "Queued..." else "${progressPercent}%",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        if (progressInfo != null) {
+                                            val cancelIntent = android.content.Intent(context, com.videhub.service.DownloadService::class.java).apply {
+                                                action = "CANCEL_${progressInfo.notificationId}"
+                                            }
+                                            context.startService(cancelIntent)
+                                            com.videhub.utils.DownloadProgressTracker.removeDownload(progressInfo.notificationId)
+                                        }
+                                        com.videhub.viewmodel.DownloadViewModel.removeActiveDownload(video.videoId)
+                                        coroutineScope.launch {
+                                            val appDb = AppDatabase.getDatabase(context)
+                                            appDb.downloadedVideoDao().deletePlaceholderByVideoId(video.videoId)
+                                            appDb.downloadedPlaylistDao().deletePlaylistVideoCrossRef(playlistId, video.videoId)
+                                        }
+                                        android.widget.Toast.makeText(context, "Download cancelled", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .testTag("cancel_playlist_item_${video.videoId}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Cancel Download",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     )
