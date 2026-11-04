@@ -219,12 +219,14 @@ class QueueDownloadService : Service() {
                     }
                 }
                 
-                val viewIntent = Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS)
+                val openAppIntent = Intent(this@QueueDownloadService, com.videhub.MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
                 val pendingIntent = PendingIntent.getActivity(
                     this@QueueDownloadService,
                     0,
-                    viewIntent,
-                    PendingIntent.FLAG_IMMUTABLE
+                    openAppIntent,
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
 
                 val successNotification = NotificationCompat.Builder(this@QueueDownloadService, channelId)

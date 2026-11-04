@@ -895,10 +895,10 @@ fun MusicThumbnail(
 
     Box(
         modifier = modifier
-            .size(90.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .size(100.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
+            .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), RoundedCornerShape(14.dp)),
         contentAlignment = Alignment.Center
     ) {
         if (!url.isNullOrBlank() && !isError) {
@@ -913,11 +913,11 @@ fun MusicThumbnail(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxSize()
-                        .blur(16.dp)
+                        .blur(18.dp)
                 )
             }
 
-            // Foreground layer
+            // Foreground layer - keeps full 16:9 thumbnail centered without clipping edges!
             AsyncImage(
                 model = coil.request.ImageRequest.Builder(context)
                     .data(url)
@@ -930,13 +930,47 @@ fun MusicThumbnail(
                     .fillMaxWidth()
                     .align(Alignment.Center)
             )
+
+            // Music Badge Overlay on bottom-right corner to give it a distinct music album look
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(6.dp)
+                    .size(24.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.MusicNote,
+                        contentDescription = "Music Track",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
         } else {
-            Icon(
-                imageVector = Icons.Default.MusicNote,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(32.dp)
-            )
+            // Vinyl Disc / Music Gradient Placeholder when url is null or failing
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        androidx.compose.ui.graphics.Brush.radialGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                MaterialTheme.colorScheme.surfaceContainerHighest
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
         }
     }
 }
@@ -979,9 +1013,9 @@ fun ActiveDownloadCard(
                 } else {
                     Box(
                         modifier = Modifier
-                            .width(100.dp)
+                            .width(130.dp)
                             .aspectRatio(16f / 9f)
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                         contentAlignment = Alignment.Center
                     ) {
@@ -1161,9 +1195,9 @@ fun SpotifyMusicItem(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(96.dp)
+            .height(112.dp)
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -1178,7 +1212,7 @@ fun SpotifyMusicItem(
             Text(
                 text = title,
                 fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 20.sp,
@@ -1187,7 +1221,7 @@ fun SpotifyMusicItem(
             Spacer(Modifier.height(4.dp))
             Text(
                 text = "♪ ${if (artist.isNotBlank()) artist else "Music"} • $fileSize",
-                style = MaterialTheme.typography.bodySmall,
+                fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -1222,16 +1256,17 @@ fun YouTubeVideoItem(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .height(108.dp)
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Box(
             modifier = Modifier
-                .width(128.dp)
+                .width(156.dp)
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
         ) {
             val modelToUse = if (!thumbnailUrl.isNullOrBlank()) thumbnailUrl else File(videoFilePath)
@@ -1244,6 +1279,23 @@ fun YouTubeVideoItem(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Video HD Badge Overlay
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = Color.Black.copy(alpha = 0.75f),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(6.dp)
+            ) {
+                Text(
+                    text = "HD",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                )
+            }
         }
 
         Column(
@@ -1253,7 +1305,7 @@ fun YouTubeVideoItem(
             Text(
                 text = title,
                 fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 20.sp,
@@ -1262,7 +1314,7 @@ fun YouTubeVideoItem(
             Spacer(Modifier.height(4.dp))
             Text(
                 text = if (channel.isNotBlank()) "$channel • $fileSize" else fileSize,
-                style = MaterialTheme.typography.bodySmall,
+                fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

@@ -1,8 +1,7 @@
 package com.videhub.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material3.Icon
@@ -27,7 +26,7 @@ import java.io.File
 fun PlaylistThumbnail(
     thumbnailUrl: String?,
     modifier: Modifier = Modifier,
-    iconSize: Dp = 48.dp,
+    iconSize: Dp = 36.dp,
     contentScale: ContentScale = ContentScale.Crop,
     contentDescription: String? = null
 ) {
@@ -58,36 +57,64 @@ fun PlaylistThumbnail(
         }
     }
 
-    if (modelToUse != null && !isError) {
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(modelToUse)
-                .crossfade(true)
-                .build(),
-            contentDescription = contentDescription,
-            contentScale = contentScale,
-            onError = { isError = true },
-            modifier = modifier
-        )
-    } else {
-        Box(
-            modifier = modifier
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f)
-                        )
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.PlaylistPlay,
+    Box(modifier = modifier) {
+        if (modelToUse != null && !isError) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(modelToUse)
+                    .crossfade(true)
+                    .build(),
                 contentDescription = contentDescription,
-                modifier = Modifier.size(iconSize),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                contentScale = contentScale,
+                onError = { isError = true },
+                modifier = Modifier.fillMaxSize()
             )
+
+            // YouTube-style playlist right-side semi-transparent overlay badge
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(44.dp)
+                    .align(Alignment.CenterEnd)
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                androidx.compose.ui.graphics.Color.Transparent,
+                                androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.85f)
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
+                    contentDescription = "Playlist",
+                    tint = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f)
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.PlaylistPlay,
+                    contentDescription = contentDescription,
+                    modifier = Modifier.size(iconSize),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
+

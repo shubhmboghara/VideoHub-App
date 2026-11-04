@@ -274,15 +274,14 @@ class DownloadService : Service() {
 
                 val finalUri = FileProvider.getUriForFile(this@DownloadService, "$packageName.provider", finalFile!!)
 
-                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(finalUri, if (finalSuffix.contains("m4a")) "audio/mp4" else if (finalSuffix.contains("webm")) "audio/webm" else "video/mp4")
-                    this.flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+                val openAppIntent = Intent(this@DownloadService, com.videhub.MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 }
                 val pendingIntent = PendingIntent.getActivity(
                     this@DownloadService,
                     0,
-                    viewIntent,
-                    PendingIntent.FLAG_IMMUTABLE
+                    openAppIntent,
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
 
                 val successNotification = NotificationCompat.Builder(this@DownloadService, channelId)

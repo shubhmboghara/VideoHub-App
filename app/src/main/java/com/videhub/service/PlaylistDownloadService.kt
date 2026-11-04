@@ -271,12 +271,14 @@ class PlaylistDownloadService : Service() {
                 val finalDownloaded = db.downloadedVideoDao().getPlaylistVideosSync(pId)
                 val finalReadyCount = finalDownloaded.count { !it.fileName.startsWith("PENDING_") }
 
-                val viewIntent = Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS)
+                val openAppIntent = Intent(this@PlaylistDownloadService, com.videhub.MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
                 val pendingIntent = PendingIntent.getActivity(
                     this@PlaylistDownloadService,
                     0,
-                    viewIntent,
-                    PendingIntent.FLAG_IMMUTABLE
+                    openAppIntent,
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
 
                 val successNotif = NotificationCompat.Builder(this@PlaylistDownloadService, channelId)
