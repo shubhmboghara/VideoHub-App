@@ -79,8 +79,10 @@ fun HomeScreen(
     }
 
     // Use state map directly for videos
-    val videos = sharedViewModel.homeVideosCacheMap[selectedTab] ?: emptyList()
-    var isLoading by remember { mutableStateOf(sharedViewModel.homeVideosCacheMap[selectedTab] == null && selectedTab != 0) }
+    val currentTabVideos = sharedViewModel.homeVideosCacheMap[selectedTab]
+    val isTabLoaded = currentTabVideos != null
+    val videos = currentTabVideos ?: emptyList()
+    var isLoading by remember { mutableStateOf(!isTabLoaded) }
     var isPaginating by remember { mutableStateOf(false) }
     var pagingSource by remember { mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(sharedViewModel.homePagingSourceMap[selectedTab]) }
     
@@ -674,15 +676,16 @@ fun HomeScreen(
             onRefresh = { refresh() },
             modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
+            val showShimmer = (isLoading || !isTabLoaded) && !isRefreshing && errorText == null
             androidx.compose.animation.AnimatedContent(
-                targetState = Triple(selectedTab, isLoading && !isRefreshing, errorText != null),
+                targetState = Triple(selectedTab, showShimmer, errorText != null),
                 transitionSpec = {
                     androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)))
                 },
                 label = "HomeScreenStateTransition"
-            ) { (tab, showShimmer, hasError) ->
+            ) { (tab, shimmerActive, hasError) ->
                 when {
-                    showShimmer -> LazyColumn {
+                    shimmerActive -> LazyColumn {
                         items(5) { VideoCardShimmer() }
                     }
                     hasError -> Column(

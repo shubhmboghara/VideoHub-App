@@ -199,6 +199,17 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+
+                // Sanitize channel avatars: heal any stored channels with video thumbnails or missing avatars
+                val activeChannels = db.channelDao().getAllOnce()
+                for (ch in activeChannels) {
+                    if (ch.thumbnailUrl.isNullOrBlank() || ch.thumbnailUrl == "none" || com.videhub.utils.AvatarHelper.isVideoThumbnail(ch.thumbnailUrl)) {
+                        val realAvatar = com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(ch.channelId)
+                        if (!realAvatar.isNullOrBlank() && !com.videhub.utils.AvatarHelper.isVideoThumbnail(realAvatar)) {
+                            db.channelDao().insert(ch.copy(thumbnailUrl = realAvatar))
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -497,10 +508,14 @@ fun MainScreen() {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        val showBottomBar = (currentRoute == null || !currentRoute.startsWith("player")) && !com.videhub.PipState.isActive.value
         androidx.compose.material3.Scaffold(
             bottomBar = {
-                if (currentRoute != null && !currentRoute.startsWith("player") && !com.videhub.PipState.isActive.value) {
-                    com.videhub.navigation.BottomNavigationBar(navController = navController, currentRoute = currentRoute)
+                if (showBottomBar) {
+                    com.videhub.navigation.BottomNavigationBar(
+                        navController = navController,
+                        currentRoute = currentRoute ?: Screen.Home.route
+                    )
                 }
             }
         ) { innerPadding ->

@@ -39,7 +39,8 @@ fun NavGraph(
                 sharedViewModel = sharedViewModel,
                 onVideoClick = { url, t, thumb -> onNavigateToPlayer(url, t, thumb, false, false) },
                 onChannelClick = { ch -> navController.navigate(Screen.Channel.createRoute(ch)) },
-                onPlaylistClick = { playlistUrl -> navController.navigate(Screen.OnlinePlaylist.createRoute(playlistUrl)) }
+                onPlaylistClick = { playlistUrl -> navController.navigate(Screen.OnlinePlaylist.createRoute(playlistUrl)) },
+                onBack = { navController.popBackStack() }
             )
         }
         composable(Screen.Subscriptions.route) {

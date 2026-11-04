@@ -115,9 +115,16 @@ fun PlayerScreenMetadata(
                     }
                     Spacer(Modifier.height(16.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        val avatarUrl = runCatching {
-                            streamInfo?.uploaderAvatars?.firstOrNull()?.url
-                        }.getOrNull()
+                        val effectiveChannelId = channelId ?: streamInfo?.uploaderUrl
+                        LaunchedEffect(effectiveChannelId) {
+                            if (!effectiveChannelId.isNullOrBlank()) {
+                                withContext(Dispatchers.IO) {
+                                    isSubscribed = db.channelDao().isSubscribed(effectiveChannelId)
+                                }
+                            }
+                        }
+
+                        val avatarUrl = com.videhub.utils.AvatarHelper.getBestAvatarUrl(streamInfo?.uploaderAvatars)
                         if (avatarUrl != null) {
                             coil.compose.AsyncImage(
                                 model = avatarUrl,
@@ -126,7 +133,7 @@ fun PlayerScreenMetadata(
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clip(CircleShape)
-                                    .clickable { channelId?.let { onChannelClick(it) } }
+                                    .clickable { effectiveChannelId?.let { onChannelClick(it) } }
                             )
                             Spacer(Modifier.width(8.dp))
                         }
@@ -138,14 +145,14 @@ fun PlayerScreenMetadata(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .weight(1f)
-                                .clickable { channelId?.let { onChannelClick(it) } }
+                                .clickable { effectiveChannelId?.let { onChannelClick(it) } }
                                 .padding(vertical = 4.dp)
                         )
                         Spacer(Modifier.width(8.dp))
                         AnimatedSubscribeButton(
                             isSubscribed = isSubscribed,
                             onClick = {
-                                channelId?.let { chId ->
+                                effectiveChannelId?.let { chId ->
                                     scope.launch {
                                         if (isSubscribed) {
                                             withContext(Dispatchers.IO) { db.channelDao().deleteById(chId) }
@@ -153,11 +160,9 @@ fun PlayerScreenMetadata(
                                             Toast.makeText(context, "Unsubscribed", Toast.LENGTH_SHORT).show()
                                         } else {
                                             withContext(Dispatchers.IO) {
-                                                val finalAvatar = avatarUrl?.takeIf { it.isNotBlank() }
-                                                    ?: runCatching {
-                                                        val channelUrl = if (chId.startsWith("http") || chId.startsWith("@")) chId else "https://www.youtube.com/channel/$chId"
-                                                        com.videhub.extractor.ExtractorHelper.getChannelInfo(channelUrl).avatars?.firstOrNull()?.url
-                                                    }.getOrNull()
+                                                val candidateAvatar = avatarUrl?.takeIf { !com.videhub.utils.AvatarHelper.isVideoThumbnail(it) }
+                                                val finalAvatar = candidateAvatar
+                                                    ?: com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(chId)
                                                     ?: ""
 
                                                 db.channelDao().insert(

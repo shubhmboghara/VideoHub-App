@@ -68,31 +68,38 @@ fun MusicSeekBar(
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
     bufferedPositionProvider: (() -> Long)? = null,
-    onSeekComplete: ((Long) -> Unit)? = null
+    onSeekComplete: ((Long) -> Unit)? = null,
+    durationProvider: (() -> Long)? = null
 ) {
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
 
     var currentPosition by remember { mutableLongStateOf(0L) }
     var bufferedPosition by remember { mutableLongStateOf(0L) }
+    var polledDuration by remember(duration) { mutableLongStateOf(duration) }
     var isDragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
     var isTappedBriefly by remember { mutableStateOf(false) }
     var showRemainingTime by remember { mutableStateOf(false) }
     var lastHapticFraction by remember { mutableFloatStateOf(0f) }
 
-    // Silky smooth 100ms position polling
+    // Silky smooth 100ms position and duration polling
     LaunchedEffect(Unit) {
         while (true) {
             if (!isDragging) {
                 currentPosition = positionProvider()
                 bufferedPosition = bufferedPositionProvider?.invoke() ?: 0L
+                val d = durationProvider?.invoke() ?: 0L
+                if (d > 0L && d != androidx.media3.common.C.TIME_UNSET) {
+                    polledDuration = d
+                }
             }
             delay(100)
         }
     }
 
-    val safeDuration = remember(duration) { if (duration <= 0L) 0L else duration }
+    val resolvedDur = if (polledDuration > 0L) polledDuration else duration
+    val safeDuration = if (resolvedDur <= 0L) 0L else resolvedDur
     val displaySafeDuration = max(1L, safeDuration)
 
     val currentFraction = remember(currentPosition, displaySafeDuration) {
@@ -331,7 +338,9 @@ fun MusicSeekBar(
 
             // Total or Remaining Countdown Time (Clickable to toggle)
             val remainingMs = max(0L, safeDuration - displayPositionMs)
-            val displayRightText = if (showRemainingTime && safeDuration > 0L) {
+            val displayRightText = if (safeDuration <= 0L) {
+                "--:--"
+            } else if (showRemainingTime) {
                 "-${formatMusicDuration(remainingMs)}"
             } else {
                 formatMusicDuration(safeDuration)

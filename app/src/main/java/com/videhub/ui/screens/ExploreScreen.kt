@@ -1,5 +1,6 @@
 package com.videhub.ui.screens
 
+import androidx.activity.compose.BackHandler
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -88,7 +89,8 @@ fun ExploreScreen(
     sharedViewModel: com.videhub.viewmodel.MainViewModel,
     onVideoClick: (String, String, String) -> Unit,
     onChannelClick: (String) -> Unit = {},
-    onPlaylistClick: (String) -> Unit = {}
+    onPlaylistClick: (String) -> Unit = {},
+    onBack: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -136,6 +138,35 @@ fun ExploreScreen(
     val searchHistory by searchHistoryDao.getAllSearchHistory().collectAsStateWithLifecycle(initialValue = emptyList())
     val searchCacheDao = db.searchCacheDao()
 
+    fun clearSearchAndResults() {
+        query = ""
+        videoResults = emptyList()
+        shortsResults = emptyList()
+        channelResults = emptyList()
+        playlistResults = emptyList()
+        errorText = null
+        sharedViewModel.exploreQueryCache = ""
+        sharedViewModel.exploreVideosCache = null
+        sharedViewModel.explorePagingSourceCache = null
+        scope.launch(Dispatchers.IO) {
+            searchCacheDao.clearAll()
+        }
+    }
+
+    val hasResultsState = videoResults.isNotEmpty() || shortsResults.isNotEmpty() || channelResults.isNotEmpty() || playlistResults.isNotEmpty()
+
+    BackHandler {
+        if (isSearchFocused) {
+            focusManager.clearFocus()
+            keyboardController?.hide()
+            isSearchFocused = false
+        } else if (query.isNotBlank() || hasResultsState) {
+            clearSearchAndResults()
+        } else {
+            onBack()
+        }
+    }
+
     // Live search suggestions with smart query normalization and debounce
     LaunchedEffect(query) {
         val cleanQuery = com.videhub.ml.SmartMediaAnalyzer.normalizeSearchQuery(query)
@@ -151,56 +182,6 @@ fun ExploreScreen(
             }
         } else {
             suggestions = emptyList()
-        }
-    }
-
-    // Load initial cache if available
-    LaunchedEffect(Unit) {
-        if (sharedViewModel.exploreVideosCache == null) {
-            val cached = searchCacheDao.getAll()
-            if (cached.isNotEmpty()) {
-                val cachedChannels = cached.filter { it.type == "channel" }.map {
-                    ChannelInfoItem(1, it.url, it.channelName)
-                }
-                val cachedPlaylists = cached.filter { it.type == "playlist" }.map {
-                    val p = PlaylistInfoItem(1, it.url, it.title)
-                    p.uploaderName = it.channelName
-                    p.thumbnails = listOf(
-                        org.schabi.newpipe.extractor.Image(
-                            it.thumbnailUrl,
-                            50,
-                            50,
-                            org.schabi.newpipe.extractor.Image.ResolutionLevel.UNKNOWN
-                        )
-                    )
-                    p.streamCount = it.duration
-                    p
-                }
-                val cachedVideos = cached.filter { it.type == "video" }.map {
-                    val item = StreamInfoItem(
-                        1,
-                        it.url,
-                        it.title,
-                        org.schabi.newpipe.extractor.stream.StreamType.VIDEO_STREAM
-                    )
-                    item.uploaderName = it.channelName
-                    item.thumbnails = listOf(
-                        org.schabi.newpipe.extractor.Image(
-                            it.thumbnailUrl,
-                            50,
-                            50,
-                            org.schabi.newpipe.extractor.Image.ResolutionLevel.UNKNOWN
-                        )
-                    )
-                    item.viewCount = it.viewCount
-                    item.duration = it.duration
-                    item
-                }
-                channelResults = cachedChannels
-                playlistResults = cachedPlaylists
-                videoResults = cachedVideos
-                query = cached.first().query
-            }
         }
     }
 
@@ -225,10 +206,66 @@ fun ExploreScreen(
             shortsResults = emptyList()
             channelResults = emptyList()
             playlistResults = emptyList()
+
+            var searchQuery = targetQuery.trim('\'', '"', ' ')
+
+            // Check if query is a YouTube video URL or video ID link
+            val isVideoLink = searchQuery.contains("youtu.be/") ||
+                    searchQuery.contains("youtube.com/watch") ||
+                    searchQuery.contains("youtube.com/shorts/") ||
+                    searchQuery.startsWith("https://youtu") ||
+                    searchQuery.startsWith("http://youtu") ||
+                    searchQuery.startsWith("https://www.youtube") ||
+                    searchQuery.startsWith("https://youtube") ||
+                    (searchQuery.length in 10..15 && !searchQuery.contains(" ") && (searchQuery.contains("-") || searchQuery.contains("_")))
+
+            if (isVideoLink) {
+                try {
+                    var extractedUrl = searchQuery
+                    if (!extractedUrl.startsWith("http")) {
+                        val httpIdx = extractedUrl.indexOf("http")
+                        if (httpIdx != -1) {
+                            extractedUrl = extractedUrl.substring(httpIdx)
+                        } else if (extractedUrl.contains("youtu.be/")) {
+                            extractedUrl = "https://" + extractedUrl.substring(extractedUrl.indexOf("youtu.be/"))
+                        } else if (extractedUrl.contains("youtube.com/")) {
+                            extractedUrl = "https://" + extractedUrl.substring(extractedUrl.indexOf("youtube.com/"))
+                        } else if (!extractedUrl.contains("/")) {
+                            extractedUrl = "https://www.youtube.com/watch?v=$extractedUrl"
+                        }
+                    }
+
+                    val info = withContext(Dispatchers.IO) {
+                        ExtractorHelper.getStreamInfo(extractedUrl)
+                    }
+                    val item = StreamInfoItem(
+                        1,
+                        info.url ?: extractedUrl,
+                        info.name ?: "YouTube Video",
+                        org.schabi.newpipe.extractor.stream.StreamType.VIDEO_STREAM
+                    )
+                    item.uploaderName = info.uploaderName ?: "YouTube"
+                    item.thumbnails = info.thumbnails
+                    item.viewCount = info.viewCount
+                    item.duration = info.duration
+                    videoResults = listOf(item)
+                    isSearching = false
+                    return@launch
+                } catch (_: Exception) {
+                    val cleanKeywords = searchQuery
+                        .replace(Regex("https?://\\S+"), "")
+                        .replace(Regex("[^a-zA-Z0-9 ]"), " ")
+                        .trim()
+                    if (cleanKeywords.isNotBlank()) {
+                        searchQuery = cleanKeywords
+                    }
+                }
+            }
+
             try {
                 val (source, searchPlaylists, searchShorts) = coroutineScope {
                     val sourceDeferred = async(Dispatchers.IO) {
-                        ExtractorHelper.getSearchPagingSource(targetQuery)
+                        ExtractorHelper.getSearchPagingSource(searchQuery)
                     }
                     val playlistsDeferred = async(Dispatchers.IO) {
                         try {
@@ -381,16 +418,7 @@ fun ExploreScreen(
     val isShowingSuggestions = isSearchFocused && (query.isNotBlank() || searchHistory.isNotEmpty())
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                focusManager.clearFocus()
-                keyboardController?.hide()
-                isSearchFocused = false
-            }
+        modifier = Modifier.fillMaxSize()
     ) {
         // ── Top Bar with Modern Material 3 SearchBar ────────────────────────
         Surface(
@@ -399,102 +427,102 @@ fun ExploreScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                // Search Input Box
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                // YouTube-style Search Bar Layout: Back Button -> Search Input Pill -> Voice Search Mic Button
+                val voiceSearchLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                    contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+                ) { result ->
+                    if (result.resultCode == android.app.Activity.RESULT_OK) {
+                        val spokenText = result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+                        if (!spokenText.isNullOrBlank()) {
+                            query = spokenText
+                            doSearch(spokenText)
+                        }
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
-                        .shadow(
-                            elevation = if (isSearchFocused) 4.dp else 1.dp,
-                            shape = RoundedCornerShape(24.dp)
-                        )
+                        .padding(horizontal = 4.dp, vertical = 6.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 12.dp)
+                    // 1. Back Arrow (Left, outside search input box)
+                    IconButton(
+                        onClick = {
+                            focusManager.clearFocus()
+                            keyboardController?.hide()
+                            isSearchFocused = false
+                            if (query.isNotBlank() || hasResultsState) {
+                                clearSearchAndResults()
+                            }
+                            onBack()
+                        },
+                        modifier = Modifier.size(40.dp)
                     ) {
-                        // Leading Icon: Back arrow if focused, Search icon otherwise
-                        if (isSearchFocused) {
-                            IconButton(
-                                onClick = {
-                                    focusManager.clearFocus()
-                                    keyboardController?.hide()
-                                    isSearchFocused = false
-                                },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(22.dp)
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // 2. Search Input Box Pill (Middle, rounded capsule container)
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 16.dp)
+                        ) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                if (query.isEmpty()) {
+                                    Text(
+                                        text = "Search YouTube",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                BasicTextField(
+                                    value = query,
+                                    onValueChange = { newValue -> query = newValue },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                    keyboardActions = KeyboardActions(
+                                        onSearch = {
+                                            if (query.isNotBlank()) doSearch()
+                                        }
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .focusRequester(searchFocusRequester)
+                                        .onFocusChanged { focusState ->
+                                            isSearchFocused = focusState.isFocused
+                                        }
                                 )
-                            }
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .padding(start = 4.dp)
-                                    .size(24.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(10.dp))
-
-                        // Text Field & Placeholder
-                        Box(modifier = Modifier.weight(1f)) {
-                            if (query.isEmpty()) {
-                                Text(
-                                    text = "Search YouTube, channels, playlists...",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            BasicTextField(
-                                value = query,
-                                onValueChange = { newValue -> query = newValue },
-                                singleLine = true,
-                                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.Medium
-                                ),
-                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(
-                                    onSearch = {
-                                        if (query.isNotBlank()) doSearch()
-                                    }
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(searchFocusRequester)
-                                    .onFocusChanged { focusState ->
-                                        isSearchFocused = focusState.isFocused
-                                    }
-                            )
-                        }
-
-                        // Trailing Clear and Language Buttons
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            var showContentSettings by remember { mutableStateOf(false) }
-                            if (showContentSettings) {
-                                com.videhub.ui.components.ContentSettingsDialog(onDismiss = { showContentSettings = false })
                             }
 
                             if (query.isNotEmpty()) {
                                 IconButton(
                                     onClick = {
-                                        query = ""
+                                        clearSearchAndResults()
                                     },
-                                    modifier = Modifier.size(36.dp)
+                                    modifier = Modifier.size(32.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Clear,
@@ -504,18 +532,37 @@ fun ExploreScreen(
                                     )
                                 }
                             }
-                            
-                            IconButton(
-                                onClick = { showContentSettings = true },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Language,
-                                    contentDescription = "Content Language",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // 3. Voice Search Mic Button (Right, circular button outside input pill)
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                try {
+                                    val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                        putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                        putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Search YouTube")
+                                    }
+                                    voiceSearchLauncher.launch(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Voice search not supported on device", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Voice Search",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
                     }
                 }
@@ -1428,11 +1475,14 @@ private fun FeaturedChannelCard(
                                 isSubscribed = false
                                 Toast.makeText(context, "Unsubscribed", Toast.LENGTH_SHORT).show()
                             } else {
+                                val validAvatar = avatar?.takeIf { !com.videhub.utils.AvatarHelper.isVideoThumbnail(it) }
+                                    ?: com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(channelId)
+                                    ?: ""
                                 db.channelDao().insert(
                                     ChannelEntity(
                                         channelId = channelId,
                                         name = channel.name ?: "Unknown Channel",
-                                        thumbnailUrl = avatar ?: "none"
+                                        thumbnailUrl = validAvatar
                                     )
                                 )
                                 isSubscribed = true
@@ -1529,11 +1579,14 @@ private fun ChannelResultItem(
                             isSubscribed = false
                             Toast.makeText(context, "Unsubscribed", Toast.LENGTH_SHORT).show()
                         } else {
+                            val validAvatar = avatar?.takeIf { !com.videhub.utils.AvatarHelper.isVideoThumbnail(it) }
+                                ?: com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(channelId)
+                                ?: ""
                             db.channelDao().insert(
                                 ChannelEntity(
                                     channelId = channelId,
                                     name = channel.name ?: "Unknown Channel",
-                                    thumbnailUrl = avatar ?: "none"
+                                    thumbnailUrl = validAvatar
                                 )
                             )
                             isSubscribed = true

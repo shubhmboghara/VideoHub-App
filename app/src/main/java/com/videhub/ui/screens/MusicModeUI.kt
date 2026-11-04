@@ -121,8 +121,23 @@ fun MusicModeUI(
                     artist = channelName,
                     thumbnailUrl = thumbnailUrl,
                     exoPlayer = mediaPlayer,
-                    positionProvider = { mediaPlayer?.currentPosition ?: 0L },
-                    durationProvider = { mediaPlayer?.duration ?: 0L },
+                    positionProvider = { 
+                        val pos = mediaPlayer?.currentPosition ?: com.videhub.service.MediaSessionManager.player?.currentPosition ?: 0L
+                        if (pos >= 0L) pos else 0L
+                    },
+                    durationProvider = { 
+                        val active = mediaPlayer ?: com.videhub.service.MediaSessionManager.player
+                        val playerDur = active?.duration?.takeIf { it > 0L && it != androidx.media3.common.C.TIME_UNSET }
+                        if (playerDur != null) {
+                            playerDur
+                        } else {
+                            val sec = streamInfo?.duration 
+                                ?: com.videhub.service.BackgroundAutoplayHandler.currentStreamInfo?.duration
+                                ?: com.videhub.PlaybackHistory.getCurrent()?.duration
+                                ?: 0L
+                            if (sec > 0L) sec * 1000L else 0L
+                        }
+                    },
                     isPlayingProvider = { mediaPlayer?.isPlaying ?: false },
                     offlineCaptions = offlineCaptions,
                     description = streamInfo?.description?.content,
@@ -158,14 +173,6 @@ fun MusicModeUI(
                         }
                     },
                     onDownloadClick = onDownloadClick,
-                    onShareClick = {
-                        val shareIntent = android.content.Intent().apply {
-                            action = android.content.Intent.ACTION_SEND
-                            putExtra(android.content.Intent.EXTRA_TEXT, "$title\n$videoUrl")
-                            type = "text/plain"
-                        }
-                        context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Video"))
-                    },
                     onMoreClick = onMoreClick,
                     onToggleMode = onToggleMode,
                     onChannelClick = onChannelClick,

@@ -878,24 +878,6 @@ fun PlayerScreen(
 
                 item {
                     androidx.compose.material3.ListItem(
-                        headlineContent = { androidx.compose.material3.Text("Share Video", style = MaterialTheme.typography.bodyLarge) },
-                        leadingContent = { Icon(androidx.compose.material.icons.Icons.Default.Share, contentDescription = "Share") },
-                        modifier = Modifier
-                            .height(48.dp)
-                            .clickable {
-                                showSettingsSheet = false
-                                val shareIntent = android.content.Intent().apply {
-                                    action = android.content.Intent.ACTION_SEND
-                                    putExtra(android.content.Intent.EXTRA_TEXT, if (title.isNotBlank()) "$title\n$videoUrl" else videoUrl)
-                                    putExtra(android.content.Intent.EXTRA_SUBJECT, title)
-                                    type = "text/plain"
-                                }
-                                context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Video"))
-                            }
-                    )
-                }
-                item {
-                    androidx.compose.material3.ListItem(
                         headlineContent = { androidx.compose.material3.Text("Loop Video", style = MaterialTheme.typography.bodyLarge) },
                         leadingContent = { Icon(androidx.compose.material.icons.Icons.Default.Repeat, contentDescription = null) },
                         trailingContent = { 
@@ -1269,26 +1251,11 @@ fun PlayerScreen(
                     },
                     onShowSettingsSheet = { showSettingsSheet = true },
                     onShowSpeedMenu = { showPlaybackSpeedMenu = true },
-                    onShareClick = {
-                        val shareIntent = android.content.Intent().apply {
-                            action = android.content.Intent.ACTION_SEND
-                            putExtra(android.content.Intent.EXTRA_TEXT, if (title.isNotBlank()) "$title\n$videoUrl" else videoUrl)
-                            putExtra(android.content.Intent.EXTRA_SUBJECT, title)
-                            type = "text/plain"
-                        }
-                        context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Video"))
-                    },
                     currentSpeed = currentSpeed,
                     onToggleMusicMode = { isMusicMode = true }
                 )
                 
                 val isLocalFile = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
-                if (isBuffering && !isLocalFile && !isMusicMode) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
 
                 if (isScreenLocked) {
                     androidx.compose.foundation.layout.Box(
@@ -1508,7 +1475,6 @@ fun VideoPlayerContainer(
     onBack: () -> Unit,
     onShowSettingsSheet: () -> Unit,
     onShowSpeedMenu: () -> Unit,
-    onShareClick: () -> Unit = {},
     currentSpeed: Float,
     onToggleMusicMode: () -> Unit
 ) {
@@ -1633,13 +1599,6 @@ fun VideoPlayerContainer(
                     modifier = Modifier.align(Alignment.CenterEnd),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onShareClick) {
-                        Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Default.Share,
-                            contentDescription = "Share",
-                            tint = Color.White
-                        )
-                    }
                     IconButton(onClick = onShowSettingsSheet) {
                         Icon(
                             imageVector = androidx.compose.material.icons.Icons.Default.Settings,

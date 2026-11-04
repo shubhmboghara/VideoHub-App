@@ -152,6 +152,16 @@ fun ModernPlayerControls(
             isVisible = isSeekOverlayVisible
         )
 
+        // Standalone buffering indicator when controls overlay is hidden
+        if (!isVisible && isBuffering) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(44.dp),
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
         // Floating Zoom Level Indicator (Shows when video is scaled)
         AnimatedVisibility(
             visible = videoScale > 1.05f,

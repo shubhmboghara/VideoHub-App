@@ -195,8 +195,9 @@ object MediaSessionManager {
                                 try {
                                     val isAutoplayEnabled = com.videhub.data.SettingsManager.getAutoplay(ctx).firstOrNull() ?: true
                                     val isLoopEnabled = com.videhub.data.SettingsManager.getLoopVideo(ctx).firstOrNull() ?: false
+                                    val isRepeatActive = isLoopEnabled || (player?.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE)
                                     
-                                    if (isLoopEnabled) {
+                                    if (isRepeatActive) {
                                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                             player?.seekTo(0)
                                             player?.play()

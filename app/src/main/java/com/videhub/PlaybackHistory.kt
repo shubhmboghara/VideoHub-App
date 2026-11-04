@@ -23,6 +23,8 @@ object PlaybackHistory {
 
     fun hasPrevious(): Boolean = _history.size >= 2
 
+    fun getCurrent(): PlayQueueItem? = _history.lastOrNull()
+
     fun clear() {
         _history.clear()
     }

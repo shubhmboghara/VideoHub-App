@@ -1,105 +1,93 @@
-# Fix Download Visuals, Subscription Thumbnails & Foreground Service Crash
+# VideoHub — Second-Pass Music Player UI Refinement
 
-Comprehensive architectural plan to eliminate the `ForegroundServiceDidNotStartInTimeException` crash in `DownloadService`, fix the thumbnail mix-up when subscribing from the player watch screen, and enrich download cards with media thumbnails and video/audio resolution pills.
+Fine-tune the VideoHub Now Playing screen to eliminate the harsh rectangular card appearance, blend the ambient blurred artwork seamlessly into the dark background, fix the duration state pipeline so actual media duration appears reliably once metadata loads, optimize foreground artwork scaling across aspect ratios, and boost secondary icon legibility.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The following implementation decisions have been aligned based on user clarification:
-> - **Download Cards**: Active and completed downloading items will display a prominent 16:9 thumbnail, format badge (`VIDEO` vs `AUDIO`/`MUSIC`), and resolution/bitrate pill (e.g. `1080p`, `320kbps M4A`) alongside the direct cancel (X) action.
-> - **Subscription Feed Items**: Items in the subscriptions view will present the video's actual 16:9 thumbnail with a small circular channel avatar badge and title.
-> - **Download Service Stability**: Foreground service lifecycle will be strictly hardened so `startForeground()` is called synchronously in `onCreate()` and at the top of `onStartCommand()`, preventing ANRs and `RemoteServiceException`.
+> This second pass implements the 7 exact targeted refinements while strictly preserving VideoHub's core visual concept and architecture:
+> 1. **Seamless Ambient Artwork Container**: Replaces the prominent dark rectangular `Card` with a continuous ambient artwork zone featuring soft rounded corners and subtle edge blending that naturally merges with the dark background.
+> 2. **Maximized Artwork Proportions**: Optimizes foreground artwork dimensions so landscape, portrait, and square thumbnails occupy more available space without distorting or cropping, reducing unnecessary vertical gaps.
+> 3. **Reliable Duration Resolution (`--:--` Fix)**: Integrates `rememberUpdatedState` and ExoPlayer timeline/state listener hooks so metadata and stream duration instantly populate the seekbar instead of remaining stuck on placeholder states.
+> 4. **Enhanced Secondary Control Visibility**: Increases inactive icon opacity (from 60% to 80%) for Shuffle and Repeat, ensuring comfortable visibility against dark backgrounds while keeping active states distinct.
 
 ---
 
 ## 1. Overview & Core Concept
 
-### What It Does
-1. **Immediate Foreground Service Startup**: Ensures `DownloadService` immediately satisfies Android 8.0–14+ foreground service timing contracts by invoking `startForeground(...)` synchronously in `onCreate()`. This prevents crashes when downloads start or when cancel intents are dispatched.
-2. **Proper Channel vs. Video Thumbnail Mapping**: Corrects `PlayerScreenMetadata` where subscribing from the watch screen was saving the video's thumbnail into `ChannelEntity.thumbnailUrl`. It will now store the channel's actual avatar/logo, ensuring the subscription avatar strip and subscriptions feed display the correct artwork.
-3. **Download Item Media Identification**: Enhances `DownloadProgressTracker`, `DownloadService`, and `ActiveDownloadCard` in `DownloadsScreen.kt` to transmit and display rich thumbnails, media type badges (`VIDEO` / `AUDIO`), quality/resolution labels, and a cancel button.
-
-### Target Audience & Benefit
-Users downloading offline videos or music and navigating subscriptions will experience zero background crashes, clear visual feedback of what content and quality is downloading, and accurate channel branding across the subscription feed.
+- **What It Does**: Polishes the music player interface into a seamless, high-end listening experience where album artwork feels like an organic part of the screen rather than a boxed-in widget.
+- **Target Audience**: VideoHub users listening to music tracks, podcasts, and video audio who expect accurate playback metrics and balanced visual proportions.
+- **Key Value**: Delivers organic artwork ambience, instant true duration display, and balanced controls without changing the underlying architecture or navigation.
 
 ---
 
 ## 2. User Experience & Visual Design
 
-### Key User Flows
+### Key Refinements
 
-#### A. Starting and Managing Downloads
-1. User taps download on any video or audio stream in player or feeds.
-2. `DownloadService` starts immediately with an ongoing notification. No crash occurs even if cancelled quickly.
-3. In the **Downloads** tab, the active download card shows:
-   - **Visual Thumbnail**: 72×44dp rounded preview image of the video or album art.
-   - **Media Badges**: A pill badge with an icon indicating either `VIDEO` (cyan/blue tint) with resolution (`1080p`, `720p`, etc.) or `AUDIO` (violet/purple tint) with bitrate (`320 kbps`, `128 kbps`).
-   - **Progress & Speed**: Real-time progress bar, downloaded MB / total MB, and download percentage.
-   - **Instant Cancel**: Accessible cancel icon button with ripple effect that stops the job immediately and clears temp files.
-
-#### B. Subscribing from the Video Player & Viewing Subscriptions
-1. While watching a video, the user taps **Subscribe**.
-2. The channel's true avatar URL (`uploaderAvatars` or channel avatar) is recorded in Room (`ChannelEntity.thumbnailUrl`), not the video's thumbnail.
-3. Upon opening the **Subscriptions** tab:
-   - The top horizontal channel carousel displays the circular creator avatars.
-   - The video list displays each video's 16:9 thumbnail, accompanied by a small circular creator avatar badge, title, view count, and relative time.
+1. **Continuous Ambient Artwork Canvas**:
+   - Eliminates the heavy dark rectangular card border and drop shadow.
+   - The blurred background layer gently blends into the dark background with smooth 22dp rounded bounds and soft edge falloff.
+   - The original foreground thumbnail sits centered with native proportions, 16dp rounded corners, and a subtle soft shadow.
+2. **Proportion & Spacing Polish**:
+   - Reduces excess vertical padding (from 18dp to 12dp) between seekbar and control rows, giving the artwork more vertical breathing room.
+   - Foreground thumbnail scales to 94% of available container space while strictly preserving aspect ratio (never stretched or squashed).
+3. **Accurate Duration Presentation**:
+   - Duration resolution uses `rememberUpdatedState` for `durationProvider` and attaches listeners to ExoPlayer's `onPlaybackStateChanged` and `onTimelineChanged`.
+   - As soon as stream metadata or ExoPlayer duration resolves, the seekbar updates from loading placeholder to the real duration (e.g., `3:45`).
+4. **Track Information & Control Legibility**:
+   - Track title maintains high-contrast bold typography with 2-line capacity and ellipsis.
+   - Channel name is clearly separated below with an accessible tap target.
+   - Inactive Shuffle and Repeat icons have improved contrast (80% opacity) for effortless scanning in dark mode.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Immediate `startForeground` in `onCreate()` vs Lazy in `onStartCommand()`**:
-  - *Chosen Approach*: Call `startForeground()` synchronously within `onCreate()` using a persistent notification channel and update the notification in `onStartCommand()`.
-  - *Why*: Android throws `ForegroundServiceDidNotStartInTimeException` if `startForeground()` is not called within milliseconds after `startForegroundService()`. Cancel intents or extraction delays previously caused the service to return before calling `startForeground()`, causing fatal crashes.
-- **Passing Metadata in `DownloadProgressTracker`**:
-  - *Chosen Approach*: Extend `DownloadProgress` data class with `thumbnailUrl`, `isAudioOnly`, and `quality` fields, propagating them directly from `DownloadService`.
-  - *Why*: Prevents `DownloadsScreen` from querying disk or making network requests just to display the thumbnail and format badge while downloading.
-- **Channel Avatar Sanitization in Subscription Persistence**:
-  - *Chosen Approach*: In `PlayerScreenMetadata`, obtain `avatarUrl` from `streamInfo.uploaderAvatars` or fetch fallback channel details rather than reusing the video's `thumbnailUrl`.
-  - *Why*: Directly eliminates the root cause of the channel avatar vs video thumbnail confusion.
+- **Decision 1: Organic Ambient Canvas vs. Enclosed Card**
+  - *Chosen Approach*: Remove `Card` container elevation and dark scrim box; use a dedicated `Box` with soft corner clipping and atmospheric radial blur that naturally dissipates into the dark background.
+  - *Why*: The user reported the previous card looked like a dark rectangular border. This change creates a cohesive Apple Music / Spotify ambient aesthetic.
+- **Decision 2: State-Updated Duration Pipeline**
+  - *Chosen Approach*: Wrap `durationProvider` with `rememberUpdatedState` in `NowPlayingScreen` and trigger duration queries directly on ExoPlayer's `onTimelineChanged` and `onPlaybackStateChanged(STATE_READY)` events.
+  - *Why*: Prevents stale closure capture in the background LaunchedEffect loop, ensuring that as soon as `streamInfo` or ExoPlayer extracts duration, the UI reflects it immediately.
 
 ---
 
-## 4. Technical Architecture & Data Strategy
-
-### System Component Diagram
+## 4. Technical Architecture & Component Layout
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           VideHub Application                               │
-├──────────────────────────────┬──────────────────────────────────────────────┤
-│       Player Screen          │             Downloads Screen                 │
-│  ┌────────────────────────┐  │  ┌────────────────────────────────────────┐  │
-│  │  PlayerScreenMetadata  │  │  │          ActiveDownloadCard            │  │
-│  │  - Subscribe Button    │  │  │  - 16:9 Thumbnail Image (AsyncImage)   │  │
-│  │  - Channel Avatar URL  │  │  │  - [VIDEO 1080p] / [AUDIO 320k] Badges │  │
-│  └───────────┬────────────┘  │  │  - Progress Bar & Cancel Button        │  │
-│              │               │  └───────────────────▲────────────────────┘  │
-│              ▼               │                      │ Flow Observation      │
-│  ┌────────────────────────┐  │  ┌───────────────────┴────────────────────┐  │
-│  │  ChannelDao (Room DB)  │  │  │     DownloadProgressTracker            │  │
-│  │  - stores true avatar  │  │  │     - holds title, thumb, type, res    │  │
-│  └───────────┬────────────┘  │  └───────────────────▲────────────────────┘  │
-│              │               │                      │ progress updates      │
-│              ▼               │  ┌───────────────────┴────────────────────┐  │
-│  ┌────────────────────────┐  │  │         DownloadService                │  │
-│  │   SubscriptionsScreen  │  │  │  - onCreate() -> startForeground()    │  │
-│  │  - Top: Channel Avatars│  │  │  - onStartCommand() -> handles CANCEL │  │
-│  │  - List: Video Thumbs  │  │  │  - Downloads stream to storage         │  │
-│  └────────────────────────┘  │  └────────────────────────────────────────┘  │
-└──────────────────────────────┴──────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│ Top Bar: [Collapse]  [NOW PLAYING / VideoHub]  [Actions]│
+├────────────────────────────────────────────────────────┤
+│ Flexible Content Area (weight = 1f):                   │
+│                                                        │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ AmbientArtworkArea (BoxWithConstraints)          │  │
+│  │  - Seamless background blur (no harsh card frame) │  │
+│  │  - Soft corner clipping (22dp)                    │  │
+│  │                                                  │  │
+│  │  ┌────────────────────────────────────────────┐  │  │
+│  │  │ Foreground: AsyncImage (Fit, AspectRatio)  │  │  │
+│  │  │ Native proportions, max fill, 16dp radius  │  │  │
+│  │  └────────────────────────────────────────────┘  │  │
+│  └──────────────────────────────────────────────────┘  │
+├────────────────────────────────────────────────────────┤
+│ Title (2-line max) & Channel Link | [Like] [Lyrics] [More]│
+├────────────────────────────────────────────────────────┤
+│ MusicSeekBar: [Elapsed] ────●──────────── [Duration]   │
+│  (Instant update from streamInfo/ExoPlayer timeline)   │
+├────────────────────────────────────────────────────────┤
+│ Controls: [Shuffle]  [Prev]   [PLAY/PAUSE]   [Next]  [Repeat] │
+│  (Secondary controls boosted to 80% contrast)          │
+└────────────────────────────────────────────────────────┘
 ```
 
-### Files & Modules Involved
-1. **`DownloadService.kt`**:
-   - Call `startForeground(NOTIFICATION_ID, notification)` inside `onCreate()`.
-   - In `onStartCommand()`, safely handle `CANCEL_` intents without violating foreground service lifecycle.
-   - Send `thumbnailUrl`, `isAudioOnly`, and `quality` to `DownloadProgressTracker`.
-2. **`DownloadProgressTracker.kt`**:
-   - Add `isAudioOnly: Boolean = false`, `quality: String? = null`, and ensure `thumbnailUrl` is preserved and updated.
-3. **`DownloadsScreen.kt`**:
-   - Update `ActiveDownloadCard` layout with `AsyncImage` thumbnail preview, type/resolution badges, and cancel button.
-4. **`PlayerScreenMetadata.kt`**:
-   - Fix subscription insertion to store `avatarUrl` (creator avatar), never the video thumbnail.
-5. **`SubscriptionsScreen.kt`**:
-   - Ensure video cards display the video thumbnail and channel avatar badge clearly.
+### Files to Modify
+
+1. **`NowPlayingScreen.kt`**:
+   - Refactor `AdaptiveArtworkContainer` to eliminate the dark `Card` wrapper and scrim, creating an organic ambient area.
+   - Add `rememberUpdatedState(durationProvider)` and update `duration` inside `Player.Listener` on timeline/state changes.
+   - Boost secondary icon inactive contrast in `NowPlayingPlaybackControlsRow`.
+   - Tighten vertical spacers for optimal screen responsiveness.
+2. **`MusicModeUI.kt`**:
+   - Ensure `durationProvider` dynamically evaluates the latest `mediaPlayer?.duration` and `streamInfo?.duration`.

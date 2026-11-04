@@ -482,7 +482,7 @@ fun ChannelScreen(
                                 isSubscribed = isSubscribed,
                                 onClick = {
                                     scope.launch(Dispatchers.IO) {
-                                        val avatar = try { info.avatars.firstOrNull()?.url } catch (e: Exception) { null }
+                                        val avatar = com.videhub.utils.AvatarHelper.getBestAvatarUrl(info.avatars) ?: ""
                                         if (isSubscribed) {
                                             db.channelDao().deleteById(info.url)
                                             isSubscribed = false

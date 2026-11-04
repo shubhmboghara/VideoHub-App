@@ -12,7 +12,6 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -151,21 +150,6 @@ fun VideoActionBottomSheet(
                     leadingContent = { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null) },
                     modifier = Modifier.clickable {
                         showAddToPlaylist = true
-                    }
-                )
-
-                ListItem(
-                    headlineContent = { Text("Share") },
-                    leadingContent = { Icon(Icons.Default.Share, contentDescription = "Share") },
-                    modifier = Modifier.clickable {
-                        val shareIntent = Intent().apply {
-                            action = Intent.ACTION_SEND
-                            putExtra(Intent.EXTRA_TEXT, if (title.isNotBlank()) "$title\n$videoUrl" else videoUrl)
-                            putExtra(Intent.EXTRA_SUBJECT, title)
-                            type = "text/plain"
-                        }
-                        context.startActivity(Intent.createChooser(shareIntent, "Share Video"))
-                        onDismiss()
                     }
                 )
                 

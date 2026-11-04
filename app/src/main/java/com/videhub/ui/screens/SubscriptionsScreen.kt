@@ -111,6 +111,25 @@ fun SubscriptionsScreen(
         }
     }
 
+    // Auto-heal any channel with missing or video-thumbnail avatars
+    LaunchedEffect(channels) {
+        if (channels.isNotEmpty()) {
+            withContext(Dispatchers.IO) {
+                val db = AppDatabase.getDatabase(context)
+                for (channel in channels) {
+                    if (channel.thumbnailUrl.isNullOrBlank() || 
+                        channel.thumbnailUrl == "none" || 
+                        com.videhub.utils.AvatarHelper.isVideoThumbnail(channel.thumbnailUrl)) {
+                        val realAvatar = com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(channel.channelId)
+                        if (!realAvatar.isNullOrBlank() && !com.videhub.utils.AvatarHelper.isVideoThumbnail(realAvatar)) {
+                            db.channelDao().insert(channel.copy(thumbnailUrl = realAvatar))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Load videos when channel or filter selected
     LaunchedEffect(selectedChannelId, videoRetryTrigger) {
         val chId = selectedChannelId ?: return@LaunchedEffect
@@ -256,6 +275,10 @@ fun SubscriptionsScreen(
                         }
                     }
                     
+                    val videoAvatar = try { video.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null }
+                    val candidateAvatar = videoAvatar ?: selectedChannel?.thumbnailUrl
+                    val safeAvatar = candidateAvatar?.takeIf { !com.videhub.utils.AvatarHelper.isVideoThumbnail(it) }
+
                     com.videhub.ui.components.VideoRowItem(
                             modifier = Modifier.animateItem(),
                             videoUrl = video.url ?: "",
@@ -266,7 +289,7 @@ fun SubscriptionsScreen(
                             viewCount = video.viewCount ?: 0,
                             uploadDate = video.textualUploadDate ?: "",
                             uploaderUrl = video.uploaderUrl,
-                            uploaderAvatarUrl = (try { video.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null }) ?: selectedChannel?.thumbnailUrl,
+                            uploaderAvatarUrl = safeAvatar,
                             onChannelClick = onChannelClick,
                             onClick = { 
                                 val url = video.url ?: ""
@@ -325,7 +348,11 @@ private fun ChannelAvatarItem(modifier: Modifier = Modifier,
                 .border(2.dp, borderColor, CircleShape)
                 .padding(2.dp)
         ) {
-            if (!channel.thumbnailUrl.isNullOrBlank() && channel.thumbnailUrl != "none") {
+            val hasValidAvatar = !channel.thumbnailUrl.isNullOrBlank() && 
+                                 channel.thumbnailUrl != "none" && 
+                                 !com.videhub.utils.AvatarHelper.isVideoThumbnail(channel.thumbnailUrl)
+
+            if (hasValidAvatar) {
                 AsyncImage(
                     model = channel.thumbnailUrl,
                     contentDescription = channel.name,

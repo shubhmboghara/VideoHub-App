@@ -357,29 +357,12 @@ fun ShortsScreen(
                             )
                         },
                         modifier = Modifier
-                            .weight(1f)
+                            .fillMaxWidth()
                             .heightIn(min = 48.dp)
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Play in Full Player", style = MaterialTheme.typography.labelLarge)
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, item.url ?: "")
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share Short"))
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 48.dp)
-                    ) {
-                        Icon(Icons.Default.Share, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Share", style = MaterialTheme.typography.labelLarge)
                     }
                 }
                 Spacer(modifier = Modifier.height(24.dp))
@@ -683,11 +666,14 @@ private fun ShortPageItem(
         isSubscribed = next
         scope.launch(Dispatchers.IO) {
             if (next) {
+                val bestAvatar = com.videhub.utils.AvatarHelper.getBestAvatarUrl(item.uploaderAvatars)
+                    ?: com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(uploaderUrl)
+                    ?: ""
                 db.channelDao().insert(
                     ChannelEntity(
                         channelId = uploaderUrl,
                         name = uploaderName,
-                        thumbnailUrl = item.uploaderAvatars?.firstOrNull()?.url
+                        thumbnailUrl = bestAvatar
                     )
                 )
             } else {
@@ -952,19 +938,6 @@ private fun ShortPageItem(
                 onClick = onOpenDetails
             )
 
-            ShortActionButton(
-                icon = Icons.Outlined.Share,
-                tint = Color.White,
-                label = "Share",
-                contentDescription = "Share short link",
-                onClick = {
-                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                        putExtra(Intent.EXTRA_TEXT, videoUrl)
-                        type = "text/plain"
-                    }
-                    context.startActivity(Intent.createChooser(sendIntent, "Share Short"))
-                }
-            )
 
             ShortActionButton(
                 icon = Icons.Filled.SmartDisplay,
