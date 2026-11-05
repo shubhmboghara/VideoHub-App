@@ -1,5 +1,6 @@
 package com.videhub.ui.screens
 
+import android.graphics.drawable.BitmapDrawable
 import android.os.Environment
 import android.widget.Toast
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
@@ -8,38 +9,53 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.palette.graphics.Palette
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.request.SuccessResult
+import com.videhub.PlayQueueItem
+import com.videhub.QueueManager
+import com.videhub.audio.RadioManager
 import com.videhub.data.entity.DownloadedPlaylistEntity
 import com.videhub.data.entity.DownloadedVideoEntity
-import com.videhub.data.entity.WatchLaterEntity
+import com.videhub.ui.components.AddToPlaylistDialog
+import com.videhub.ui.components.PlaylistDownloadQualityDialog
 import com.videhub.viewmodel.WatchLaterViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Locale
 
 // ── State-to-Label Enum and Data Model for Download Pill ─────────────────────
 
@@ -126,6 +142,7 @@ fun getDownloadPillInfo(
 @Composable
 fun WatchLaterScreen(
     onVideoClick: (String, String, String) -> Unit,
+    onSearchClick: () -> Unit = {},
     viewModel: WatchLaterViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -141,8 +158,18 @@ fun WatchLaterScreen(
 
     // Sort order: 0 = Default (Added date), 1 = Title A-Z, 2 = Channel
     var sortOrder by remember { mutableIntStateOf(0) }
-    var showSortMenu by remember { mutableStateOf(false) }
-    var showOverflowMenu by remember { mutableStateOf(false) }
+    var videoForAddToPlaylist by remember { mutableStateOf<DownloadedVideoEntity?>(null) }
+
+    // Save to Playlist Dialog
+    videoForAddToPlaylist?.let { video ->
+        AddToPlaylistDialog(
+            videoUrl = video.videoId,
+            title = video.title,
+            thumbnailUrl = video.thumbnailUrl,
+            channelName = video.channelName,
+            onDismiss = { videoForAddToPlaylist = null }
+        )
+    }
 
     // Filter downloaded videos to match saved items or display full downloads
     val displayVideos = remember(savedVideos, downloadedVideos, sortOrder) {
@@ -188,23 +215,24 @@ fun WatchLaterScreen(
     }
 
     fun playAll(shuffle: Boolean = false) {
-        if (readyVideos.isEmpty()) {
-            Toast.makeText(context, "No downloaded videos ready to play", Toast.LENGTH_SHORT).show()
+        val listToPlay = if (readyVideos.isNotEmpty()) readyVideos else displayVideos
+        if (listToPlay.isEmpty()) {
+            Toast.makeText(context, "No videos in Watch Later", Toast.LENGTH_SHORT).show()
             return
         }
-        val listToPlay = if (shuffle) readyVideos.shuffled() else readyVideos
-        com.videhub.QueueManager.clear()
-        val first = listToPlay.first()
+        val orderedList = if (shuffle) listToPlay.shuffled() else listToPlay
+        QueueManager.clear()
+        val first = orderedList.first()
         val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
         val firstFile = File(downloadDir, first.fileName)
         val firstPlayUrl = if (firstFile.exists()) firstFile.absolutePath else first.videoId
 
-        for (i in 1 until listToPlay.size) {
-            val qItem = listToPlay[i]
+        for (i in 1 until orderedList.size) {
+            val qItem = orderedList[i]
             val f = File(downloadDir, qItem.fileName)
             val path = if (f.exists()) f.absolutePath else qItem.videoId
-            com.videhub.QueueManager.enqueue(
-                com.videhub.PlayQueueItem(
+            QueueManager.enqueue(
+                PlayQueueItem(
                     url = path,
                     title = qItem.title,
                     uploaderName = qItem.channelName,
@@ -218,7 +246,7 @@ fun WatchLaterScreen(
     var showQualityDialog by remember { mutableStateOf(false) }
 
     if (showQualityDialog) {
-        com.videhub.ui.components.PlaylistDownloadQualityDialog(
+        PlaylistDownloadQualityDialog(
             playlistTitle = "Watch Later",
             onDismiss = { showQualityDialog = false },
             onSelectOption = { isAudioOnly, quality ->
@@ -234,6 +262,7 @@ fun WatchLaterScreen(
         isSessionValid = isSessionValid,
         readyVideosCount = readyVideos.size,
         onBackClick = { onBackPressedDispatcher?.onBackPressed() },
+        onSearchClick = onSearchClick,
         onPlayAllClick = { playAll(shuffle = false) },
         onShuffleClick = { playAll(shuffle = true) },
         onPillAction = { action ->
@@ -244,43 +273,59 @@ fun WatchLaterScreen(
                 DownloadPillAction.RETRY -> viewModel.retryDownload()
                 DownloadPillAction.SYNC -> showQualityDialog = true
                 DownloadPillAction.UP_TO_DATE -> {
-                    Toast.makeText(context, "All Watch Later videos are up to date", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "All Watch Later videos are downloaded", Toast.LENGTH_SHORT).show()
                 }
             }
-        },
-        onSignInClick = {
-            viewModel.signInAndSync()
-            Toast.makeText(context, "Signed in! Syncing Watch Later...", Toast.LENGTH_SHORT).show()
-        },
-        onCancelDownload = {
-            viewModel.pauseDownload()
-            Toast.makeText(context, "Download paused", Toast.LENGTH_SHORT).show()
-        },
-        onRemoveAllDownloads = {
-            viewModel.removeAllDownloads()
-            Toast.makeText(context, "Removed all Watch Later downloads", Toast.LENGTH_SHORT).show()
         },
         onSortClick = { order ->
             sortOrder = order
         },
         onVideoClick = { video ->
-            if (video.state == "DONE") {
-                val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-                val targetFile = File(downloadDir, video.fileName)
-                val playUrl = if (targetFile.exists()) targetFile.absolutePath else video.videoId
-                onVideoClick(playUrl, video.title, video.thumbnailUrl)
-            } else {
-                Toast.makeText(context, "Video is not downloaded yet", Toast.LENGTH_SHORT).show()
-            }
+            val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            val targetFile = File(downloadDir, video.fileName)
+            val playUrl = if (targetFile.exists()) targetFile.absolutePath else video.videoId
+            onVideoClick(playUrl, video.title, video.thumbnailUrl)
         },
-        onRetryVideo = { video ->
-            viewModel.retrySingleVideo(video.videoId)
+        onStartRadio = { video ->
+            RadioManager.startRadio(video.videoId, video.title, video.channelName, video.thumbnailUrl)
+            Toast.makeText(context, "📻 Radio started", Toast.LENGTH_SHORT).show()
         },
-        onRemoveVideoFromDownloads = { video ->
+        onPlayNext = { video ->
+            val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            val targetFile = File(downloadDir, video.fileName)
+            val playUrl = if (targetFile.exists()) targetFile.absolutePath else video.videoId
+            QueueManager.playNext(
+                PlayQueueItem(
+                    url = playUrl,
+                    title = video.title,
+                    uploaderName = video.channelName,
+                    thumbnailUrl = video.thumbnailUrl
+                )
+            )
+            Toast.makeText(context, "Playing next", Toast.LENGTH_SHORT).show()
+        },
+        onAddToQueue = { video ->
+            val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            val targetFile = File(downloadDir, video.fileName)
+            val playUrl = if (targetFile.exists()) targetFile.absolutePath else video.videoId
+            val added = QueueManager.enqueue(
+                PlayQueueItem(
+                    url = playUrl,
+                    title = video.title,
+                    uploaderName = video.channelName,
+                    thumbnailUrl = video.thumbnailUrl
+                )
+            )
+            Toast.makeText(context, if (added) "Added to queue" else "Already in queue", Toast.LENGTH_SHORT).show()
+        },
+        onOpenSaveToPlaylist = { video ->
+            videoForAddToPlaylist = video
+        },
+        onRemoveVideoFromWatchLater = { video ->
             viewModel.removeVideoFromDownloads(video)
             scope.launch {
                 val result = snackbarHostState.showSnackbar(
-                    message = "Removed '${video.title}' from downloads",
+                    message = "Removed '${video.title}' from Watch Later",
                     actionLabel = "Undo",
                     duration = SnackbarDuration.Short
                 )
@@ -291,13 +336,13 @@ fun WatchLaterScreen(
         },
         onDeleteVideoFile = { video ->
             viewModel.deleteVideoFileOnly(video)
-            Toast.makeText(context, "Deleted file for '${video.title}'", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Deleted download for '${video.title}'", Toast.LENGTH_SHORT).show()
         },
         snackbarHostState = snackbarHostState
     )
 }
 
-// ── Watch Later Detail Content (Stateless & Previewable) ────────────────────
+// ── Watch Later Detail Content ──────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -308,27 +353,69 @@ fun WatchLaterDetailContent(
     isSessionValid: Boolean = true,
     readyVideosCount: Int = 0,
     onBackClick: () -> Unit = {},
+    onSearchClick: () -> Unit = {},
     onPlayAllClick: () -> Unit = {},
     onShuffleClick: () -> Unit = {},
     onPillAction: (DownloadPillAction) -> Unit = {},
-    onSignInClick: () -> Unit = {},
-    onCancelDownload: () -> Unit = {},
-    onRemoveAllDownloads: () -> Unit = {},
     onSortClick: (Int) -> Unit = {},
     onVideoClick: (DownloadedVideoEntity) -> Unit = {},
-    onRetryVideo: (DownloadedVideoEntity) -> Unit = {},
-    onRemoveVideoFromDownloads: (DownloadedVideoEntity) -> Unit = {},
+    onStartRadio: (DownloadedVideoEntity) -> Unit = {},
+    onPlayNext: (DownloadedVideoEntity) -> Unit = {},
+    onAddToQueue: (DownloadedVideoEntity) -> Unit = {},
+    onOpenSaveToPlaylist: (DownloadedVideoEntity) -> Unit = {},
+    onRemoveVideoFromWatchLater: (DownloadedVideoEntity) -> Unit = {},
     onDeleteVideoFile: (DownloadedVideoEntity) -> Unit = {},
     snackbarHostState: SnackbarHostState? = null
 ) {
+    val context = LocalContext.current
     val isDownloading = playlist?.state?.equals("DOWNLOADING", ignoreCase = true) == true
     val isPreparing = playlist?.state?.equals("PREPARING", ignoreCase = true) == true ||
             (isDownloading && (playlist?.totalCount ?: 0) <= 0)
-    val isFailed = playlist?.state?.equals("FAILED", ignoreCase = true) == true
-    val isSignInRequired = !isSessionValid || (isFailed && playlist?.errorMessage?.contains("Sign in", ignoreCase = true) == true)
 
-    var showOverflowMenu by remember { mutableStateOf(false) }
+    val lazyListState = rememberLazyListState()
+    val showTopBarTitle by remember {
+        derivedStateOf { lazyListState.firstVisibleItemIndex > 0 }
+    }
+
     var showSortMenu by remember { mutableStateOf(false) }
+    var currentSortLabel by remember { mutableStateOf("Manual") }
+
+    // Cover Thumbnails list
+    val coverThumbs = remember(videos) {
+        videos.mapNotNull { it.thumbnailUrl.takeIf { t -> t.isNotBlank() } }
+    }
+    val primaryCoverUrl = coverThumbs.firstOrNull()
+
+    // Palette Color Extraction
+    var extractedColor by remember { mutableStateOf(Color(0xFF272727)) }
+
+    LaunchedEffect(primaryCoverUrl) {
+        if (!primaryCoverUrl.isNullOrBlank()) {
+            try {
+                val loader = coil.Coil.imageLoader(context)
+                val request = ImageRequest.Builder(context)
+                    .data(primaryCoverUrl)
+                    .allowHardware(false)
+                    .size(300)
+                    .build()
+                val result = loader.execute(request)
+                if (result is SuccessResult) {
+                    val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
+                    if (bitmap != null) {
+                        val palette = Palette.from(bitmap).generate()
+                        val swatch = palette.dominantSwatch
+                            ?: palette.darkVibrantSwatch
+                            ?: palette.darkMutedSwatch
+                            ?: palette.vibrantSwatch
+                            ?: palette.mutedSwatch
+                        if (swatch != null) {
+                            extractedColor = Color(swatch.rgb)
+                        }
+                    }
+                }
+            } catch (_: Exception) { }
+        }
+    }
 
     val pillInfo = remember(savedVideosCount, playlist, videos) {
         getDownloadPillInfo(savedVideosCount, playlist, videos)
@@ -340,960 +427,542 @@ fun WatchLaterDetailContent(
         },
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = extractedColor,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.onSurface
+                ),
                 title = {
-                    Text(
-                        text = "Watch Later",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontWeight = FontWeight.Bold
-                    )
+                    if (showTopBarTitle) {
+                        Text(
+                            text = "Watch Later",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Navigate back"
-                        )
+                    IconButton(
+                        onClick = onBackClick,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
+                    // Search Button (redirects to search screen)
                     IconButton(
-                        onClick = { showSortMenu = true },
-                        modifier = Modifier.testTag("sort_button")
+                        onClick = onSearchClick,
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Sort,
-                            contentDescription = "Sort videos"
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
-                    DropdownMenu(
-                        expanded = showSortMenu,
-                        onDismissRequest = { showSortMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Date added (default)") },
-                            onClick = {
-                                onSortClick(0)
-                                showSortMenu = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Title (A-Z)") },
-                            onClick = {
-                                onSortClick(1)
-                                showSortMenu = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Channel name") },
-                            onClick = {
-                                onSortClick(2)
-                                showSortMenu = false
-                            }
-                        )
-                    }
-
-                    // Overflow Menu
-                    IconButton(
-                        onClick = { showOverflowMenu = true },
-                        modifier = Modifier.testTag("overflow_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "More options"
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showOverflowMenu,
-                        onDismissRequest = { showOverflowMenu = false }
-                    ) {
-                        if (isDownloading) {
-                            DropdownMenuItem(
-                                text = { Text("Cancel download") },
-                                onClick = {
-                                    onCancelDownload()
-                                    showOverflowMenu = false
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Cancel,
-                                        contentDescription = "Cancel download"
-                                    )
-                                }
-                            )
-                        } else {
-                            DropdownMenuItem(
-                                text = { Text("Remove all downloads") },
-                                onClick = {
-                                    onRemoveAllDownloads()
-                                    showOverflowMenu = false
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.DeleteSweep,
-                                        contentDescription = "Remove all downloads"
-                                    )
-                                }
-                            )
-                        }
-                    }
+                    // NOTE: NO 3-dots overflow menu in TopAppBar as explicitly requested
                 }
             )
         }
     ) { paddingValues ->
-        if (videos.isEmpty() && savedVideosCount == 0 && !isPreparing) {
-            // Header + Action Pill Row are still visible, empty state message below
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentPadding = PaddingValues(bottom = 80.dp)
-            ) {
-                if (isSignInRequired) {
-                    item(key = "sign_in_banner") {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer
-                            )
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AccountCircle,
-                                    contentDescription = "Sign in required",
-                                    tint = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.size(32.dp)
+        LazyColumn(
+            state = lazyListState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+            contentPadding = PaddingValues(bottom = 32.dp)
+        ) {
+            // Header Item matching YouTube Watch Later layout
+            item(key = "watch_later_header") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    extractedColor.copy(alpha = 0.85f),
+                                    MaterialTheme.colorScheme.background
                                 )
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Sign in to download Watch Later",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
-                                    )
-                                    Text(
-                                        text = "Watch Later is a private playlist that requires your active session.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
-                                    )
-                                }
-                                Button(
-                                    onClick = onSignInClick,
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.error
-                                    ),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text("Sign In")
-                                }
-                            }
-                        }
-                    }
-                }
-
-                item(key = "summary_header") {
-                    WatchLaterSummaryHeader(
-                        playlist = playlist,
-                        totalSaved = savedVideosCount,
-                        readyCount = readyVideosCount,
-                        isDownloading = isDownloading,
-                        isPreparing = isPreparing
-                    )
-                }
-
-                item(key = "pill_row") {
-                    WatchLaterActionPillRow(
-                        pillInfo = pillInfo,
-                        canPlay = readyVideosCount > 0,
-                        onPlayAllClick = onPlayAllClick,
-                        onShuffleClick = onShuffleClick,
-                        onPillAction = onPillAction
-                    )
-                }
-
-                item(key = "empty_state") {
+                            )
+                        )
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Cover Image (~200dp tall, 16dp rounded corners)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 48.dp, bottom = 24.dp),
+                            .height(200.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(24.dp)
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier.size(80.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.BookmarkBorder,
-                                        contentDescription = "No saved videos yet",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(40.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "No saved videos yet",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                        if (!primaryCoverUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(primaryCoverUrl)
+                                    .crossfade(true)
+                                    .size(480)
+                                    .build(),
+                                contentDescription = "Watch Later cover",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Save videos to Watch Later and download them here for offline access.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Bookmark,
+                                contentDescription = "Watch Later cover",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(56.dp)
                             )
                         }
                     }
-                }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentPadding = PaddingValues(bottom = 80.dp)
-            ) {
-                // 1. Session / Sign In Required Banner (if applicable)
-                if (isSignInRequired) {
-                    item(key = "sign_in_banner") {
-                        Card(
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Title: "Watch Later" (headlineMedium, bold)
+                    Text(
+                        text = "Watch Later",
+                        style = MaterialTheme.typography.headlineMedium.copy(fontFamily = FontFamily.SansSerif),
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Subtitle: "X videos" (NO "by username", NO "Private", NO "No views")
+                    val videoCountLabel = if (savedVideosCount == 1) "1 video" else "$savedVideosCount videos"
+                    Text(
+                        text = videoCountLabel,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.SansSerif),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Progress bar while downloading
+                    if (isDownloading || isPreparing) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        val prog = if (isPreparing) 0f else {
+                            if (savedVideosCount > 0) readyVideosCount.toFloat() / savedVideosCount.toFloat() else 0f
+                        }
+                        LinearProgressIndicator(
+                            progress = { prog.coerceIn(0f, 1f) },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer
-                            )
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp)),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Action Row (Play All + Circular Icon Buttons)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Play All: Solid white pill button
+                        Button(
+                            onClick = onPlayAllClick,
+                            enabled = videos.isNotEmpty(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
+                            shape = RoundedCornerShape(22.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White,
+                                contentColor = Color.Black,
+                                disabledContainerColor = Color.White.copy(alpha = 0.4f),
+                                disabledContentColor = Color.Black.copy(alpha = 0.4f)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Play all",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color.Black
+                            )
+                        }
+
+                        // Circular Icon Button: Add videos (+)
+                        Surface(
+                            onClick = onSearchClick,
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = Icons.Default.AccountCircle,
-                                    contentDescription = "Sign in required",
-                                    tint = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.size(32.dp)
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Add videos",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(22.dp)
                                 )
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Sign in to download Watch Later",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
+                            }
+                        }
+
+                        // Circular Icon Button: Download (↓)
+                        Surface(
+                            onClick = { onPillAction(pillInfo.action) },
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                if (pillInfo.showProgressIndicator) {
+                                    CircularProgressIndicator(
+                                        progress = { pillInfo.progress },
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
                                     )
-                                    Text(
-                                        text = "Watch Later is a private playlist that requires your active session.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                                } else {
+                                    Icon(
+                                        imageVector = pillInfo.icon,
+                                        contentDescription = pillInfo.label,
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
-                                Button(
-                                    onClick = onSignInClick,
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.error
-                                    ),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Sort selector dropdown ("Manual ∨")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        Box {
+                            Surface(
+                                onClick = { showSortMenu = true },
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Text("Sign In")
+                                    Text(
+                                        text = currentSortLabel,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.SansSerif),
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Sort dropdown",
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.size(20.dp)
+                                    )
                                 }
+                            }
+
+                            DropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Manual") },
+                                    onClick = {
+                                        currentSortLabel = "Manual"
+                                        onSortClick(0)
+                                        showSortMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Title A-Z") },
+                                    onClick = {
+                                        currentSortLabel = "Title A-Z"
+                                        onSortClick(1)
+                                        showSortMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Channel name") },
+                                    onClick = {
+                                        currentSortLabel = "Channel name"
+                                        onSortClick(2)
+                                        showSortMenu = false
+                                    }
+                                )
                             }
                         }
                     }
                 }
 
-                // 2. Summary Line & Thin Progress Bar
-                item(key = "summary_header") {
-                    WatchLaterSummaryHeader(
-                        playlist = playlist,
-                        totalSaved = savedVideosCount.coerceAtLeast(videos.size),
-                        readyCount = readyVideosCount,
-                        isDownloading = isDownloading,
-                        isPreparing = isPreparing
-                    )
-                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
 
-                // 3. Action Pill Row (Play All, Shuffle, Download)
-                item(key = "pill_row") {
-                    WatchLaterActionPillRow(
-                        pillInfo = pillInfo,
-                        canPlay = readyVideosCount > 0,
-                        onPlayAllClick = onPlayAllClick,
-                        onShuffleClick = onShuffleClick,
-                        onPillAction = onPillAction
-                    )
+            // Empty State
+            if (videos.isEmpty()) {
+                item(key = "empty_state") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 56.dp, horizontal = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BookmarkBorder,
+                            contentDescription = "No saved videos",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "No videos in Watch Later",
+                            style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        FilledTonalButton(
+                            onClick = onSearchClick,
+                            shape = RoundedCornerShape(20.dp)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Add videos", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
-
-                item {
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-
-                // 4. Video Rows
+            } else {
+                // Video Rows
                 itemsIndexed(
                     items = videos,
                     key = { index, video -> "wl_video_${video.videoId}_$index" }
                 ) { index, video ->
-                    WatchLaterVideoRow(
-                        video = video,
-                        onClick = { onVideoClick(video) },
-                        onRetry = { onRetryVideo(video) },
-                        onRemoveFromDownloads = { onRemoveVideoFromDownloads(video) },
-                        onDeleteFile = { onDeleteVideoFile(video) }
-                    )
-                }
-            }
-        }
-    }
-}
+                    val isDone = video.state == "DONE"
+                    val isRowDownloading = video.state == "DOWNLOADING"
 
-// ── Summary Header Line ─────────────────────────────────────────────────────
+                    val metaParts = mutableListOf<String>()
+                    if (video.channelName.isNotBlank() && video.channelName != "Unknown Channel") metaParts.add(video.channelName)
+                    if (video.duration.isNotBlank() && video.duration != "0:00") metaParts.add(video.duration)
+                    if (isDone && video.bytesDownloaded > 0L) metaParts.add(formatWatchLaterMB(video.bytesDownloaded))
+                    val metadataString = metaParts.joinToString(" • ")
 
-@Composable
-fun WatchLaterSummaryHeader(
-    playlist: DownloadedPlaylistEntity?,
-    totalSaved: Int,
-    readyCount: Int,
-    isDownloading: Boolean,
-    isPreparing: Boolean
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-    ) {
-        val totalBytes = playlist?.totalBytes?.takeIf { it > 0L } ?: playlist?.downloadedBytes ?: 0L
-        val formattedSize = if (totalBytes > 0L) " • ${formatMB(totalBytes)}" else ""
+                    var showRowMenu by remember { mutableStateOf(false) }
 
-        val summaryText = when {
-            isPreparing -> "Preparing…"
-            isDownloading -> {
-                val downloadedMb = formatMB(playlist?.downloadedBytes ?: 0L)
-                val totalEstMb = formatMB(playlist?.totalBytes?.takeIf { it > 0L } ?: (playlist?.downloadedBytes ?: 0L))
-                "$readyCount of $totalSaved downloaded • $downloadedMb of ~$totalEstMb"
-            }
-            else -> {
-                val plural = if (totalSaved == 1) "1 saved video" else "$totalSaved saved videos"
-                "$plural$formattedSize"
-            }
-        }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onVideoClick(video) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .testTag("wl_item_${video.videoId}"),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 16:9 Thumbnail, ~140dp wide, 12dp corners, duration badge
+                        Box(
+                            modifier = Modifier
+                                .width(135.dp)
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            if (video.thumbnailUrl.isNotBlank()) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(video.thumbnailUrl)
+                                        .crossfade(true)
+                                        .size(480)
+                                        .build(),
+                                    contentDescription = "Video thumbnail",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Movie,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
 
-        Text(
-            text = summaryText,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+                            // Duration badge
+                            if (video.duration.isNotBlank() && video.duration != "0:00") {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color.Black.copy(alpha = 0.8f),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(4.dp)
+                                ) {
+                                    Text(
+                                        text = video.duration,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 10.sp,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
 
-        // Thin progress bar while downloading
-        if (isDownloading || isPreparing) {
-            Spacer(modifier = Modifier.height(6.dp))
-            val prog = if (isPreparing) 0f else {
-                if (totalSaved > 0) readyCount.toFloat() / totalSaved.toFloat() else 0f
-            }
-            LinearProgressIndicator(
-                progress = { prog.coerceIn(0f, 1f) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(2.dp)),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        }
-    }
-}
+                        Spacer(modifier = Modifier.width(10.dp))
 
-// ── Action Pill Row (Exact YouTube Style: White Play All, Dark Gray Shuffle & Download) ──
+                        // Middle: Title & Metadata
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = video.title,
+                                style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.SansSerif),
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
 
-@Composable
-fun WatchLaterActionPillRow(
-    pillInfo: DownloadPillInfo,
-    canPlay: Boolean,
-    onPlayAllClick: () -> Unit,
-    onShuffleClick: () -> Unit,
-    onPillAction: (DownloadPillAction) -> Unit
-) {
-    val zeroElevation = ButtonDefaults.buttonElevation(
-        defaultElevation = 0.dp,
-        pressedElevation = 0.dp,
-        focusedElevation = 0.dp,
-        hoveredElevation = 0.dp,
-        disabledElevation = 0.dp
-    )
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Play All Pill (EXACT image_46670a8e: Solid White Pill, Solid Black Play Icon ▶, Solid Black Text)
-        Button(
-            onClick = onPlayAllClick,
-            enabled = true,
-            elevation = zeroElevation,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFFFFFFF),
-                contentColor = Color(0xFF000000),
-                disabledContainerColor = Color(0xFFFFFFFF),
-                disabledContentColor = Color(0xFF000000)
-            ),
-            shape = CircleShape,
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-            modifier = Modifier
-                .weight(1f)
-                .height(44.dp)
-                .testTag("play_all_pill")
-        ) {
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = null,
-                tint = Color(0xFF000000),
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = "Play All",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF000000),
-                maxLines = 1
-            )
-        }
-
-        // Shuffle Pill (EXACT image_46670a8e: Solid Dark Gray #272727 Pill, Solid White Shuffle Icon 🔀, Solid White Text)
-        Button(
-            onClick = onShuffleClick,
-            enabled = true,
-            elevation = zeroElevation,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF272727),
-                contentColor = Color(0xFFFFFFFF),
-                disabledContainerColor = Color(0xFF272727),
-                disabledContentColor = Color(0xFFFFFFFF)
-            ),
-            shape = CircleShape,
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-            modifier = Modifier
-                .weight(1f)
-                .height(44.dp)
-                .testTag("shuffle_pill")
-        ) {
-            Icon(
-                imageVector = Icons.Default.Shuffle,
-                contentDescription = null,
-                tint = Color(0xFFFFFFFF),
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = "Shuffle",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFFFFFFFF),
-                maxLines = 1
-            )
-        }
-
-        // Download Pill (EXACT image_46670a8e: Solid Dark Gray #272727 Pill, Solid White Download Icon ⬇, Solid White Text)
-        Button(
-            onClick = { onPillAction(pillInfo.action) },
-            enabled = true,
-            elevation = zeroElevation,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF272727),
-                contentColor = Color(0xFFFFFFFF),
-                disabledContainerColor = Color(0xFF272727),
-                disabledContentColor = Color(0xFFFFFFFF)
-            ),
-            shape = CircleShape,
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-            modifier = Modifier
-                .weight(1f)
-                .height(44.dp)
-                .testTag("download_pill")
-        ) {
-            if (pillInfo.showProgressIndicator) {
-                CircularProgressIndicator(
-                    progress = { pillInfo.progress },
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = Color(0xFFFFFFFF)
-                )
-            } else {
-                Icon(
-                    imageVector = pillInfo.icon,
-                    contentDescription = null,
-                    tint = Color(0xFFFFFFFF),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = pillInfo.label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFFFFFFFF),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-// ── Video Row (16:9 Thumbnail, 140dp wide, 12dp corners) ─────────────────────
-
-@Composable
-fun WatchLaterVideoRow(
-    video: DownloadedVideoEntity,
-    onClick: () -> Unit,
-    onRetry: () -> Unit,
-    onRemoveFromDownloads: () -> Unit,
-    onDeleteFile: () -> Unit
-) {
-    var showMenu by remember { mutableStateOf(false) }
-
-    val isDownloading = video.state == "DOWNLOADING"
-    val isQueued = video.state == "QUEUED"
-    val isDone = video.state == "DONE"
-    val isFailed = video.state == "FAILED"
-    val isStalled = isDownloading && (System.currentTimeMillis() - video.lastUpdatedAt > 60_000L)
-
-    val metadataText = buildString {
-        if (video.channelName.isNotBlank() && video.channelName != "Unknown Channel") {
-            append(video.channelName)
-        }
-        if (video.duration.isNotBlank()) {
-            if (isNotEmpty()) append(" • ")
-            append(video.duration)
-        }
-        if (video.bytesDownloaded > 0L) {
-            if (isNotEmpty()) append(" • ")
-            append(formatMB(video.bytesDownloaded))
-        }
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // 16:9 Thumbnail ~140dp wide, 12dp corners
-        Box(
-            modifier = Modifier
-                .width(140.dp)
-                .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            if (video.thumbnailUrl.isNotBlank()) {
-                AsyncImage(
-                    model = video.thumbnailUrl,
-                    contentDescription = "Thumbnail for ${video.title}",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Movie,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            // Duration badge at bottom right
-            if (video.duration.isNotBlank()) {
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = Color.Black.copy(alpha = 0.8f),
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(4.dp)
-                ) {
-                    Text(
-                        text = video.duration,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                    )
-                }
-            }
-
-            // Stalled overlay indicator
-            if (isStalled) {
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(4.dp)
-                ) {
-                    Text(
-                        text = "Stalled",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        fontSize = 9.sp,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                    )
-                }
-            }
-        }
-
-        // Info Column
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = video.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            if (metadataText.isNotBlank()) {
-                Text(
-                    text = metadataText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            // "No longer in Watch Later" tag
-            if (video.noLongerInWatchLater) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "No longer in Watch Later",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    fontWeight = FontWeight.SemiBold
-                )
-            } else if (isStalled) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Stalled • Tap to retry",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { onRetry() }
-                )
-            }
-        }
-
-        // Trailing: overflow menu (plus download progress or retry if needed)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            when {
-                isStalled || isFailed -> {
-                    IconButton(onClick = onRetry) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Retry download",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-                isDownloading -> {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(28.dp)) {
-                        CircularProgressIndicator(
-                            progress = { (video.progress / 100f).coerceIn(0f, 1f) },
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.5.dp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "${video.progress}%",
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-            }
-
-            Box {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Video options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Remove") },
-                        onClick = {
-                            onRemoveFromDownloads()
-                            showMenu = false
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.DeleteOutline,
-                                contentDescription = "Remove"
+                            Text(
+                                text = metadataString.ifBlank { video.channelName },
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.SansSerif),
+                                fontWeight = FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
-                    )
+
+                        // Right: State icon & Three-dot menu
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            // Download state icon
+                            when {
+                                isDone -> {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Downloaded",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                isRowDownloading -> {
+                                    CircularProgressIndicator(
+                                        progress = { (video.progress / 100f).coerceIn(0f, 1f) },
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
+                            // Three-dot video options menu
+                            Box {
+                                IconButton(
+                                    onClick = { showRowMenu = true },
+                                    modifier = Modifier.size(44.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "More options",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = showRowMenu,
+                                    onDismissRequest = { showRowMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Start Song Radio (Endless Mix)") },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                        onClick = {
+                                            showRowMenu = false
+                                            onStartRadio(video)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Play next in queue") },
+                                        leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
+                                        onClick = {
+                                            showRowMenu = false
+                                            onPlayNext(video)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Add to queue") },
+                                        leadingIcon = { Icon(Icons.Default.PlaylistAdd, contentDescription = null) },
+                                        onClick = {
+                                            showRowMenu = false
+                                            onAddToQueue(video)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Save to playlist") },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null) },
+                                        onClick = {
+                                            showRowMenu = false
+                                            onOpenSaveToPlaylist(video)
+                                        }
+                                    )
+                                    if (isDone) {
+                                        DropdownMenuItem(
+                                            text = { Text("Delete download file", color = MaterialTheme.colorScheme.error) },
+                                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                            onClick = {
+                                                showRowMenu = false
+                                                onDeleteVideoFile(video)
+                                            }
+                                        )
+                                    }
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = { Text("Remove from Watch Later", color = MaterialTheme.colorScheme.error) },
+                                        leadingIcon = { Icon(Icons.Default.BookmarkRemove, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                        onClick = {
+                                            showRowMenu = false
+                                            onRemoveVideoFromWatchLater(video)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-// ── Previews for Watch Later Detail Screen in All Required States ────────────
+// ── Format Bytes Utility ─────────────────────────────────────────────────────
 
-@Preview(name = "Watch Later Detail - Preparing", showBackground = true, backgroundColor = 0xFF121212)
-@Composable
-fun WatchLaterDetailPreparingPreview() {
-    MaterialTheme(colorScheme = darkColorScheme()) {
-        WatchLaterDetailContent(
-            playlist = DownloadedPlaylistEntity(
-                playlistId = "WL",
-                title = "Watch Later",
-                thumbnailUrl = null,
-                totalCount = 0,
-                state = "PREPARING"
-            ),
-            videos = emptyList(),
-            savedVideosCount = 3,
-            isSessionValid = true
-        )
-    }
-}
-
-@Preview(name = "Watch Later Detail - Downloading", showBackground = true, backgroundColor = 0xFF121212)
-@Composable
-fun WatchLaterDetailDownloadingPreview() {
-    MaterialTheme(colorScheme = darkColorScheme()) {
-        val sampleVideos = listOf(
-            DownloadedVideoEntity(
-                fileName = "vid1.mp4",
-                videoId = "v1",
-                title = "Learn Jetpack Compose in 2026",
-                thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-                channelName = "Android Developers",
-                duration = "14:20",
-                bytesDownloaded = 45 * 1024 * 1024L,
-                state = "DONE",
-                progress = 100
-            ),
-            DownloadedVideoEntity(
-                fileName = "PENDING_WL_1_v2",
-                videoId = "v2",
-                title = "Kotlin Coroutines & Flow Deep Dive",
-                thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-                channelName = "JetBrains",
-                duration = "22:15",
-                bytesDownloaded = 18 * 1024 * 1024L,
-                totalBytes = 28 * 1024 * 1024L,
-                state = "DOWNLOADING",
-                progress = 63
-            ),
-            DownloadedVideoEntity(
-                fileName = "PENDING_WL_2_v3",
-                videoId = "v3",
-                title = "Material 3 Adaptive Layouts for Foldables and Tablets",
-                thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-                channelName = "Google Design",
-                duration = "08:45",
-                state = "QUEUED",
-                progress = 0
-            )
-        )
-        WatchLaterDetailContent(
-            playlist = DownloadedPlaylistEntity(
-                playlistId = "WL",
-                title = "Watch Later",
-                thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-                totalCount = 3,
-                completedCount = 1,
-                state = "DOWNLOADING",
-                currentVideoIndex = 1,
-                currentVideoProgress = 63,
-                downloadedBytes = 63 * 1024 * 1024L,
-                totalBytes = 245 * 1024 * 1024L
-            ),
-            videos = sampleVideos,
-            savedVideosCount = 3,
-            readyVideosCount = 1,
-            isSessionValid = true
-        )
-    }
-}
-
-@Preview(name = "Watch Later Detail - Done", showBackground = true, backgroundColor = 0xFF121212)
-@Composable
-fun WatchLaterDetailDonePreview() {
-    MaterialTheme(colorScheme = darkColorScheme()) {
-        val sampleVideos = listOf(
-            DownloadedVideoEntity(
-                fileName = "vid1.mp4",
-                videoId = "v1",
-                title = "Learn Jetpack Compose in 2026",
-                thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-                channelName = "Android Developers",
-                duration = "14:20",
-                bytesDownloaded = 45 * 1024 * 1024L,
-                state = "DONE",
-                progress = 100
-            ),
-            DownloadedVideoEntity(
-                fileName = "vid2.mp4",
-                videoId = "v2",
-                title = "Kotlin Coroutines & Flow Deep Dive",
-                thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-                channelName = "JetBrains",
-                duration = "22:15",
-                bytesDownloaded = 95 * 1024 * 1024L,
-                state = "DONE",
-                progress = 100
-            ),
-            DownloadedVideoEntity(
-                fileName = "vid3.mp4",
-                videoId = "v3",
-                title = "Material 3 Adaptive Layouts for Foldables and Tablets",
-                thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-                channelName = "Google Design",
-                duration = "08:45",
-                bytesDownloaded = 105 * 1024 * 1024L,
-                state = "DONE",
-                progress = 100
-            )
-        )
-        WatchLaterDetailContent(
-            playlist = DownloadedPlaylistEntity(
-                playlistId = "WL",
-                title = "Watch Later",
-                thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-                totalCount = 3,
-                completedCount = 3,
-                state = "DONE",
-                downloadedBytes = 245 * 1024 * 1024L,
-                totalBytes = 245 * 1024 * 1024L
-            ),
-            videos = sampleVideos,
-            savedVideosCount = 3,
-            readyVideosCount = 3,
-            isSessionValid = true
-        )
-    }
-}
-
-@Preview(name = "Watch Later Detail - Failed", showBackground = true, backgroundColor = 0xFF121212)
-@Composable
-fun WatchLaterDetailFailedPreview() {
-    MaterialTheme(colorScheme = darkColorScheme()) {
-        val sampleVideos = listOf(
-            DownloadedVideoEntity(
-                fileName = "vid1.mp4",
-                videoId = "v1",
-                title = "Learn Jetpack Compose in 2026",
-                thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-                channelName = "Android Developers",
-                duration = "14:20",
-                bytesDownloaded = 45 * 1024 * 1024L,
-                state = "DONE",
-                progress = 100
-            ),
-            DownloadedVideoEntity(
-                fileName = "PENDING_WL_1_v2",
-                videoId = "v2",
-                title = "Kotlin Coroutines & Flow Deep Dive",
-                thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-                channelName = "JetBrains",
-                duration = "22:15",
-                state = "FAILED",
-                errorMessage = "Network timeout"
-            )
-        )
-        WatchLaterDetailContent(
-            playlist = DownloadedPlaylistEntity(
-                playlistId = "WL",
-                title = "Watch Later",
-                thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-                totalCount = 2,
-                completedCount = 1,
-                state = "FAILED",
-                errorMessage = "Download encountered network errors"
-            ),
-            videos = sampleVideos,
-            savedVideosCount = 2,
-            readyVideosCount = 1,
-            isSessionValid = true
-        )
-    }
-}
-
-@Preview(name = "Watch Later Detail - Sign In Required", showBackground = true, backgroundColor = 0xFF121212)
-@Composable
-fun WatchLaterDetailSignInRequiredPreview() {
-    MaterialTheme(colorScheme = darkColorScheme()) {
-        WatchLaterDetailContent(
-            playlist = DownloadedPlaylistEntity(
-                playlistId = "WL",
-                title = "Watch Later",
-                thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-                totalCount = 3,
-                completedCount = 0,
-                state = "FAILED",
-                errorMessage = "Sign in to download Watch Later"
-            ),
-            videos = emptyList(),
-            savedVideosCount = 3,
-            isSessionValid = false
-        )
-    }
-}
-
-@Preview(name = "Watch Later Detail - Empty", showBackground = true, backgroundColor = 0xFF121212)
-@Composable
-fun WatchLaterDetailEmptyPreview() {
-    MaterialTheme(colorScheme = darkColorScheme()) {
-        WatchLaterDetailContent(
-            playlist = null,
-            videos = emptyList(),
-            savedVideosCount = 0,
-            isSessionValid = true
-        )
-    }
+private fun formatWatchLaterMB(bytes: Long): String {
+    if (bytes <= 0) return "0 MB"
+    val mb = bytes.toDouble() / (1024.0 * 1024.0)
+    return String.format(Locale.US, "%.1f MB", mb)
 }

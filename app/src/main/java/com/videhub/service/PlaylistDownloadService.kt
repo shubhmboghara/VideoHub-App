@@ -394,10 +394,7 @@ class PlaylistDownloadService : Service() {
             notificationManager.cancel(jobId)
             activePlaylists.remove(pId)
         }
-        val cancelServiceIntent = Intent(this, DownloadService::class.java).apply {
-            action = "CANCEL_PLAYLIST_$pId"
-        }
-        startService(cancelServiceIntent)
+        DownloadService.cancelPlaylist(this, pId)
 
         serviceScope.launch {
             try {

@@ -29,9 +29,28 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
 class DownloadService : Service() {
+    companion object {
+        val downloadJobs = java.util.concurrent.ConcurrentHashMap<Int, kotlinx.coroutines.Job>()
+        val jobPlaylistMap = java.util.concurrent.ConcurrentHashMap<Int, String>()
+
+        fun cancelDownload(context: Context, id: Int) {
+            val job = downloadJobs.remove(id)
+            job?.cancel()
+            jobPlaylistMap.remove(id)
+            com.videhub.utils.DownloadProgressTracker.removeDownload(id)
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancel(id)
+        }
+
+        fun cancelPlaylist(context: Context, pId: String) {
+            val matchingIds = jobPlaylistMap.entries.filter { it.value == pId }.map { it.key }
+            for (id in matchingIds) {
+                cancelDownload(context, id)
+            }
+        }
+    }
+
     private val downloadSemaphore = Semaphore(3)
-    private val downloadJobs = java.util.concurrent.ConcurrentHashMap<Int, kotlinx.coroutines.Job>()
-    private val jobPlaylistMap = java.util.concurrent.ConcurrentHashMap<Int, String>()
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO.limitedParallelism(3) + serviceJob)
     private lateinit var notificationManager: NotificationManager
@@ -41,17 +60,29 @@ class DownloadService : Service() {
     private val FOREGROUND_NOTIFICATION_ID = 10000
 
     private fun ensureForegroundStarted() {
-        val foregroundNotification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("VideHub Downloads")
-            .setContentText("Download service active")
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setOngoing(true)
-            .build()
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    channelId,
+                    "Downloads",
+                    NotificationManager.IMPORTANCE_LOW
+                )
+                notificationManager.createNotificationChannel(channel)
+            }
+            val foregroundNotification = NotificationCompat.Builder(this, channelId)
+                .setContentTitle("VideHub Downloads")
+                .setContentText("Download service active")
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setOngoing(true)
+                .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(FOREGROUND_NOTIFICATION_ID, foregroundNotification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(FOREGROUND_NOTIFICATION_ID, foregroundNotification)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(FOREGROUND_NOTIFICATION_ID, foregroundNotification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(FOREGROUND_NOTIFICATION_ID, foregroundNotification)
+            }
+        } catch (e: Exception) {
+            Log.e("DownloadService", "Error in startForeground: ${e.message}", e)
         }
     }
 
@@ -63,6 +94,18 @@ class DownloadService : Service() {
                 stopForeground(true)
             }
         } catch (_: Exception) {}
+    }
+
+    private fun checkAndStopIfIdle() {
+        if (activeDownloads.get() == 0) {
+            serviceScope.launch {
+                kotlinx.coroutines.delay(1500)
+                if (activeDownloads.get() == 0) {
+                    stopForegroundSafely()
+                    stopSelf()
+                }
+            }
+        }
     }
 
     override fun onCreate() {
@@ -83,57 +126,31 @@ class DownloadService : Service() {
         ensureForegroundStarted()
 
         if (intent == null) {
-            if (activeDownloads.get() == 0) {
-                stopForegroundSafely()
-                stopSelf()
-            }
+            checkAndStopIfIdle()
             return START_NOT_STICKY
         }
 
         if (intent.action?.startsWith("CANCEL_PLAYLIST_") == true) {
             val pId = intent.action?.removePrefix("CANCEL_PLAYLIST_")
             if (pId != null) {
-                val matchingIds = jobPlaylistMap.entries.filter { it.value == pId }.map { it.key }
-                for (id in matchingIds) {
-                    downloadJobs[id]?.cancel()
-                    downloadJobs.remove(id)
-                    jobPlaylistMap.remove(id)
-                    notificationManager.cancel(id)
-                    com.videhub.utils.DownloadProgressTracker.removeDownload(id)
-                }
+                cancelPlaylist(this, pId)
             }
-            if (activeDownloads.get() == 0) {
-                stopForegroundSafely()
-                stopSelf()
-            }
+            checkAndStopIfIdle()
             return START_NOT_STICKY
         }
 
         if (intent.action?.startsWith("CANCEL_") == true) {
             val id = intent.action?.removePrefix("CANCEL_")?.toIntOrNull()
             if (id != null) {
-                val job = downloadJobs[id]
-                if (job != null) {
-                    job.cancel()
-                }
-                downloadJobs.remove(id)
-                jobPlaylistMap.remove(id)
-                notificationManager.cancel(id)
-                com.videhub.utils.DownloadProgressTracker.removeDownload(id)
+                cancelDownload(this, id)
             }
-            if (activeDownloads.get() == 0) {
-                stopForegroundSafely()
-                stopSelf()
-            }
+            checkAndStopIfIdle()
             return START_NOT_STICKY
         }
 
         val url = intent.getStringExtra("url")
         if (url == null) {
-            if (activeDownloads.get() == 0) {
-                stopForegroundSafely()
-                stopSelf()
-            }
+            checkAndStopIfIdle()
             return START_NOT_STICKY
         }
         val title = intent.getStringExtra("title") ?: "Unknown"
@@ -159,14 +176,18 @@ class DownloadService : Service() {
         notificationId++
         val currentNotificationId = notificationId
 
-        val cancelIntent = Intent(this, DownloadService::class.java).apply {
-            action = "CANCEL_$currentNotificationId"
+        val cancelIntent = Intent(this, DownloadCancelReceiver::class.java).apply {
+            action = DownloadCancelReceiver.ACTION_CANCEL_DOWNLOAD
+            putExtra("notificationId", currentNotificationId)
+            putExtra("videoId", videoId)
+            putExtra("playlistId", playlistId)
         }
-        val cancelPending = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            PendingIntent.getForegroundService(this, currentNotificationId, cancelIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        } else {
-            PendingIntent.getService(this, currentNotificationId, cancelIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        }
+        val cancelPending = PendingIntent.getBroadcast(
+            this,
+            currentNotificationId,
+            cancelIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
 
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Starting Download: $safeTitle")
@@ -212,9 +233,17 @@ class DownloadService : Service() {
 
                 if (needsExtraction) {
                     val info = com.videhub.extractor.ExtractorHelper.getStreamInfo(videoId)
-                    val selectedStream = (info.videoStreams ?: emptyList())
+                    val videoStreams = (info.videoStreams ?: emptyList())
                         .filter { !it.url.isNullOrBlank() && !it.isVideoOnly }
-                        .maxByOrNull { it.height }
+                    val selectedStream = when (quality) {
+                        "144p" -> videoStreams.find { it.resolution?.contains("144") == true || (it.height ?: 0) <= 144 }
+                            ?: videoStreams.minByOrNull { it.height ?: 0 }
+                        "360p" -> videoStreams.find { it.resolution?.contains("360") == true || (it.height ?: 0) == 360 }
+                            ?: videoStreams.minByOrNull { it.height ?: 0 }
+                        "720p", "High Quality" -> videoStreams.find { it.resolution?.contains("720") == true || (it.height ?: 0) == 720 }
+                            ?: videoStreams.maxByOrNull { it.height ?: 0 }
+                        else -> videoStreams.maxByOrNull { it.height ?: 0 }
+                    }
                     val audioStream = (info.audioStreams ?: emptyList())
                         .filter { !it.url.isNullOrBlank() }
                         .maxByOrNull { it.averageBitrate }

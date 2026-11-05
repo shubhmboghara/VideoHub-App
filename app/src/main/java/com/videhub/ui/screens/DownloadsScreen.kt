@@ -33,7 +33,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
+import com.videhub.QueueManager
+import com.videhub.PlayQueueItem
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -259,6 +262,7 @@ fun DownloadsScreen(
     val allDownloads by db.downloadedVideoDao().getAllDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
     val playlistDownloads by db.downloadedVideoDao().getPlaylistDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
     val activeSingleDownloadsMap by DownloadProgressTracker.activeDownloads.collectAsStateWithLifecycle(initialValue = emptyMap())
+    var showWatchLaterMenu by remember { mutableStateOf(false) }
 
     val activeDownloads: List<DownloadProgress> = remember(activeSingleDownloadsMap, allDownloads) {
         val inMemory = activeSingleDownloadsMap.values
@@ -669,10 +673,7 @@ fun DownloadsScreen(
                         androidx.work.WorkManager.getInstance(context).cancelUniqueWork(
                             com.videhub.service.DownloadWorker.getUniqueWorkName(progressItem.videoId, progressItem.playlistId)
                         )
-                        val cancelIntent = android.content.Intent(context, DownloadService::class.java).apply {
-                            action = "CANCEL_${progressItem.notificationId}"
-                        }
-                        context.startService(cancelIntent)
+                        com.videhub.service.DownloadService.cancelDownload(context, progressItem.notificationId)
 
                         DownloadProgressTracker.removeDownload(progressItem.notificationId)
                         com.videhub.viewmodel.DownloadViewModel.removeActiveDownload(progressItem.videoId)
@@ -1133,6 +1134,9 @@ fun DownloadsScreen(
                                         onClick = {
                                             navController.navigate("watch_later")
                                         },
+                                        onMoreClick = {
+                                            showWatchLaterMenu = true
+                                        },
                                         modifier = Modifier.width(220.dp)
                                     )
                                 } else {
@@ -1274,6 +1278,69 @@ fun DownloadsScreen(
                             onMoreClick = { selectedItemForDetails = item }
                         )
                     }
+                }
+            }
+        }
+    }
+
+    if (showWatchLaterMenu) {
+        ModalBottomSheet(
+            onDismissRequest = { showWatchLaterMenu = false },
+            containerColor = Color(0xFF222222),
+            contentColor = Color.White,
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp, horizontal = 16.dp)
+                    .padding(bottom = 24.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            showWatchLaterMenu = false
+                            scope.launch(Dispatchers.IO) {
+                                val items = db.watchLaterDao().getAllOnce()
+                                if (items.isNotEmpty()) {
+                                    items.reversed().forEach { item ->
+                                        QueueManager.playNext(
+                                            PlayQueueItem(
+                                                url = item.videoId,
+                                                title = item.title,
+                                                uploaderName = item.channelName,
+                                                thumbnailUrl = item.thumbnailUrl
+                                            )
+                                        )
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Added Watch Later videos next in queue", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Watch Later is empty", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        }
+                        .padding(vertical = 14.dp, horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "Play next in queue",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White
+                    )
                 }
             }
         }

@@ -124,24 +124,18 @@ class DownloadWorker(
     ): ForegroundInfo {
         createNotificationChannel()
 
-        val cancelIntent = Intent(applicationContext, DownloadService::class.java).apply {
-            action = "CANCEL_$notificationId"
+        val cancelIntent = Intent(applicationContext, DownloadCancelReceiver::class.java).apply {
+            action = DownloadCancelReceiver.ACTION_CANCEL_DOWNLOAD
+            putExtra("notificationId", notificationId)
+            putExtra("videoId", inputData.getString("videoId") ?: "")
+            putExtra("playlistId", inputData.getString("playlistId"))
         }
-        val cancelPending = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            PendingIntent.getForegroundService(
-                applicationContext,
-                notificationId,
-                cancelIntent,
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
-        } else {
-            PendingIntent.getService(
-                applicationContext,
-                notificationId,
-                cancelIntent,
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
-        }
+        val cancelPending = PendingIntent.getBroadcast(
+            applicationContext,
+            notificationId,
+            cancelIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
 
         val contentText = if (totalBytes > 0) {
             "${formatMB(bytesDownloaded)} / ${formatMB(totalBytes)} • $progress%"
@@ -265,9 +259,17 @@ class DownloadWorker(
                     .maxByOrNull { it.averageBitrate }
                 streamUrl = audioStream?.content ?: throw IOException("Audio stream not available")
             } else {
-                val videoStream = (streamInfo.videoStreams ?: emptyList())
+                val videoStreams = (streamInfo.videoStreams ?: emptyList())
                     .filter { !it.content.isNullOrBlank() && !it.isVideoOnly }
-                    .maxByOrNull { it.height ?: 0 }
+                val videoStream = when (quality) {
+                    "144p" -> videoStreams.find { it.resolution?.contains("144") == true || (it.height ?: 0) <= 144 }
+                        ?: videoStreams.minByOrNull { it.height ?: 0 }
+                    "360p" -> videoStreams.find { it.resolution?.contains("360") == true || (it.height ?: 0) == 360 }
+                        ?: videoStreams.minByOrNull { it.height ?: 0 }
+                    "720p", "High Quality" -> videoStreams.find { it.resolution?.contains("720") == true || (it.height ?: 0) == 720 }
+                        ?: videoStreams.maxByOrNull { it.height ?: 0 }
+                    else -> videoStreams.maxByOrNull { it.height ?: 0 }
+                }
                 streamUrl = videoStream?.content ?: throw IOException("Video stream not available")
             }
 

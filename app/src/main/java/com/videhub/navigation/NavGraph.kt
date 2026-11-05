@@ -138,7 +138,8 @@ fun NavGraph(
         }
         composable("watch_later") {
             com.videhub.ui.screens.WatchLaterScreen(
-                onVideoClick = { videoUrl, t, thumb -> onNavigateToPlayer(videoUrl, t, thumb, false, false) }
+                onVideoClick = { videoUrl, t, thumb -> onNavigateToPlayer(videoUrl, t, thumb, false, false) },
+                onSearchClick = { navController.navigate(Screen.Explore.route) }
             )
         }
         composable("playlists") {
@@ -155,7 +156,8 @@ fun NavGraph(
             val id = backStackEntry.arguments?.getInt("playlistId") ?: 0
             PlaylistDetailScreen(
                 playlistId = id,
-                onVideoClick = { videoUrl, t, thumb -> onNavigateToPlayer(videoUrl, t, thumb, false, false) }
+                onVideoClick = { videoUrl, t, thumb -> onNavigateToPlayer(videoUrl, t, thumb, false, false) },
+                onSearchClick = { navController.navigate(Screen.Explore.route) }
             )
         }
         composable("liked_videos") {

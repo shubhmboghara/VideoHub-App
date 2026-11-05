@@ -18,7 +18,7 @@ interface PlaylistDao {
     
     @Query("""
         SELECT p.*, 
-               (SELECT thumbnailUrl FROM playlist_videos pv WHERE pv.playlistId = p.id ORDER BY addedAt DESC LIMIT 1) as thumbnailUrl,
+               COALESCE(p.customCoverUrl, (SELECT thumbnailUrl FROM playlist_videos pv WHERE pv.playlistId = p.id ORDER BY addedAt DESC LIMIT 1)) as thumbnailUrl,
                (SELECT COUNT(*) FROM playlist_videos pv WHERE pv.playlistId = p.id) as videoCount
         FROM playlists p 
         ORDER BY p.createdAt DESC
@@ -27,6 +27,12 @@ interface PlaylistDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPlaylist(playlist: PlaylistEntity): Long
+
+    @Update
+    suspend fun updatePlaylist(playlist: PlaylistEntity)
+
+    @Query("UPDATE playlists SET name = :name, customCoverUrl = :customCoverUrl WHERE id = :id")
+    suspend fun updatePlaylistDetails(id: Int, name: String, customCoverUrl: String?)
 
     @Delete
     suspend fun deletePlaylist(playlist: PlaylistEntity)
@@ -48,6 +54,12 @@ interface PlaylistDao {
 
     @Query("SELECT * FROM playlists ORDER BY name ASC")
     suspend fun getAllPlaylistsOnce(): List<PlaylistEntity>
+
+    @Query("SELECT * FROM playlist_videos WHERE playlistId = :playlistId ORDER BY addedAt DESC")
+    suspend fun getVideosOnce(playlistId: Int): List<PlaylistVideoEntity>
+
+    @Query("DELETE FROM playlist_videos WHERE playlistId = :playlistId AND videoId = :videoId")
+    suspend fun deleteVideoByPair(playlistId: Int, videoId: String)
 
     @Query("SELECT * FROM playlist_videos ORDER BY addedAt DESC")
     suspend fun getAllPlaylistVideosOnce(): List<PlaylistVideoEntity>

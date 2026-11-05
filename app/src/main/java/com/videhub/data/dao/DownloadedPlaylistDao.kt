@@ -112,6 +112,9 @@ interface DownloadedPlaylistDao {
     @Query("UPDATE downloaded_playlists SET thumbnailUrl = :thumbnailUrl WHERE playlistId = :playlistId")
     suspend fun updatePlaylistThumbnail(playlistId: String, thumbnailUrl: String)
 
+    @Query("UPDATE downloaded_playlists SET title = :newTitle WHERE playlistId = :playlistId")
+    suspend fun renamePlaylist(playlistId: String, newTitle: String)
+
     @Query("DELETE FROM downloaded_playlists WHERE playlistId = :playlistId")
     suspend fun deletePlaylist(playlistId: String)
 

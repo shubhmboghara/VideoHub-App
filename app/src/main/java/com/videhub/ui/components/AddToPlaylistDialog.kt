@@ -1,21 +1,43 @@
 package com.videhub.ui.components
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.window.Dialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.videhub.data.AppDatabase
 import com.videhub.data.entity.PlaylistEntity
 import com.videhub.data.entity.PlaylistVideoEntity
+import com.videhub.data.entity.WatchLaterEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddToPlaylistDialog(
     videoUrl: String,
@@ -26,140 +48,414 @@ fun AddToPlaylistDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val db = AppDatabase.getDatabase(context)
+    val db = remember { AppDatabase.getDatabase(context) }
+
     var playlists by remember { mutableStateOf<List<PlaylistEntity>>(emptyList()) }
-    var showCreatePlaylistNameDialog by remember { mutableStateOf(false) }
+    var playlistCovers by remember { mutableStateOf<Map<Int, String?>>(emptyMap()) }
+    var isSavedInWatchLater by remember { mutableStateOf(false) }
+    var watchLaterCover by remember { mutableStateOf<String?>(null) }
+    var savedPlaylistIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
+
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
 
-    LaunchedEffect(Unit) {
-        db.playlistDao().getAllPlaylists().collect { playlists = it }
-    }
+    // Load Watch Later and Custom Playlists data
+    LaunchedEffect(videoUrl) {
+        withContext(Dispatchers.IO) {
+            // Check Watch Later state
+            isSavedInWatchLater = db.watchLaterDao().isInWatchLater(videoUrl)
 
-    if (!showCreatePlaylistNameDialog) {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            containerColor = MaterialTheme.colorScheme.surface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            textContentColor = MaterialTheme.colorScheme.onSurface,
-            title = { Text("Save to playlist") },
-            text = {
-                LazyColumn {
-                    itemsIndexed(playlists, key = { index, playlist -> "${playlist.id}_$index" }) { index, playlist ->
-                        TextButton(
-                            onClick = {
-                                scope.launch {
-                                    val isDuplicate = com.videhub.utils.DuplicateChecker.isVideoInPlaylist(context, playlist.id, videoUrl)
-                                    if (isDuplicate) {
-                                        Toast.makeText(context, "Already in '${playlist.name}' playlist", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        db.playlistDao().insertVideo(
-                                            PlaylistVideoEntity(
-                                                playlistId = playlist.id, videoId = videoUrl,
-                                                title = title, thumbnailUrl = thumbnailUrl,
-                                                channelName = channelName
-                                            )
-                                        )
-                                        Toast.makeText(context, "Added to '${playlist.name}' playlist", Toast.LENGTH_SHORT).show()
-                                        onDismiss()
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
-                        ) { Text(playlist.name) }
-                    }
-                    item {
-                        TextButton(
-                            onClick = {
-                                showCreatePlaylistNameDialog = true
-                            },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
-                        ) { Text("+ Create new") }
-                    }
+            // Watch Later cover thumbnail
+            val wlAll = db.watchLaterDao().getAllOnce()
+            watchLaterCover = wlAll.firstOrNull { !it.thumbnailUrl.isNullOrBlank() }?.thumbnailUrl
+                ?: thumbnailUrl.takeIf { it.isNotBlank() }
+
+            // Custom Playlists
+            val allPlaylists = db.playlistDao().getAllPlaylistsOnce()
+            playlists = allPlaylists
+
+            // Load cover thumbnails and saved state for each playlist
+            val coversMap = mutableMapOf<Int, String?>()
+            val savedIds = mutableSetOf<Int>()
+
+            for (pl in allPlaylists) {
+                val videos = db.playlistDao().getVideosOnce(pl.id)
+                val firstThumb = videos.firstOrNull { !it.thumbnailUrl.isNullOrBlank() }?.thumbnailUrl
+                coversMap[pl.id] = firstThumb
+                if (videos.any { it.videoId == videoUrl }) {
+                    savedIds.add(pl.id)
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
-                ) { Text("Cancel") }
             }
-        )
+
+            playlistCovers = coversMap
+            savedPlaylistIds = savedIds
+        }
     }
 
-    if (showCreatePlaylistNameDialog) {
-        AlertDialog(
-            onDismissRequest = { showCreatePlaylistNameDialog = false },
-            containerColor = MaterialTheme.colorScheme.surface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            textContentColor = MaterialTheme.colorScheme.onSurface,
-            title = { Text("New Playlist") },
-            text = {
-                OutlinedTextField(
-                    value = newPlaylistName,
-                    onValueChange = { newPlaylistName = it },
-                    label = { Text("Name") },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        focusedBorderColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        focusedLabelColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                    )
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val trimmedName = newPlaylistName.trim()
-                        if (trimmedName.isNotBlank()) {
-                            scope.launch {
-                                val existingPlaylist = db.playlistDao().getPlaylistByName(trimmedName)
-                                if (existingPlaylist != null) {
-                                    val isDuplicate = com.videhub.utils.DuplicateChecker.isVideoInPlaylist(context, existingPlaylist.id, videoUrl)
-                                    if (isDuplicate) {
-                                        Toast.makeText(context, "Already in '${existingPlaylist.name}' playlist", Toast.LENGTH_SHORT).show()
+    // Compact Modal Bottom Sheet matching YouTube's playlist sheet height
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .navigationBarsPadding()
+                .padding(bottom = 16.dp)
+        ) {
+            // Header Title: "Save to..."
+            Text(
+                text = "Save to...",
+                style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.SansSerif),
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Playlist Item Rows (Compact max height ~240dp so sheet stays compact & list scrolls internally)
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 240.dp)
+            ) {
+                // Item 1: "Watch later"
+                item(key = "watch_later_row") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                scope.launch(Dispatchers.IO) {
+                                    if (isSavedInWatchLater) {
+                                        db.watchLaterDao().deleteById(videoUrl)
+                                        isSavedInWatchLater = false
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Removed from Watch later", Toast.LENGTH_SHORT).show()
+                                        }
                                     } else {
-                                        db.playlistDao().insertVideo(
-                                            PlaylistVideoEntity(
-                                                playlistId = existingPlaylist.id, videoId = videoUrl,
-                                                title = title, thumbnailUrl = thumbnailUrl,
+                                        db.watchLaterDao().insert(
+                                            WatchLaterEntity(
+                                                videoId = videoUrl,
+                                                title = title,
+                                                thumbnailUrl = thumbnailUrl,
                                                 channelName = channelName
                                             )
                                         )
-                                        Toast.makeText(context, "Added to existing '${existingPlaylist.name}' playlist", Toast.LENGTH_SHORT).show()
+                                        isSavedInWatchLater = true
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Saved to Watch later", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
-                                } else {
-                                    val newId = db.playlistDao()
-                                        .insertPlaylist(PlaylistEntity(name = trimmedName)).toInt()
-                                    db.playlistDao().insertVideo(
-                                        PlaylistVideoEntity(
-                                            playlistId = newId, videoId = videoUrl,
-                                            title = title, thumbnailUrl = thumbnailUrl,
-                                            channelName = channelName
-                                        )
-                                    )
-                                    Toast.makeText(context, "Created & added", Toast.LENGTH_SHORT).show()
                                 }
-                                newPlaylistName = ""
-                                showCreatePlaylistNameDialog = false
-                                onDismiss()
+                            }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Left Thumbnail (~72dp x ~44dp, 10dp rounded corners)
+                        Box(
+                            modifier = Modifier
+                                .width(72.dp)
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val thumbToUse = watchLaterCover ?: thumbnailUrl
+                            if (!thumbToUse.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(thumbToUse)
+                                        .crossfade(true)
+                                        .size(200)
+                                        .build(),
+                                    contentDescription = "Watch later cover",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Bookmark,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(24.dp)
+                                )
                             }
                         }
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
-                ) { Text("Create") }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { showCreatePlaylistNameDialog = false },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
-                ) { Text("Cancel") }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        // Middle: Title "Watch later" (No public/private subtitle)
+                        Text(
+                            text = "Watch later",
+                            style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        // Right: Bookmark Icon
+                        Icon(
+                            imageVector = if (isSavedInWatchLater) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            contentDescription = if (isSavedInWatchLater) "Saved in Watch later" else "Save to Watch later",
+                            tint = if (isSavedInWatchLater) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                // Subsequent Items: Custom Playlists (if any)
+                items(playlists, key = { it.id }) { playlist ->
+                    val isSavedInThis = playlist.id in savedPlaylistIds
+                    val cover = playlistCovers[playlist.id] ?: thumbnailUrl
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                scope.launch(Dispatchers.IO) {
+                                    if (isSavedInThis) {
+                                        db.playlistDao().deleteVideoByPair(playlist.id, videoUrl)
+                                        savedPlaylistIds = savedPlaylistIds - playlist.id
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Removed from '${playlist.name}'", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else {
+                                        db.playlistDao().insertVideo(
+                                            PlaylistVideoEntity(
+                                                playlistId = playlist.id,
+                                                videoId = videoUrl,
+                                                title = title,
+                                                thumbnailUrl = thumbnailUrl,
+                                                channelName = channelName
+                                            )
+                                        )
+                                        savedPlaylistIds = savedPlaylistIds + playlist.id
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Added to '${playlist.name}'", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Left Cover Thumbnail (~72dp x ~44dp, 10dp rounded corners)
+                        Box(
+                            modifier = Modifier
+                                .width(72.dp)
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!cover.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(cover)
+                                        .crossfade(true)
+                                        .size(200)
+                                        .build(),
+                                    contentDescription = "Playlist cover",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        // Middle: Playlist Title (No public/private subtitle)
+                        Text(
+                            text = playlist.name,
+                            style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        // Right: Bookmark Icon
+                        Icon(
+                            imageVector = if (isSavedInThis) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            contentDescription = if (isSavedInThis) "Saved in playlist" else "Save to playlist",
+                            tint = if (isSavedInThis) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // Bottom Full-Width Pill Button: "+ New playlist" matching screenshots
+            Surface(
+                onClick = { showCreatePlaylistDialog = true },
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "New playlist",
+                        style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+    }
+
+    // New Playlist Creation Dialog matching YouTube screenshot image_5d2042aa.png
+    if (showCreatePlaylistDialog) {
+        NewPlaylistDialog(
+            onDismiss = { showCreatePlaylistDialog = false },
+            onCreate = { name ->
+                scope.launch(Dispatchers.IO) {
+                    val newId = db.playlistDao().insertPlaylist(PlaylistEntity(name = name)).toInt()
+                    db.playlistDao().insertVideo(
+                        PlaylistVideoEntity(
+                            playlistId = newId,
+                            videoId = videoUrl,
+                            title = title,
+                            thumbnailUrl = thumbnailUrl,
+                            channelName = channelName
+                        )
+                    )
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Created & saved to '$name'", Toast.LENGTH_SHORT).show()
+                        showCreatePlaylistDialog = false
+                        onDismiss()
+                    }
+                }
             }
         )
+    }
+}
+
+// ── New Playlist Dialog Component matching YouTube screenshot image_5d2042aa.png ──
+@Composable
+fun NewPlaylistDialog(
+    onDismiss: () -> Unit,
+    onCreate: (String) -> Unit
+) {
+    var playlistName by remember { mutableStateOf("") }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = Color(0xFF212121),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp)
+            ) {
+                // Title
+                Text(
+                    text = "New playlist",
+                    style = MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily.SansSerif),
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Outlined Text Field for "Title" matching image_5d2042aa.png
+                OutlinedTextField(
+                    value = playlistName,
+                    onValueChange = { playlistName = it },
+                    label = { Text("Title") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.White,
+                        unfocusedBorderColor = Color.LightGray.copy(alpha = 0.5f),
+                        focusedLabelColor = Color.White,
+                        unfocusedLabelColor = Color.Gray,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Action Buttons (Cancel & Create) matching image_5d2042aa.png
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Cancel Button (Outlined Pill)
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        modifier = Modifier.height(40.dp)
+                    ) {
+                        Text("Cancel", fontWeight = FontWeight.Medium)
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    // Create Button (Filled Pill)
+                    Button(
+                        onClick = {
+                            val trimmed = playlistName.trim()
+                            if (trimmed.isNotBlank()) {
+                                onCreate(trimmed)
+                            }
+                        },
+                        enabled = playlistName.isNotBlank(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFE0E0E0),
+                            contentColor = Color.Black,
+                            disabledContainerColor = Color(0xFF424242),
+                            disabledContentColor = Color.LightGray.copy(alpha = 0.5f)
+                        ),
+                        modifier = Modifier.height(40.dp)
+                    ) {
+                        Text("Create", fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+        }
     }
 }

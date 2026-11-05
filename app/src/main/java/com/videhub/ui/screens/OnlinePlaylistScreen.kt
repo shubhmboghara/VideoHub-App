@@ -41,6 +41,7 @@ fun OnlinePlaylistScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val playlistItems by viewModel.playlistItems.collectAsStateWithLifecycle()
     var showDownloadDialog by remember { mutableStateOf(false) }
+    var selectedVideoForDownload by remember { mutableStateOf<org.schabi.newpipe.extractor.stream.StreamInfoItem?>(null) }
 
     LaunchedEffect(playlistUrl) {
         viewModel.loadOnlinePlaylist(context, playlistUrl)
@@ -79,25 +80,25 @@ fun OnlinePlaylistScreen(
     ) { padding ->
         
         if (showDownloadDialog) {
-            AlertDialog(
-                onDismissRequest = { showDownloadDialog = false },
-                containerColor = MaterialTheme.colorScheme.surface,
-                titleContentColor = MaterialTheme.colorScheme.onSurface,
-                textContentColor = MaterialTheme.colorScheme.onSurface,
-                title = { Text("Download Playlist") },
-                text = { Text("Choose format for downloading all videos in this playlist:") },
-                confirmButton = {
-                    Button(onClick = {
-                        showDownloadDialog = false
-                        viewModel.downloadEntirePlaylist(context, isAudioOnly = false)
-                    }) { Text("Video (MP4)") }
-                },
-                dismissButton = {
-                    OutlinedButton(onClick = {
-                        showDownloadDialog = false
-                        viewModel.downloadEntirePlaylist(context, isAudioOnly = true)
-                    }) { Text("Audio Only (M4A)") }
+            com.videhub.ui.components.PlaylistDownloadQualityDialog(
+                playlistTitle = uiState.playlistInfo?.name?.ifBlank { "Playlist" } ?: "Playlist",
+                onDismiss = { showDownloadDialog = false },
+                onSelectOption = { isAudioOnly, quality ->
+                    showDownloadDialog = false
+                    viewModel.downloadEntirePlaylist(context, isAudioOnly = isAudioOnly)
                 }
+            )
+        }
+
+        if (selectedVideoForDownload != null) {
+            val vid = selectedVideoForDownload!!
+            val thumbUrl = vid.thumbnails.firstOrNull()?.url ?: ""
+            com.videhub.ui.components.VideoDownloadDialog(
+                videoUrl = vid.url,
+                title = vid.name,
+                thumbnailUrl = thumbUrl,
+                streamInfo = null,
+                onDismiss = { selectedVideoForDownload = null }
             )
         }
 
@@ -222,7 +223,7 @@ fun OnlinePlaylistScreen(
                                 } else {
                                     IconButton(
                                         onClick = {
-                                            viewModel.downloadSingleVideo(context, video.url, video.name, thumbUrl)
+                                            selectedVideoForDownload = video
                                         }
                                     ) {
                                         Icon(

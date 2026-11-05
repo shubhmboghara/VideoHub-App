@@ -9,12 +9,18 @@ data class PlayQueueItem(
     val title: String,
     val uploaderName: String,
     val thumbnailUrl: String,
-    val duration: Long = -1
+    val duration: Long = -1,
+    val id: String = url,
+    val viewCount: Long = 0L
 )
 
 object QueueManager {
     private val _queue = MutableStateFlow<List<PlayQueueItem>>(emptyList())
     val queue: StateFlow<List<PlayQueueItem>> = _queue.asStateFlow()
+
+    fun setQueue(newQueue: List<PlayQueueItem>) {
+        _queue.value = newQueue
+    }
 
     val skipToNextEvent = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val skipToPreviousEvent = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)

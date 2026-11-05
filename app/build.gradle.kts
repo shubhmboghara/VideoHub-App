@@ -95,6 +95,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation("androidx.navigation:navigation-compose:2.7.7")
+    implementation("sh.calvin.reorderable:reorderable:2.4.2")
 
     // Video/audio extraction (core of this app)
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.4")
@@ -112,6 +113,7 @@ dependencies {
     // Image loading for thumbnails
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
+    implementation("androidx.palette:palette-ktx:1.0.0")
 
     // Room Database
     implementation(libs.androidx.room.runtime)

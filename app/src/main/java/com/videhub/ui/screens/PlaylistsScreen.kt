@@ -15,7 +15,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
+import com.videhub.QueueManager
+import com.videhub.PlayQueueItem
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -68,6 +71,12 @@ fun PlaylistsScreen(
     var newPlaylistName by remember { mutableStateOf("") }
     var importUrl by remember { mutableStateOf("") }
     var isImporting by remember { mutableStateOf(false) }
+
+    var activeMenuPlaylist by remember { mutableStateOf<PlaylistWithThumbnail?>(null) }
+    var playlistToEdit by remember { mutableStateOf<PlaylistWithThumbnail?>(null) }
+    var playlistToDelete by remember { mutableStateOf<PlaylistWithThumbnail?>(null) }
+    var showWatchLaterMenu by remember { mutableStateOf(false) }
+
     val onBackPressedDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
 
     LaunchedEffect(Unit) {
@@ -222,7 +231,8 @@ fun PlaylistsScreen(
                     icon = Icons.Default.Bookmark,
                     thumbnailUrl = watchLaterVideos.firstOrNull()?.thumbnailUrl,
                     gradientColors = listOf(Color(0xFF3F51B5), Color(0xFF1A237E)),
-                    onClick = { onNavigate("watch_later") }
+                    onClick = { onNavigate("watch_later") },
+                    onMoreClick = { showWatchLaterMenu = true }
                 )
             }
 
@@ -275,6 +285,7 @@ fun PlaylistsScreen(
                     PlaylistListItem(
                         playlist = playlist,
                         onClick = { onPlaylistClick(playlist.playlist.id) },
+                        onMoreClick = { activeMenuPlaylist = playlist },
                         modifier = Modifier.animateItem()
                     )
                 }
@@ -283,49 +294,14 @@ fun PlaylistsScreen(
     }
 
     if (showCreateDialog) {
-        AlertDialog(
-            onDismissRequest = { showCreateDialog = false },
-            containerColor = MaterialTheme.colorScheme.surface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            textContentColor = MaterialTheme.colorScheme.onSurface,
-            title = { Text("New Playlist") },
-            text = {
-                OutlinedTextField(
-                    value = newPlaylistName,
-                    onValueChange = { newPlaylistName = it },
-                    label = { Text("Name") },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        focusedBorderColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        focusedLabelColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                    )
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (newPlaylistName.isNotBlank()) {
-                            coroutineScope.launch {
-                                AppDatabase.getDatabase(context).playlistDao()
-                                    .insertPlaylist(PlaylistEntity(name = newPlaylistName))
-                                newPlaylistName = ""
-                                showCreateDialog = false
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
-                ) { Text("Create") }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { showCreateDialog = false },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
-                ) { Text("Cancel") }
+        com.videhub.ui.components.NewPlaylistDialog(
+            onDismiss = { showCreateDialog = false },
+            onCreate = { name ->
+                coroutineScope.launch {
+                    AppDatabase.getDatabase(context).playlistDao()
+                        .insertPlaylist(PlaylistEntity(name = name))
+                    showCreateDialog = false
+                }
             }
         )
     }
@@ -421,6 +397,258 @@ fun PlaylistsScreen(
             }
         )
     }
+
+    // ── Playlist 3-Dot Options Bottom Sheet (Matching image_fe7e539f.png) ──────
+    if (activeMenuPlaylist != null) {
+        val targetPlaylist = activeMenuPlaylist!!
+        ModalBottomSheet(
+            onDismissRequest = { activeMenuPlaylist = null },
+            containerColor = Color(0xFF222222),
+            contentColor = Color.White,
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp, horizontal = 16.dp)
+                    .padding(bottom = 24.dp)
+            ) {
+                // Title header
+                Text(
+                    text = targetPlaylist.playlist.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+
+                HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 1. Play next in queue
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            val target = targetPlaylist
+                            activeMenuPlaylist = null
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val videos = db.playlistDao().getVideosOnce(target.playlist.id)
+                                if (videos.isNotEmpty()) {
+                                    videos.reversed().forEach { v ->
+                                        QueueManager.playNext(
+                                            PlayQueueItem(
+                                                url = v.videoId,
+                                                title = v.title,
+                                                uploaderName = v.channelName,
+                                                thumbnailUrl = v.thumbnailUrl ?: ""
+                                            )
+                                        )
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Added ${videos.size} videos next in queue", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Playlist is empty", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        }
+                        .padding(vertical = 14.dp, horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "Play next in queue",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White
+                    )
+                }
+
+                // 2. Delete
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            val target = targetPlaylist
+                            activeMenuPlaylist = null
+                            playlistToDelete = target
+                        }
+                        .padding(vertical = 14.dp, horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "Delete",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                // 3. Edit
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            val target = targetPlaylist
+                            activeMenuPlaylist = null
+                            playlistToEdit = target
+                        }
+                        .padding(vertical = 14.dp, horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "Edit",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+    }
+
+    // ── Edit Playlist Sheet ───────────────────────────────────────────────────
+    if (playlistToEdit != null) {
+        val target = playlistToEdit!!
+        com.videhub.ui.components.EditPlaylistSheet(
+            initialTitle = target.playlist.name,
+            initialCoverUrl = target.thumbnailUrl,
+            onDismiss = { playlistToEdit = null },
+            onSave = { newTitle, newCoverUrl ->
+                coroutineScope.launch(Dispatchers.IO) {
+                    db.playlistDao().updatePlaylistDetails(target.playlist.id, newTitle, newCoverUrl)
+                    withContext(Dispatchers.Main) {
+                        playlistToEdit = null
+                        Toast.makeText(context, "Playlist updated", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
+    }
+
+    // ── Delete Confirmation Dialog ─────────────────────────────────────────────
+    if (playlistToDelete != null) {
+        val target = playlistToDelete!!
+        AlertDialog(
+            onDismissRequest = { playlistToDelete = null },
+            title = { Text("Delete playlist?") },
+            text = { Text("Are you sure you want to delete '${target.playlist.name}'?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            db.playlistDao().deletePlaylist(target.playlist)
+                            withContext(Dispatchers.Main) {
+                                playlistToDelete = null
+                                Toast.makeText(context, "Deleted playlist", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { playlistToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // ── Watch Later 3-Dot Options Bottom Sheet (Only "Play next in queue" - image_53f74214.png) ──────
+    if (showWatchLaterMenu) {
+        ModalBottomSheet(
+            onDismissRequest = { showWatchLaterMenu = false },
+            containerColor = Color(0xFF222222),
+            contentColor = Color.White,
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp, horizontal = 16.dp)
+                    .padding(bottom = 24.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            showWatchLaterMenu = false
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val items = db.watchLaterDao().getAllOnce()
+                                if (items.isNotEmpty()) {
+                                    items.reversed().forEach { item ->
+                                        QueueManager.playNext(
+                                            PlayQueueItem(
+                                                url = item.videoId,
+                                                title = item.title,
+                                                uploaderName = item.channelName,
+                                                thumbnailUrl = item.thumbnailUrl
+                                            )
+                                        )
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Added Watch Later videos next in queue", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Watch Later is empty", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        }
+                        .padding(vertical = 14.dp, horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "Play next in queue",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -432,6 +660,7 @@ fun SmartPlaylistCard(
     thumbnailUrl: String? = null,
     gradientColors: List<Color>,
     onClick: () -> Unit,
+    onMoreClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -470,6 +699,22 @@ fun SmartPlaylistCard(
                             Brush.linearGradient(colors = gradientColors)
                         )
                 )
+            }
+
+            if (onMoreClick != null) {
+                IconButton(
+                    onClick = onMoreClick,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(2.dp)
+                        .size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Options",
+                        tint = Color.White
+                    )
+                }
             }
 
             Column(
@@ -517,6 +762,7 @@ fun SmartPlaylistCard(
 fun PlaylistListItem(
     playlist: PlaylistWithThumbnail,
     onClick: () -> Unit,
+    onMoreClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     com.videhub.ui.components.PlaylistCard(
@@ -524,6 +770,7 @@ fun PlaylistListItem(
         subtitle = "${playlist.videoCount} videos",
         thumbnailUrl = playlist.thumbnailUrl,
         onClick = onClick,
+        onMoreClick = onMoreClick,
         modifier = modifier
     )
 }

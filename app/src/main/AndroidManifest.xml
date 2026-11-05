@@ -92,6 +92,7 @@
         <service android:name=".service.DownloadService" android:foregroundServiceType="dataSync" android:exported="false" />
         <service android:name=".service.PlaylistDownloadService" android:foregroundServiceType="dataSync" android:exported="false" />
         <service android:name=".service.QueueDownloadService" android:foregroundServiceType="dataSync" android:exported="false" />
+        <receiver android:name=".service.DownloadCancelReceiver" android:exported="false" />
 
         <!-- WorkManager SystemForegroundService declaration with foregroundServiceType dataSync for Android 14+ -->
         <service

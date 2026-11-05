@@ -1,31 +1,17 @@
 package com.videhub.ui.components
 
-import android.content.Intent
-import android.widget.Toast
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.videhub.extractor.ExtractorHelper
-import com.videhub.service.DownloadService
 import com.videhub.viewmodel.DownloadViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.stream.StreamInfo
 
 @Composable
@@ -39,116 +25,75 @@ fun VideoDownloadDialog(
 ) {
     val context = LocalContext.current
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Download", style = MaterialTheme.typography.titleLarge) },
-        containerColor = MaterialTheme.colorScheme.surface,
-        text = {
-            if (streamInfo != null) {
-                val progressiveVideos = streamInfo.videoStreams
-                    .filter { !it.isVideoOnly && !it.content.isNullOrBlank() }
-                    .sortedByDescending { it.height ?: 0 }
-                    .distinctBy { it.getResolution() }
-
-                val bestAudio = streamInfo.audioStreams
-                    .filter { !it.content.isNullOrBlank() && it.format?.name?.contains("M4A", ignoreCase = true) == true }
+    PlaylistDownloadQualityDialog(
+        playlistTitle = title.ifBlank { "Video" },
+        onDismiss = onDismiss,
+        onSelectOption = { isAudioOnly, quality ->
+            if (isAudioOnly) {
+                val bestAudio = streamInfo?.audioStreams
+                    ?.filter { !it.content.isNullOrBlank() && it.format?.name?.contains("M4A", ignoreCase = true) == true }
                     ?.maxByOrNull { it.averageBitrate }
-                    ?: streamInfo.audioStreams
-                        .filter { !it.content.isNullOrBlank() }
+                    ?: streamInfo?.audioStreams
+                        ?.filter { !it.content.isNullOrBlank() }
                         ?.maxByOrNull { it.averageBitrate }
-
-                val maxDialogHeight = (LocalConfiguration.current.screenHeightDp * 0.6).dp
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth().heightIn(max = maxDialogHeight)
-                ) {
-                    if (progressiveVideos.isNotEmpty()) {
-                        item { 
-                            Text(
-                                text = "Video (with audio)", 
-                                style = MaterialTheme.typography.labelLarge, 
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(bottom = 4.dp, top = 8.dp)
-                            ) 
-                        }
-                        itemsIndexed(progressiveVideos, key = { index, stream -> "${stream.url}_$index" }) { index, stream ->
-                            DownloadItem(
-                                title = "${stream.resolution}",
-                                subtitle = "MP4 Format",
-                                icon = Icons.Default.Movie,
-                                onClick = {
-                                    downloadViewModel.prepareAndStartDownload(
-                                        context = context,
-                                        videoUrl = videoUrl,
-                                        title = title,
-                                        thumbnailUrl = thumbnailUrl,
-                                        streamInfo = streamInfo,
-                                        resolution = stream.resolution,
-                                        bitrate = null,
-                                        formatName = null,
-                                        isAudioOnly = false
-                                    )
-                                    onDismiss()
-                                }
-                            )
-                        }
-                    }
-
-                    if (bestAudio != null) {
-                        item {
-                            if (progressiveVideos.isNotEmpty()) {
-                                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                            }
-                            Text(
-                                text = "Audio Only", 
-                                style = MaterialTheme.typography.labelLarge, 
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(bottom = 4.dp, top = 8.dp)
-                            )
-                        }
-                        item {
-                            DownloadItem(
-                                title = "High Quality",
-                                subtitle = "${bestAudio.averageBitrate} kbps",
-                                icon = Icons.Default.Audiotrack,
-                                onClick = {
-                                    downloadViewModel.prepareAndStartDownload(
-                                        context = context,
-                                        videoUrl = videoUrl,
-                                        title = title,
-                                        thumbnailUrl = thumbnailUrl,
-                                        streamInfo = streamInfo,
-                                        resolution = null,
-                                        bitrate = bestAudio.averageBitrate,
-                                        formatName = bestAudio.format?.name,
-                                        isAudioOnly = true
-                                    )
-                                    onDismiss()
-                                }
-                            )
-                        }
-                    }
-
-                    if (progressiveVideos.isEmpty() && bestAudio == null) {
-                        item { 
-                            Text(
-                                text = "No downloadable streams available.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            ) 
-                        }
-                    }
-                }
+                downloadViewModel.prepareAndStartDownload(
+                    context = context,
+                    videoUrl = videoUrl,
+                    title = title,
+                    thumbnailUrl = thumbnailUrl,
+                    streamInfo = streamInfo,
+                    resolution = null,
+                    bitrate = bestAudio?.averageBitrate ?: 128,
+                    formatName = bestAudio?.format?.name ?: "m4a",
+                    isAudioOnly = true
+                )
             } else {
-                Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+                val chosenRes = when (quality) {
+                    "144p" -> {
+                        val p144 = streamInfo?.videoStreams
+                            ?.filter { !it.isVideoOnly && !it.content.isNullOrBlank() }
+                            ?.find { it.resolution?.contains("144") == true || (it.height ?: 0) <= 144 }
+                            ?: streamInfo?.videoStreams
+                                ?.filter { !it.isVideoOnly && !it.content.isNullOrBlank() }
+                                ?.minByOrNull { it.height ?: 0 }
+                        p144?.resolution ?: "144p"
+                    }
+                    "360p" -> {
+                        val p360 = streamInfo?.videoStreams
+                            ?.filter { !it.isVideoOnly && !it.content.isNullOrBlank() }
+                            ?.find { it.resolution?.contains("360") == true || (it.height ?: 0) == 360 }
+                            ?: streamInfo?.videoStreams
+                                ?.filter { !it.isVideoOnly && !it.content.isNullOrBlank() }
+                                ?.minByOrNull { it.height ?: 0 }
+                        p360?.resolution ?: "360p"
+                    }
+                    "720p", "High Quality" -> {
+                        val p720 = streamInfo?.videoStreams
+                            ?.filter { !it.isVideoOnly && !it.content.isNullOrBlank() }
+                            ?.find { it.resolution?.contains("720") == true || (it.height ?: 0) == 720 }
+                            ?: streamInfo?.videoStreams
+                                ?.filter { !it.isVideoOnly && !it.content.isNullOrBlank() }
+                                ?.maxByOrNull { it.height ?: 0 }
+                        p720?.resolution ?: "720p"
+                    }
+                    else -> {
+                        val high = streamInfo?.videoStreams
+                            ?.filter { !it.isVideoOnly && !it.content.isNullOrBlank() }
+                            ?.maxByOrNull { it.height ?: 0 }
+                        high?.resolution ?: "720p"
+                    }
                 }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) { 
-                Text("Cancel", style = MaterialTheme.typography.labelLarge) 
+                downloadViewModel.prepareAndStartDownload(
+                    context = context,
+                    videoUrl = videoUrl,
+                    title = title,
+                    thumbnailUrl = thumbnailUrl,
+                    streamInfo = streamInfo,
+                    resolution = chosenRes,
+                    bitrate = null,
+                    formatName = null,
+                    isAudioOnly = false
+                )
             }
         }
     )
@@ -209,17 +154,17 @@ fun PlaylistDownloadQualityDialog(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "Select preferred quality for $playlistTitle:",
+                    text = "Select download quality",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 DownloadItem(
-                    title = "High Quality",
-                    subtitle = "Video with audio (720p / 1080p)",
+                    title = "720p",
+                    subtitle = "HD video with audio",
                     icon = Icons.Default.Movie,
                     onClick = {
-                        onSelectOption(false, "High Quality")
+                        onSelectOption(false, "720p")
                         onDismiss()
                     }
                 )
@@ -230,6 +175,16 @@ fun PlaylistDownloadQualityDialog(
                     icon = Icons.Default.Movie,
                     onClick = {
                         onSelectOption(false, "360p")
+                        onDismiss()
+                    }
+                )
+
+                DownloadItem(
+                    title = "144p",
+                    subtitle = "Lowest data usage (fastest video download)",
+                    icon = Icons.Default.Movie,
+                    onClick = {
+                        onSelectOption(false, "144p")
                         onDismiss()
                     }
                 )

@@ -28,10 +28,7 @@ class DownloadViewModel : ViewModel() {
                 com.videhub.service.DownloadWorker.getUniqueWorkName(videoId)
             )
         }
-        val intent = Intent(context, DownloadService::class.java).apply {
-            action = "CANCEL_$notificationId"
-        }
-        androidx.core.content.ContextCompat.startForegroundService(context, intent)
+        com.videhub.service.DownloadService.cancelDownload(context, notificationId)
         com.videhub.utils.DownloadProgressTracker.removeDownload(notificationId)
     }
 
