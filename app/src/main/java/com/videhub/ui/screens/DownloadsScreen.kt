@@ -333,10 +333,43 @@ fun DownloadsScreen(
         withContext(Dispatchers.IO) {
             val dir1 = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             val dir2 = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val exts = setOf("mp4", "webm", "m4a")
-            val f1 = dir1?.takeIf { it.exists() }?.listFiles { f -> f.isFile && f.extension in exts && !f.name.endsWith(".tmp") && !f.name.endsWith(".download") && !f.name.endsWith(".part") }?.toList() ?: emptyList()
-            val f2 = dir2.takeIf { it.exists() }?.listFiles { f -> f.isFile && f.extension in exts && !f.name.endsWith(".tmp") && !f.name.endsWith(".download") && !f.name.endsWith(".part") }?.toList() ?: emptyList()
-            val merged = (f1 + f2).distinctBy { it.absolutePath }
+            val exts = setOf("mp4", "webm", "m4a", "mp3", "mkv", "aac", "opus", "ogg", "flac")
+
+            // Auto-heal legacy files that were saved without extension or with quality suffixes like _360p, _Video, _Audio
+            listOfNotNull(dir1, dir2).forEach { dir ->
+                if (dir.exists()) {
+                    val allDiskFiles = dir.listFiles { f -> f.isFile && !f.name.endsWith(".tmp") && !f.name.endsWith(".download") && !f.name.endsWith(".part") } ?: emptyArray()
+                    for (file in allDiskFiles) {
+                        val ext = file.extension.lowercase()
+                        if (ext !in exts) {
+                            val matchingEntity = allDownloads.find {
+                                it.fileName == file.name ||
+                                (it.videoId.isNotBlank() && file.name.contains(it.videoId)) ||
+                                (it.title.isNotBlank() && file.name.startsWith(it.title.take(15).replace(Regex("[^a-zA-Z0-9]"), "_"), ignoreCase = true))
+                            }
+                            val targetExt = if (matchingEntity?.isAudioOnly == true) ".m4a" else ".mp4"
+                            val healedFile = File(file.parentFile, "${file.nameWithoutExtension}$targetExt")
+                            if (!healedFile.exists() && file.renameTo(healedFile)) {
+                                if (matchingEntity != null) {
+                                    db.downloadedVideoDao().updateFileName(matchingEntity.videoId, healedFile.name)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            val f1 = dir1?.takeIf { it.exists() }?.listFiles { f -> f.isFile && f.extension.lowercase() in exts && !f.name.endsWith(".tmp") && !f.name.endsWith(".download") && !f.name.endsWith(".part") }?.toList() ?: emptyList()
+            val f2 = dir2.takeIf { it.exists() }?.listFiles { f -> f.isFile && f.extension.lowercase() in exts && !f.name.endsWith(".tmp") && !f.name.endsWith(".download") && !f.name.endsWith(".part") }?.toList() ?: emptyList()
+
+            // Also check all completed single entities from DB and ensure their files are in the list
+            val directEntitiesFiles = allDownloads.filter { it.playlistId == null && it.state == "DONE" }.mapNotNull { entity ->
+                val cf1 = dir1?.let { File(it, entity.fileName) }?.takeIf { it.exists() && it.isFile && it.length() > 0L }
+                val cf2 = dir2.takeIf { it.exists() }?.let { File(it, entity.fileName) }?.takeIf { it.exists() && it.isFile && it.length() > 0L }
+                cf1 ?: cf2
+            }
+
+            val merged = (f1 + f2 + directEntitiesFiles).distinctBy { it.absolutePath }
             withContext(Dispatchers.Main) {
                 filesOnDisk = merged
             }
@@ -344,6 +377,14 @@ fun DownloadsScreen(
     }
 
     LaunchedEffect(Unit) { loadFiles() }
+
+    // Automatically reload files on disk whenever downloads state changes or completes
+    LaunchedEffect(allDownloads.map { Triple(it.videoId, it.state, it.fileName) }) {
+        loadFiles()
+    }
+    LaunchedEffect(activeSingleDownloadsMap.size) {
+        loadFiles()
+    }
 
     // Repair missing or dead local thumbnails automatically in background
     LaunchedEffect(allDownloads) {
@@ -374,24 +415,54 @@ fun DownloadsScreen(
 
     val displayItems = remember(filesOnDisk, allDownloads, playlistDownloads, activeVideoIds, activeFileNames) {
         val playlistFileNames = playlistDownloads.map { it.fileName }.toSet()
-        filesOnDisk.filter { file ->
+        val dir1 = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+        val dir2 = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+
+        // 1. First, include ALL completed single downloads directly from Room DB
+        val completedSingleEntities = allDownloads.filter {
+            it.playlistId == null && it.state == "DONE" && !activeVideoIds.contains(it.videoId)
+        }
+
+        val itemsFromDb = completedSingleEntities.mapNotNull { entity ->
+            val directFile1 = dir1?.let { File(it, entity.fileName) }?.takeIf { it.exists() && it.isFile && it.length() > 0L }
+            val directFile2 = dir2.takeIf { it.exists() }?.let { File(it, entity.fileName) }?.takeIf { it.exists() && it.isFile && it.length() > 0L }
+            val matchedFromDisk = directFile1 ?: directFile2 ?: filesOnDisk.find { f ->
+                f.name == entity.fileName ||
+                f.name.equals(entity.fileName, ignoreCase = true) ||
+                (entity.videoId.isNotBlank() && f.name.contains(entity.videoId)) ||
+                (entity.title.isNotBlank() && f.nameWithoutExtension.startsWith(entity.title.take(20).replace(Regex("[^a-zA-Z0-9]"), "_"), ignoreCase = true))
+            }
+            if (matchedFromDisk != null) {
+                DownloadItemData(matchedFromDisk, entity)
+            } else {
+                null
+            }
+        }
+
+        val handledFilePaths = itemsFromDb.map { it.file.absolutePath }.toSet()
+        val handledFileNames = itemsFromDb.map { it.file.name }.toSet()
+
+        // 2. Also include any remaining files on disk that are not active or in playlists
+        val remainingDiskItems = filesOnDisk.filter { file ->
+            !handledFilePaths.contains(file.absolutePath) &&
+            !handledFileNames.contains(file.name) &&
             !playlistFileNames.contains(file.name) &&
             !activeFileNames.contains(file.name)
         }.mapNotNull { file ->
             val entity = allDownloads.find {
                 it.fileName == file.name ||
                 it.fileName.equals(file.name, ignoreCase = true) ||
-                file.name.contains(it.videoId) ||
-                (it.videoId.isNotBlank() && file.name.contains(it.videoId.replace(Regex("[^a-zA-Z0-9]"), ""))) ||
-                file.nameWithoutExtension.startsWith(it.title.take(20).replace(Regex("[^a-zA-Z0-9]"), "_"), ignoreCase = true)
+                (it.videoId.isNotBlank() && file.name.contains(it.videoId)) ||
+                (it.title.isNotBlank() && file.nameWithoutExtension.startsWith(it.title.take(20).replace(Regex("[^a-zA-Z0-9]"), "_"), ignoreCase = true))
             }
             if (entity != null && (entity.state != "DONE" || activeVideoIds.contains(entity.videoId))) {
-                // Partial, downloading, paused, or failed: NEVER show in completed list
                 null
             } else {
                 DownloadItemData(file, entity)
             }
         }
+
+        (itemsFromDb + remainingDiskItems).distinctBy { it.file.absolutePath }
     }
 
     val videos = remember(displayItems, deletedItems) {

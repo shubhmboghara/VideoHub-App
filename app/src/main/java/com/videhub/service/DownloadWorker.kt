@@ -186,8 +186,11 @@ class DownloadWorker(
         val db = AppDatabase.getDatabase(applicationContext)
 
         val safeTitle = title.replace(Regex("[^a-zA-Z0-9 \\-_.]"), "_").trim().take(100)
-        val finalSuffix = quality?.let { "_$it" } ?: if (isAudioOnly) ".m4a" else ".mp4"
-        val finalFileName = if (finalSuffix.startsWith(".")) "$safeTitle$finalSuffix" else "${safeTitle}_$finalSuffix"
+        val ext = if (isAudioOnly) ".m4a" else ".mp4"
+        val cleanQual = quality?.replace(Regex("[^a-zA-Z0-9]"), "")?.takeIf {
+            it.isNotBlank() && !it.equals("Video", ignoreCase = true) && !it.equals("Audio", ignoreCase = true)
+        }
+        val finalFileName = if (cleanQual != null) "${safeTitle}_${cleanQual}${ext}" else "${safeTitle}${ext}"
 
         val tempDir = applicationContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             ?: applicationContext.filesDir
@@ -525,6 +528,7 @@ class DownloadWorker(
             isAudioOnly = isAudioOnly,
             quality = quality
         )
+        DownloadProgressTracker.removeDownload(notificationId)
 
         // Show completion notification
         showCompletionNotification(title, finalFile.name)

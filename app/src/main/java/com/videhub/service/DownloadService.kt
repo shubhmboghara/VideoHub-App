@@ -292,15 +292,6 @@ class DownloadService : Service() {
                     .setAutoCancel(true)
                     .build()
 
-                if (playlistId == null) {
-                    notificationManager.notify(currentNotificationId, successNotification)
-                } else {
-                    notificationManager.cancel(currentNotificationId)
-                }
-                com.videhub.utils.DownloadProgressTracker.updateProgress(currentNotificationId, safeTitle, 100, isComplete = true, videoId = downloadKey, playlistId = playlistId)
-                kotlinx.coroutines.delay(3000)
-                com.videhub.utils.DownloadProgressTracker.removeDownload(currentNotificationId)
-
                 // Save Captions
                 val vidIdForCaps = if (videoId.isNotEmpty()) videoId else finalFileNameForSave
                 val savedLyricsJson = com.videhub.ui.components.LiveCaptionsManager.downloadAndSaveCaptions(
@@ -314,7 +305,7 @@ class DownloadService : Service() {
                     subtitlesJson = subArrStr
                 )
 
-                // Save to Room Database
+                // Save to Room Database IMMEDIATELY
                 val db = com.videhub.data.AppDatabase.getDatabase(this@DownloadService)
                 
                 // Download thumbnail
@@ -348,6 +339,14 @@ class DownloadService : Service() {
                         duration = ""
                     )
                 )
+
+                if (playlistId == null) {
+                    notificationManager.notify(currentNotificationId, successNotification)
+                } else {
+                    notificationManager.cancel(currentNotificationId)
+                }
+                com.videhub.utils.DownloadProgressTracker.updateProgress(currentNotificationId, safeTitle, 100, isComplete = true, videoId = downloadKey, playlistId = playlistId)
+                com.videhub.utils.DownloadProgressTracker.removeDownload(currentNotificationId)
                 
                 if (playlistId != null) {
                     db.downloadedPlaylistDao().insertPlaylistVideoCrossRef(

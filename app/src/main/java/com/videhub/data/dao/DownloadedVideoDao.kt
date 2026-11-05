@@ -96,4 +96,7 @@ interface DownloadedVideoDao {
 
     @Query("UPDATE downloaded_videos SET thumbnailUrl = :thumbnailUrl WHERE videoId = :videoId")
     suspend fun updateThumbnailUrl(videoId: String, thumbnailUrl: String)
+
+    @Query("UPDATE downloaded_videos SET fileName = :fileName WHERE videoId = :videoId")
+    suspend fun updateFileName(videoId: String, fileName: String)
 }
