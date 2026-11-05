@@ -459,7 +459,7 @@ fun VideoRowItem(
                 )
                 
                 Box(
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.wrapContentSize(),
                     contentAlignment = Alignment.TopEnd
                 ) {
                     if (trailingIcon != null) {

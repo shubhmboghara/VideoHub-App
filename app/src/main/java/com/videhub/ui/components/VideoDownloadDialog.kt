@@ -192,3 +192,64 @@ private fun DownloadItem(
         }
     }
 }
+
+@Composable
+fun PlaylistDownloadQualityDialog(
+    playlistTitle: String = "Playlist",
+    onDismiss: () -> Unit,
+    onSelectOption: (isAudioOnly: Boolean, quality: String) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Download Options", style = MaterialTheme.typography.titleLarge) },
+        containerColor = MaterialTheme.colorScheme.surface,
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Select preferred quality for $playlistTitle:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                DownloadItem(
+                    title = "High Quality",
+                    subtitle = "Video with audio (720p / 1080p)",
+                    icon = Icons.Default.Movie,
+                    onClick = {
+                        onSelectOption(false, "High Quality")
+                        onDismiss()
+                    }
+                )
+
+                DownloadItem(
+                    title = "360p",
+                    subtitle = "Standard video quality (saves space)",
+                    icon = Icons.Default.Movie,
+                    onClick = {
+                        onSelectOption(false, "360p")
+                        onDismiss()
+                    }
+                )
+
+                DownloadItem(
+                    title = "Audio Only",
+                    subtitle = "High quality M4A / MP3 music audio",
+                    icon = Icons.Default.Audiotrack,
+                    onClick = {
+                        onSelectOption(true, "Audio")
+                        onDismiss()
+                    }
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    )
+}

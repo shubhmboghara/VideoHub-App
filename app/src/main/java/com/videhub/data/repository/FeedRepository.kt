@@ -404,6 +404,14 @@ class FeedRepository(
             val title = (item.name ?: "").lowercase()
             val uploader = (item.uploaderName ?: "").lowercase()
 
+            // Filter out short videos
+            val dur = item.duration
+            val isShortDuration = dur in 1..80
+            val isShortTagged = title.contains("#short") || url.contains("/shorts/")
+            if (isShortDuration || isShortTagged) {
+                return@mapNotNull null
+            }
+
             var score = 100 // Base score for being from this interest query
 
             // Exact phrase match in title
@@ -448,15 +456,6 @@ class FeedRepository(
             .distinctBy { it.url ?: "" }
     }
 
-    /**
-     * Retrieves personalized Shorts feed with explicit user interest filtering.
-     */
-    suspend fun getPersonalizedShorts(
-        maxItems: Int = 40,
-        isRefresh: Boolean = false
-    ): List<StreamInfoItem> = withContext(Dispatchers.IO) {
-        RecommendationEngine.getPersonalizedShortsFeed(db, context, maxItems)
-    }
 
     /**
      * Loads the next page of videos for the Home Screen feed (All tab)
@@ -479,6 +478,11 @@ class FeedRepository(
 
         fun addIfNew(item: StreamInfoItem) {
             val u = item.url ?: return
+            val dur = item.duration
+            val name = item.name ?: ""
+            if (dur in 1..80 || name.contains("#short", ignoreCase = true) || u.contains("/shorts/")) {
+                return
+            }
             if (u.isNotBlank() && !seen.contains(u)) {
                 seen.add(u)
                 collected.add(item)

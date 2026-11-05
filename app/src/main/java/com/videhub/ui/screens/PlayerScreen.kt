@@ -1069,7 +1069,12 @@ fun PlayerScreen(
     
     val queue by com.videhub.QueueManager.queue.collectAsStateWithLifecycle()
 
-
+    LaunchedEffect(videoUrl) {
+        val isLocal = com.videhub.QueueManager.isLocal(videoUrl)
+        if (!isLocal && com.videhub.QueueManager.hasDownloadedItems()) {
+            com.videhub.QueueManager.clearDownloadedItems()
+        }
+    }
     
     LaunchedEffect(Unit) {
         if (initialFullscreen) {

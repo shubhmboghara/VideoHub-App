@@ -119,7 +119,7 @@ fun InterestsBottomSheet(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Select your interests to personalize videos & Shorts",
+                        text = "Select your interests to personalize videos",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

@@ -105,6 +105,8 @@ class PlaylistDownloadService : Service() {
         var urls = intent.getStringArrayListExtra("urls")
         var titles = intent.getStringArrayListExtra("titles")
         var thumbnails = intent.getStringArrayListExtra("thumbnails")
+        var durations = intent.getStringArrayListExtra("durations")
+        var channels = intent.getStringArrayListExtra("channels")
         var playlistId = intent.getStringExtra("playlistId")
         var playlistName = intent.getStringExtra("playlistName")
         val singleUrl = intent.getStringExtra("url")
@@ -146,13 +148,37 @@ class PlaylistDownloadService : Service() {
 
         val job = serviceScope.launch {
             try {
+                val db = AppDatabase.getDatabase(this@PlaylistDownloadService)
+                val pId = playlistId ?: singleUrl ?: "playlist_${System.currentTimeMillis()}"
+                activePlaylists[pId] = currentNotificationId
+
+                // If info not extracted yet, insert PREPARING state into Room immediately
                 if (urls == null || urls!!.isEmpty()) {
+                    db.downloadedPlaylistDao().insertPlaylist(
+                        DownloadedPlaylistEntity(
+                            playlistId = pId,
+                            title = playlistName ?: "Playlist",
+                            thumbnailUrl = playlistThumbnail.ifBlank { null },
+                            totalCount = 0,
+                            completedCount = 0,
+                            state = "PREPARING",
+                            progress = 0
+                        )
+                    )
+
                     updateNotification(currentNotificationId, playlistName ?: "Playlist", "Fetching playlist info...", 0, true, cancelPending)
                     val info = ExtractorHelper.getPlaylistInfo(singleUrl!!)
                     val streamItems = info.relatedItems.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
                     urls = java.util.ArrayList(streamItems.map { it.url })
                     titles = java.util.ArrayList(streamItems.map { it.name })
                     thumbnails = java.util.ArrayList(streamItems.map { it.thumbnails?.firstOrNull()?.url ?: "" })
+                    durations = java.util.ArrayList(streamItems.map { 
+                        val s = it.duration
+                        val m = s / 60
+                        val sec = s % 60
+                        if (s > 0) String.format(java.util.Locale.US, "%d:%02d", m, sec) else ""
+                    })
+                    channels = java.util.ArrayList(streamItems.map { it.uploaderName ?: "" })
                     playlistId = info.url ?: singleUrl
                     playlistName = info.name
                     if (playlistThumbnail.isBlank()) {
@@ -161,14 +187,12 @@ class PlaylistDownloadService : Service() {
                 }
 
                 if (urls == null || urls!!.isEmpty() || titles == null || urls!!.size != titles!!.size) {
+                    db.downloadedPlaylistDao().updatePlaylistState(pId, "FAILED")
                     notificationManager.cancel(currentNotificationId)
                     return@launch
                 }
 
-                val pId = playlistId ?: singleUrl ?: "playlist_${System.currentTimeMillis()}"
-                activePlaylists[pId] = currentNotificationId
-
-                val db = AppDatabase.getDatabase(this@PlaylistDownloadService)
+                val total = urls!!.size
                 val rawPlaylistThumb = playlistThumbnail.ifBlank { thumbnails?.firstOrNull { it.isNotBlank() } ?: "" }
                 val finalPlaylistThumb = if (rawPlaylistThumb.isNotBlank()) {
                     com.videhub.utils.ThumbnailDownloader.downloadThumbnail(
@@ -178,28 +202,48 @@ class PlaylistDownloadService : Service() {
                     ) ?: rawPlaylistThumb
                 } else rawPlaylistThumb
 
-                // Insert Playlist Entity
+                // STEP 1: Immediately insert playlist into Room before any file download
                 db.downloadedPlaylistDao().insertPlaylist(
                     DownloadedPlaylistEntity(
                         playlistId = pId,
                         title = playlistName ?: "Playlist",
-                        thumbnailUrl = finalPlaylistThumb
+                        thumbnailUrl = finalPlaylistThumb,
+                        totalCount = total,
+                        completedCount = 0,
+                        state = "DOWNLOADING",
+                        progress = 0,
+                        downloadedBytes = 0L,
+                        totalBytes = 0L,
+                        currentVideoTitle = titles!!.firstOrNull(),
+                        currentVideoIndex = 1,
+                        currentVideoProgress = 0
                     )
                 )
 
-                // Insert Placeholders
-                val total = urls!!.size
+                // Insert one row per video with state QUEUED
                 for (i in 0 until total) {
                     val vidUrl = urls!![i]
                     val vidTitle = titles!![i]
-                    val vidThumb = thumbnails?.getOrNull(i) ?: finalPlaylistThumb
+                    val vidThumb = thumbnails?.getOrNull(i)?.takeIf { it.isNotBlank() } ?: finalPlaylistThumb
+                    val vidDur = durations?.getOrNull(i) ?: ""
+                    val vidChan = channels?.getOrNull(i) ?: ""
+
+                    // Check if already completely downloaded
+                    val existing = db.downloadedVideoDao().getVideoByVideoId(vidUrl)
+                    if (existing != null && existing.state == "DONE") {
+                        db.downloadedPlaylistDao().insertPlaylistVideoCrossRef(
+                            DownloadedPlaylistVideoCrossRef(playlistId = pId, videoId = vidUrl)
+                        )
+                        continue
+                    }
+
                     db.downloadedVideoDao().insertDownload(
                         DownloadedVideoEntity(
-                            fileName = "PENDING_${vidUrl.hashCode()}",
+                            fileName = "PENDING_${pId}_${i}_${vidUrl.hashCode()}",
                             videoId = vidUrl,
                             title = vidTitle,
                             thumbnailUrl = vidThumb,
-                            channelName = "",
+                            channelName = vidChan,
                             viewCount = 0L,
                             uploadDate = "",
                             isAudioOnly = isAudioOnly,
@@ -207,7 +251,12 @@ class PlaylistDownloadService : Service() {
                             lyrics = null,
                             playlistId = pId,
                             playlistName = playlistName,
-                            playlistIndex = i
+                            playlistIndex = i,
+                            state = "QUEUED",
+                            progress = 0,
+                            bytesDownloaded = 0L,
+                            totalBytes = 0L,
+                            duration = vidDur
                         )
                     )
                     db.downloadedPlaylistDao().insertPlaylistVideoCrossRef(
@@ -218,7 +267,7 @@ class PlaylistDownloadService : Service() {
                     )
                 }
 
-                // Dispatch downloads to DownloadService
+                // Dispatch downloads to DownloadService strictly ONE BY ONE sequentially
                 for (i in 0 until total) {
                     val url = urls!![i]
                     val title = titles!![i]
@@ -235,41 +284,55 @@ class PlaylistDownloadService : Service() {
                         putExtra("isAudioOnly", isAudioOnly)
                     }
                     androidx.core.content.ContextCompat.startForegroundService(this@PlaylistDownloadService, downloadIntent)
-                }
 
-                // Monitor downloads until all completed or cancelled
-                var isDone = false
-                while (!isDone) {
-                    delay(500L)
-                    val allDownloaded = db.downloadedVideoDao().getPlaylistVideosSync(pId)
-                    val readyCount = allDownloaded.count { !it.fileName.startsWith("PENDING_") }
-                    val activeMap = DownloadProgressTracker.activeDownloads.value
-                    val activeDownload = activeMap.values.find { it.playlistId == pId }
+                    // Monitor current item download until finished or failed
+                    var isItemDone = false
+                    while (!isItemDone) {
+                        delay(400L)
+                        val allVideos = db.downloadedVideoDao().getPlaylistVideosSync(pId)
+                        val readyCount = allVideos.count { it.state == "DONE" }
+                        val currentVideo = allVideos.find { it.videoId == url }
+                        val currentProg = currentVideo?.progress?.coerceIn(0, 100) ?: 0
+                        val trackIndex = (readyCount + 1).coerceAtMost(total)
 
-                    val pendingCount = allDownloaded.count { it.fileName.startsWith("PENDING_") }
-                    if (pendingCount == 0 && activeDownload == null) {
-                        isDone = true
-                    }
+                        val overallWeightedProg = if (total > 0) {
+                            (((readyCount * 100) + currentProg) / total).coerceIn(0, 100)
+                        } else 0
 
-                    val currentProg = activeDownload?.progress?.coerceAtLeast(0) ?: 0
-                    val currentTitle = activeDownload?.title ?: if (readyCount < total) titles!![readyCount.coerceAtMost(total - 1)] else "Processing"
-                    val overallPercent = (((readyCount * 100) + currentProg) / total).coerceIn(0, 100)
-
-                    if (!isDone) {
-                        updateNotification(
-                            currentNotificationId,
-                            playlistName ?: "Downloading Playlist",
-                            "Downloading ${readyCount + 1} of $total: $currentTitle ($currentProg%)",
-                            overallPercent,
-                            false,
-                            cancelPending
-                        )
+                        if (currentVideo != null && (currentVideo.state == "DONE" || currentVideo.state == "FAILED")) {
+                            isItemDone = true
+                        } else {
+                            // Update cover summary notification with weighted average percentage
+                            updateNotification(
+                                currentNotificationId,
+                                playlistName ?: "Downloading Playlist",
+                                "Downloading $trackIndex of $total • $overallWeightedProg%",
+                                overallWeightedProg,
+                                false,
+                                cancelPending
+                            )
+                        }
                     }
                 }
 
                 // Playlist finished!
-                val finalDownloaded = db.downloadedVideoDao().getPlaylistVideosSync(pId)
-                val finalReadyCount = finalDownloaded.count { !it.fileName.startsWith("PENDING_") }
+                val finalVideos = db.downloadedVideoDao().getPlaylistVideosSync(pId)
+                val finalReadyCount = finalVideos.count { it.state == "DONE" }
+                val hasFailures = finalVideos.any { it.state == "FAILED" }
+
+                val finalState = if (hasFailures) "FAILED" else "DONE"
+                val sumBytes = finalVideos.sumOf { it.bytesDownloaded }
+                db.downloadedPlaylistDao().updatePlaylistProgress(
+                    playlistId = pId,
+                    completedCount = finalReadyCount,
+                    progress = if (hasFailures) (((finalReadyCount * 100)) / total).coerceIn(0, 100) else 100,
+                    downloadedBytes = sumBytes,
+                    totalBytes = sumBytes,
+                    state = finalState,
+                    currentVideoIndex = total,
+                    currentVideoProgress = 100,
+                    currentVideoTitle = null
+                )
 
                 val openAppIntent = Intent(this@PlaylistDownloadService, com.videhub.MainActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -282,9 +345,9 @@ class PlaylistDownloadService : Service() {
                 )
 
                 val successNotif = NotificationCompat.Builder(this@PlaylistDownloadService, channelId)
-                    .setContentTitle("Playlist Download Complete")
+                    .setContentTitle(if (hasFailures) "Playlist Download Finished with Errors" else "Playlist Download Complete")
                     .setContentText("${playlistName ?: "Playlist"}: $finalReadyCount of $total videos downloaded")
-                    .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setSmallIcon(if (hasFailures) android.R.drawable.stat_notify_error else android.R.drawable.stat_sys_download_done)
                     .setContentIntent(pendingIntent)
                     .setAutoCancel(true)
                     .build()
@@ -331,18 +394,22 @@ class PlaylistDownloadService : Service() {
             notificationManager.cancel(jobId)
             activePlaylists.remove(pId)
         }
-        // Send cancel intent to DownloadService
         val cancelServiceIntent = Intent(this, DownloadService::class.java).apply {
             action = "CANCEL_PLAYLIST_$pId"
         }
         startService(cancelServiceIntent)
 
-        // Clean up pending items from DB
         serviceScope.launch {
             try {
                 val db = AppDatabase.getDatabase(this@PlaylistDownloadService)
                 db.downloadedPlaylistDao().deletePendingPlaylistVideoCrossRefs(pId)
                 db.downloadedVideoDao().deletePendingVideosByPlaylist(pId)
+                val plVideos = db.downloadedVideoDao().getPlaylistVideosSync(pId)
+                if (plVideos.none { it.state == "DONE" }) {
+                    db.downloadedPlaylistDao().deletePlaylist(pId)
+                } else {
+                    db.downloadedPlaylistDao().updatePlaylistState(pId, "DONE")
+                }
             } catch (ex: Exception) {
                 Log.e("PlaylistDownloadService", "Error cleaning up cancelled playlist", ex)
             }

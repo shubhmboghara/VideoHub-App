@@ -60,9 +60,6 @@ import com.videhub.ui.components.AnimatedSubscribeButton
 import com.videhub.ui.components.CompactPlaylistResultItem
 import com.videhub.ui.components.EmptyState
 import com.videhub.ui.components.OnlinePlaylistItemCard
-import com.videhub.ui.components.ShortSearchCard
-import com.videhub.ui.components.ShortsSearchShelf
-import com.videhub.ui.components.ShortsShelfShimmer
 import com.videhub.ui.components.VideoCard
 import com.videhub.ui.components.VideoCardShimmer
 import kotlinx.coroutines.Dispatchers
@@ -263,7 +260,7 @@ fun ExploreScreen(
             }
 
             try {
-                val (source, searchPlaylists, searchShorts) = coroutineScope {
+                val (source, searchPlaylists) = coroutineScope {
                     val sourceDeferred = async(Dispatchers.IO) {
                         ExtractorHelper.getSearchPagingSource(searchQuery)
                     }
@@ -274,14 +271,7 @@ fun ExploreScreen(
                             emptyList<PlaylistInfoItem>()
                         }
                     }
-                    val shortsDeferred = async(Dispatchers.IO) {
-                        try {
-                            ExtractorHelper.getShortsFeed(targetQuery, maxPages = 1)
-                        } catch (_: Exception) {
-                            emptyList<StreamInfoItem>()
-                        }
-                    }
-                    Triple(sourceDeferred.await(), playlistsDeferred.await(), shortsDeferred.await())
+                    Pair(sourceDeferred.await(), playlistsDeferred.await())
                 }
                 pagingSource = source
                 val items = withContext(Dispatchers.IO) {
@@ -310,19 +300,17 @@ fun ExploreScreen(
 
                 playlistResults = combinedPlaylists.distinctBy { it.url }
 
-                // Separate Shorts from standard long-form videos
+                // Exclude any shorts completely
                 val allStreams = items.filterIsInstance<StreamInfoItem>()
-                val (extractedShorts, extractedLongVideos) = allStreams.partition { stream ->
+                videoResults = allStreams.filter { stream ->
                     val dur = stream.duration
                     val name = stream.name ?: ""
                     val url = stream.url ?: ""
                     val isShortDuration = dur in 1..80
                     val isShortTagged = name.contains("#short", ignoreCase = true) || url.contains("/shorts/")
-                    isShortTagged || isShortDuration
+                    !(isShortTagged || isShortDuration)
                 }
-
-                shortsResults = (searchShorts + extractedShorts).distinctBy { it.url }
-                videoResults = extractedLongVideos
+                shortsResults = emptyList()
 
                 // Cache for fast return
                 val cacheEntities = mutableListOf<SearchCacheEntity>()
@@ -578,9 +566,8 @@ fun ExploreScreen(
                         val filters = listOf(
                             Triple("All", Icons.Default.AutoAwesome, 0),
                             Triple("Videos", Icons.Default.PlayArrow, 1),
-                            Triple("Shorts", Icons.Default.FlashOn, 2),
-                            Triple("Playlists", Icons.AutoMirrored.Filled.PlaylistPlay, 3),
-                            Triple("Channels", Icons.Default.AccountCircle, 4)
+                            Triple("Playlists", Icons.AutoMirrored.Filled.PlaylistPlay, 2),
+                            Triple("Channels", Icons.Default.AccountCircle, 3)
                         )
                         items(filters) { (title, icon, index) ->
                             FilterChip(
@@ -628,10 +615,7 @@ fun ExploreScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp)
                     ) {
-                        item {
-                            ShortsShelfShimmer()
-                        }
-                        items(4) {
+                        items(5) {
                             VideoCardShimmer()
                         }
                     }
@@ -905,12 +889,9 @@ fun ExploreScreen(
                                     }
                                 }
 
-                                // Top Videos (first 2) before Shorts shelf
-                                val topVideos = videoResults.take(2)
-                                val remainingVideos = videoResults.drop(2)
-
-                                if (topVideos.isNotEmpty()) {
-                                    item(key = "top_videos_section_header") {
+                                // Videos Section
+                                if (videoResults.isNotEmpty()) {
+                                    item(key = "videos_section_header") {
                                         Text(
                                             text = "Videos",
                                             style = MaterialTheme.typography.titleMedium,
@@ -919,48 +900,11 @@ fun ExploreScreen(
                                         )
                                     }
                                     itemsIndexed(
-                                        topVideos,
-                                        key = { index, item -> item.url ?: "top_vid_$index" },
-                                        contentType = { _, _ -> "video_card" }
-                                    ) { _, video ->
-                                        VideoCard(
-                                            item = video,
-                                            onClick = onVideoClick,
-                                            onChannelClick = onChannelClick
-                                        )
-                                    }
-                                }
-
-                                // YouTube-style Shorts Search Shelf
-                                if (shortsResults.isNotEmpty()) {
-                                    item(key = "shorts_search_shelf") {
-                                        ShortsSearchShelf(
-                                            shorts = shortsResults,
-                                            onShortClick = onVideoClick,
-                                            modifier = Modifier.padding(vertical = 8.dp),
-                                            onViewAllClick = { selectedFilterIndex = 2 }
-                                        )
-                                    }
-                                }
-
-                                // Remaining Videos Section
-                                if (remainingVideos.isNotEmpty()) {
-                                    if (topVideos.isEmpty() && shortsResults.isNotEmpty()) {
-                                        item(key = "remaining_videos_section_header") {
-                                            Text(
-                                                text = "More Videos",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                            )
-                                        }
-                                    }
-                                    itemsIndexed(
-                                        remainingVideos,
-                                        key = { index, item -> item.url ?: "rem_vid_$index" },
+                                        videoResults,
+                                        key = { index, item -> item.url ?: "all_vid_$index" },
                                         contentType = { _, _ -> "video_card" }
                                     ) { index, video ->
-                                        if (index == remainingVideos.size - 1 && !isPaginating && pagingSource?.hasMore == true) {
+                                        if (index == videoResults.size - 1 && !isPaginating && pagingSource?.hasMore == true) {
                                             LaunchedEffect(Unit) {
                                                 loadNextPage()
                                             }
@@ -991,7 +935,7 @@ fun ExploreScreen(
                                             )
                                             if (playlistResults.size > 3) {
                                                 TextButton(
-                                                    onClick = { selectedFilterIndex = 3 },
+                                                    onClick = { selectedFilterIndex = 2 },
                                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                                                 ) {
                                                     Text(
@@ -1050,45 +994,6 @@ fun ExploreScreen(
                             }
 
                             2 -> {
-                                // ── "Shorts" Tab ────────────────────────────────────
-                                if (shortsResults.isEmpty()) {
-                                    item {
-                                        EmptyState(
-                                            icon = Icons.Default.FlashOn,
-                                            title = "No Shorts found",
-                                            message = "No Shorts found for '$query'."
-                                        )
-                                    }
-                                } else {
-                                    itemsIndexed(
-                                        shortsResults.chunked(2),
-                                        key = { idx, pair -> "short_pair_${pair.firstOrNull()?.url}_$idx" }
-                                    ) { _, pair ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 16.dp, vertical = 6.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                        ) {
-                                            pair.forEach { short ->
-                                                ShortSearchCard(
-                                                    short = short,
-                                                    onClick = {
-                                                        val thumb = short.thumbnails?.firstOrNull()?.url ?: ""
-                                                        onVideoClick(short.url ?: "", short.name ?: "Short", thumb)
-                                                    },
-                                                    modifier = Modifier.weight(1f)
-                                                )
-                                            }
-                                            if (pair.size == 1) {
-                                                Spacer(modifier = Modifier.weight(1f))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            3 -> {
                                 // ── "Playlists" Tab ─────────────────────────────────
                                 if (playlistResults.isEmpty()) {
                                     item {
@@ -1112,7 +1017,7 @@ fun ExploreScreen(
                                 }
                             }
 
-                            4 -> {
+                            3 -> {
                                 // ── "Channels" Tab ──────────────────────────────────
                                 if (channelResults.isEmpty()) {
                                     item {

@@ -6,7 +6,6 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material.icons.outlined.VideoLibrary
-import androidx.compose.material.icons.outlined.FlashOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -20,13 +19,31 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 
 data class NavItem(val route: String, val selectedIcon: ImageVector, val unselectedIcon: ImageVector, val label: String)
 
+fun isLibrarySubsection(route: String?): Boolean {
+    if (route == null) return false
+    val base = route.substringBefore("?").substringBefore("/")
+    return when (base) {
+        "history",
+        "watch_later",
+        "playlists",
+        "playlist_detail",
+        "downloads",
+        "downloaded_playlist",
+        "liked_videos",
+        "proxy_settings",
+        "settings",
+        "about",
+        "channel_about" -> true
+        else -> false
+    }
+}
+
 @Composable
 fun BottomNavigationBar(navController: NavController, currentRoute: String?) {
     val haptic = LocalHapticFeedback.current
 
     val items = listOf(
         NavItem(Screen.Home.route, Icons.Filled.Home, Icons.Outlined.Home, "Home"),
-        NavItem(Screen.Shorts.route, Icons.Filled.FlashOn, Icons.Outlined.FlashOn, "Shorts"),
         NavItem(Screen.Subscriptions.route, Icons.Filled.Subscriptions, Icons.Outlined.Subscriptions, "Subscriptions"),
         NavItem(Screen.Library.route, Icons.Filled.VideoLibrary, Icons.Outlined.VideoLibrary, "Library"),
     )
@@ -39,7 +56,11 @@ fun BottomNavigationBar(navController: NavController, currentRoute: String?) {
         windowInsets = NavigationBarDefaults.windowInsets
     ) {
         items.forEach { item ->
-            val isSelected = currentRoute == item.route
+            val isSelected = if (item.route == Screen.Library.route) {
+                currentRoute == Screen.Library.route || isLibrarySubsection(currentRoute)
+            } else {
+                currentRoute == item.route
+            }
             NavigationBarItem(
                 icon = {
                     Icon(
@@ -58,21 +79,58 @@ fun BottomNavigationBar(navController: NavController, currentRoute: String?) {
                 selected = isSelected,
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    if (currentRoute != item.route) {
-                        navController.navigate(item.route) {
-                            val startRoute = navController.graph.findStartDestination().route
-                            if (startRoute != null) {
-                                popUpTo(startRoute) {
-                                    saveState = (item.route != Screen.Home.route) // Don't save state when going to home, just clear
-                                }
-                            } else {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = (item.route != Screen.Home.route)
+                    if (item.route == Screen.Library.route) {
+                        if (isLibrarySubsection(currentRoute)) {
+                            // User is in a subsection of Library: redirect to Library root
+                            val popped = navController.popBackStack(Screen.Library.route, inclusive = false)
+                            if (!popped) {
+                                navController.navigate(Screen.Library.route) {
+                                    val startRoute = navController.graph.findStartDestination().route
+                                    if (startRoute != null) {
+                                        popUpTo(startRoute) {
+                                            saveState = false
+                                        }
+                                    } else {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = false
+                                        }
+                                    }
+                                    launchSingleTop = true
                                 }
                             }
-                            launchSingleTop = true
-                            if (item.route != Screen.Home.route) {
+                        } else if (currentRoute != Screen.Library.route) {
+                            navController.navigate(Screen.Library.route) {
+                                val startRoute = navController.graph.findStartDestination().route
+                                if (startRoute != null) {
+                                    popUpTo(startRoute) {
+                                        saveState = true
+                                    }
+                                } else {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                }
+                                launchSingleTop = true
                                 restoreState = true
+                            }
+                        }
+                    } else {
+                        if (currentRoute != item.route) {
+                            navController.navigate(item.route) {
+                                val startRoute = navController.graph.findStartDestination().route
+                                if (startRoute != null) {
+                                    popUpTo(startRoute) {
+                                        saveState = (item.route != Screen.Home.route) // Don't save state when going to home, just clear
+                                    }
+                                } else {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = (item.route != Screen.Home.route)
+                                    }
+                                }
+                                launchSingleTop = true
+                                if (item.route != Screen.Home.route) {
+                                    restoreState = true
+                                }
                             }
                         }
                     }

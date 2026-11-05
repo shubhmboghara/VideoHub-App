@@ -264,7 +264,7 @@ class DownloadService : Service() {
                 val tempDir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
                 finalFile = File(tempDir, finalFileNameForSave)
 
-                downloadWithRetry(streamUrl, finalFile!!, currentNotificationId, safeTitle, playlistId)
+                downloadWithRetry(streamUrl, finalFile!!, currentNotificationId, safeTitle, playlistId, downloadKey)
 
                 if (playlistId == null) {
                     val notif = NotificationCompat.Builder(this@DownloadService, channelId).setContentTitle(cleanTitle(safeTitle)).setContentText("Finalizing file...").setSmallIcon(android.R.drawable.stat_sys_download).setOngoing(true).setProgress(100, 0, true).build()
@@ -340,7 +340,12 @@ class DownloadService : Service() {
                         lyrics = savedLyricsJson,
                         playlistId = playlistId,
                         playlistName = playlistName,
-                        playlistIndex = playlistIndex
+                        playlistIndex = playlistIndex,
+                        state = "DONE",
+                        progress = 100,
+                        bytesDownloaded = finalFile!!.length(),
+                        totalBytes = finalFile!!.length(),
+                        duration = ""
                     )
                 )
                 
@@ -352,16 +357,31 @@ class DownloadService : Service() {
                         )
                     )
                     try {
+                        val plVideos = db.downloadedVideoDao().getPlaylistVideosSync(playlistId)
+                        val totalCount = plVideos.size
+                        val doneCount = plVideos.count { it.state == "DONE" }
+                        val allDone = doneCount >= totalCount && totalCount > 0
+                        val totalBytesDownloaded = plVideos.sumOf { it.bytesDownloaded }
+
                         val existingP = db.downloadedPlaylistDao().getPlaylistById(playlistId)
                         val thumbToUse = localThumbPath ?: finalThumb
                         if (existingP != null && existingP.thumbnailUrl.isNullOrBlank() && thumbToUse.isNotBlank()) {
-                            db.downloadedPlaylistDao().insertPlaylist(
-                                existingP.copy(thumbnailUrl = thumbToUse)
-                            )
+                            db.downloadedPlaylistDao().updatePlaylistThumbnail(playlistId, thumbToUse)
                         }
+
+                        db.downloadedPlaylistDao().updatePlaylistProgress(
+                            playlistId = playlistId,
+                            completedCount = doneCount,
+                            progress = if (allDone) 100 else (((doneCount * 100)) / totalCount.coerceAtLeast(1)).coerceIn(0, 100),
+                            downloadedBytes = totalBytesDownloaded,
+                            totalBytes = totalBytesDownloaded,
+                            state = if (allDone) "DONE" else "DOWNLOADING",
+                            currentVideoIndex = if (allDone) totalCount else (doneCount + 1),
+                            currentVideoProgress = if (allDone) 100 else 0,
+                            currentVideoTitle = null
+                        )
                     } catch (_: Exception) {}
                 }
-
 
             } catch (e: CancellationException) {
                 // Job was cancelled, don't show error notification
@@ -383,9 +403,21 @@ class DownloadService : Service() {
                 val actualVideoId = if (videoId.isNotEmpty()) videoId else finalFileName
                 try {
                     val db = com.videhub.data.AppDatabase.getDatabase(this@DownloadService)
-                    db.downloadedVideoDao().deletePlaceholderByVideoId(actualVideoId)
+                    db.downloadedVideoDao().updateVideoState(
+                        videoId = actualVideoId,
+                        state = "FAILED",
+                        errorMessage = e.message ?: "Download failed"
+                    )
                     if (playlistId != null) {
-                        db.downloadedPlaylistDao().deletePlaylistVideoCrossRef(playlistId, actualVideoId)
+                        val plVideos = db.downloadedVideoDao().getPlaylistVideosSync(playlistId)
+                        val hasActive = plVideos.any { it.state == "DOWNLOADING" || it.state == "QUEUED" }
+                        if (!hasActive) {
+                            val anyFailed = plVideos.any { it.state == "FAILED" }
+                            db.downloadedPlaylistDao().updatePlaylistState(
+                                playlistId = playlistId,
+                                state = if (anyFailed) "FAILED" else "DONE"
+                            )
+                        }
                     }
                 } catch (ex: Exception) {}
                 val msg = e.message ?: "Download failed: $safeTitle"
@@ -412,11 +444,11 @@ class DownloadService : Service() {
         return START_NOT_STICKY
     }
 
-    private suspend fun downloadWithRetry(url: String, dest: File, notifId: Int, title: String, playlistId: String?) {
+    private suspend fun downloadWithRetry(url: String, dest: File, notifId: Int, title: String, playlistId: String?, downloadKey: String) {
         var lastException: Exception? = null
         repeat(3) { attempt ->
             try {
-                return downloadFileInner(url, dest, notifId, title, playlistId)
+                return downloadFileInner(url, dest, notifId, title, playlistId, downloadKey)
             } catch (e: java.net.SocketException) {
                 lastException = e
                 kotlinx.coroutines.delay(1000L * (1 shl attempt))
@@ -428,7 +460,7 @@ class DownloadService : Service() {
         throw lastException ?: Exception("Download failed - network error")
     }
 
-    private suspend fun downloadFileInner(urlString: String, destFile: File, notifId: Int, title: String, playlistId: String?) {
+    private suspend fun downloadFileInner(urlString: String, destFile: File, notifId: Int, title: String, playlistId: String?, downloadKey: String) {
         destFile.parentFile?.mkdirs()
         val url = java.net.URL(urlString)
         val connection = url.openConnection() as java.net.HttpURLConnection
@@ -458,13 +490,51 @@ class DownloadService : Service() {
                 output.write(buffer, 0, count)
                 downloaded += count
 
-                // Update every 500ms to avoid notification spam
+                // Throttled to at most 4 updates per second (250ms)
                 val now = System.currentTimeMillis()
-                if (now - lastNotifUpdate > 500) {
+                if (now - lastNotifUpdate >= 250L) {
                     lastNotifUpdate = now
-                    val percent = ((downloaded * 100) / totalBytes).toInt()
+                    val percent = ((downloaded * 100) / totalBytes).toInt().coerceIn(0, 100)
                     val dlMb = downloaded / (1024 * 1024)
                     val totalMb = totalBytes / (1024 * 1024)
+
+                    val db = com.videhub.data.AppDatabase.getDatabase(this@DownloadService)
+                    db.downloadedVideoDao().updateVideoProgress(
+                        videoId = downloadKey,
+                        state = "DOWNLOADING",
+                        progress = percent,
+                        bytesDownloaded = downloaded,
+                        totalBytes = totalBytes
+                    )
+
+                    if (playlistId != null) {
+                        val plVideos = db.downloadedVideoDao().getPlaylistVideosSync(playlistId)
+                        val totalCount = plVideos.size
+                        val readyCount = plVideos.count { it.state == "DONE" }
+                        val overallPercent = if (totalCount > 0) {
+                            (((readyCount * 100) + percent) / totalCount).coerceIn(0, 100)
+                        } else percent
+                        val sumBytes = plVideos.sumOf { if (it.videoId == downloadKey) downloaded else it.bytesDownloaded }
+                        val estTotalBytes = if (totalCount > 0 && totalBytes > 0) {
+                            totalBytes * totalCount
+                        } else sumBytes
+
+                        db.downloadedPlaylistDao().updatePlaylistProgress(
+                            playlistId = playlistId,
+                            completedCount = readyCount,
+                            progress = overallPercent,
+                            downloadedBytes = sumBytes,
+                            totalBytes = estTotalBytes,
+                            state = "DOWNLOADING",
+                            currentVideoIndex = (readyCount + 1).coerceAtMost(totalCount),
+                            currentVideoProgress = percent,
+                            currentVideoTitle = title
+                        )
+
+                        updatePlaylistNotificationProgress(playlistId, notifId, title, percent, readyCount + 1, totalCount)
+                    } else {
+                        updateNotificationProgress(playlistId, notifId, title, percent, dlMb, totalMb)
+                    }
 
                     // Update in-app tracker with byte info
                     com.videhub.utils.DownloadProgressTracker.updateProgress(
@@ -472,9 +542,6 @@ class DownloadService : Service() {
                         downloadedBytes = downloaded,
                         totalBytes = totalBytes
                     )
-
-                    // Update notification
-                    updateNotificationProgress(playlistId, notifId, title, percent, dlMb, totalMb)
                 }
             }
             output.flush()
@@ -483,6 +550,36 @@ class DownloadService : Service() {
             try { input.close() } catch (_: Exception) {}
             try { connection.disconnect() } catch (_: Exception) {}
         }
+    }
+
+    private fun updatePlaylistNotificationProgress(
+        playlistId: String,
+        id: Int,
+        title: String,
+        percent: Int,
+        currentTrackIndex: Int,
+        totalCount: Int
+    ) {
+        val cancelIntent = Intent(this, DownloadService::class.java).apply {
+            action = "CANCEL_PLAYLIST_$playlistId"
+        }
+        val cancelPending = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            PendingIntent.getForegroundService(this, id, cancelIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        } else {
+            PendingIntent.getService(this, id, cancelIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        }
+
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle(cleanTitle(title))
+            .setContentText("Playlist $currentTrackIndex of $totalCount • $percent%")
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setProgress(100, percent, false)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .addAction(android.R.drawable.ic_delete, "Cancel", cancelPending)
+            .build()
+
+        notificationManager.notify(id, notification)
     }
 
     private fun updateNotificationProgress(playlistId: String?,

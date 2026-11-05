@@ -77,41 +77,27 @@ fun PlaylistDetailScreen(playlistId: Int, onVideoClick: (String, String, String)
     }
 
     if (showDownloadDialog) {
-        AlertDialog(
-            onDismissRequest = { showDownloadDialog = false },
-            title = { Text("Download Playlist") },
-            text = { Text("How would you like to download this playlist?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDownloadDialog = false
-                    val urls = ArrayList(videos.map { it.videoId })
-                    val titles = ArrayList(videos.map { it.title })
-                    val intent = android.content.Intent(context, com.videhub.service.PlaylistDownloadService::class.java).apply {
-                        putStringArrayListExtra("urls", urls)
-                        putStringArrayListExtra("titles", titles)
-                        putExtra("playlistId", playlistId.toString())
-                        putExtra("playlistName", playlistName)
-                        putExtra("isAudioOnly", false)
-                    }
-                    androidx.core.content.ContextCompat.startForegroundService(context, intent)
-                    android.widget.Toast.makeText(context, "Playlist download started...", android.widget.Toast.LENGTH_SHORT).show()
-                }) { Text("Video") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showDownloadDialog = false
-                    val urls = ArrayList(videos.map { it.videoId })
-                    val titles = ArrayList(videos.map { it.title })
-                    val intent = android.content.Intent(context, com.videhub.service.PlaylistDownloadService::class.java).apply {
-                        putStringArrayListExtra("urls", urls)
-                        putStringArrayListExtra("titles", titles)
-                        putExtra("playlistId", playlistId.toString())
-                        putExtra("playlistName", playlistName)
-                        putExtra("isAudioOnly", true)
-                    }
-                    androidx.core.content.ContextCompat.startForegroundService(context, intent)
-                    android.widget.Toast.makeText(context, "Playlist download started...", android.widget.Toast.LENGTH_SHORT).show()
-                }) { Text("Audio") }
+        com.videhub.ui.components.PlaylistDownloadQualityDialog(
+            playlistTitle = playlistName,
+            onDismiss = { showDownloadDialog = false },
+            onSelectOption = { isAudioOnly, quality ->
+                val urls = ArrayList(videos.map { it.videoId })
+                val titles = ArrayList(videos.map { it.title })
+                val thumbnails = ArrayList(videos.map { it.thumbnailUrl })
+                val channels = ArrayList(videos.map { it.channelName })
+                val intent = android.content.Intent(context, com.videhub.service.PlaylistDownloadService::class.java).apply {
+                    putStringArrayListExtra("urls", urls)
+                    putStringArrayListExtra("titles", titles)
+                    putStringArrayListExtra("thumbnails", thumbnails)
+                    putStringArrayListExtra("channels", channels)
+                    putExtra("playlistId", playlistId.toString())
+                    putExtra("playlistName", playlistName)
+                    putExtra("playlistThumbnail", thumbnails.firstOrNull() ?: "")
+                    putExtra("isAudioOnly", isAudioOnly)
+                    putExtra("quality", quality)
+                }
+                androidx.core.content.ContextCompat.startForegroundService(context, intent)
+                android.widget.Toast.makeText(context, "Playlist download started...", android.widget.Toast.LENGTH_SHORT).show()
             }
         )
     }

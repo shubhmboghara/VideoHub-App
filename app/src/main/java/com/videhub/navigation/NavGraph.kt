@@ -27,13 +27,6 @@ fun NavGraph(
                 onPlaylistClick = { playlistUrl -> navController.navigate(Screen.OnlinePlaylist.createRoute(playlistUrl)) }
             )
         }
-        composable(Screen.Shorts.route) {
-            ShortsScreen(
-                sharedViewModel = sharedViewModel,
-                onVideoClick = { url, t, thumb -> onNavigateToPlayer(url, t, thumb, false, false) },
-                onChannelClick = { ch -> navController.navigate(Screen.Channel.createRoute(ch)) }
-            )
-        }
         composable(Screen.Explore.route) {
             ExploreScreen(
                 sharedViewModel = sharedViewModel,
@@ -106,10 +99,16 @@ fun NavGraph(
             arguments = listOf(navArgument("id") { type = NavType.StringType })
         ) { backStackEntry ->
             val id = backStackEntry.arguments?.getString("id") ?: ""
-            DownloadedPlaylistDetailScreen(
-                playlistId = id,
-                onVideoClick = { videoUrl, t, thumb, isMusic -> onNavigateToPlayer(videoUrl, t, thumb, isMusic, false) }
-            )
+            if (id.equals("WL", ignoreCase = true)) {
+                com.videhub.ui.screens.WatchLaterScreen(
+                    onVideoClick = { videoUrl, t, thumb -> onNavigateToPlayer(videoUrl, t, thumb, false, false) }
+                )
+            } else {
+                DownloadedPlaylistDetailScreen(
+                    playlistId = id,
+                    onVideoClick = { videoUrl, t, thumb, isMusic -> onNavigateToPlayer(videoUrl, t, thumb, isMusic, false) }
+                )
+            }
         }
         composable(
             route = Screen.Channel.ROUTE,

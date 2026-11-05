@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.media3.common.Player
 import com.videhub.PlayQueueItem
@@ -48,6 +49,11 @@ fun BelowPlayerContent(
     isMusicMode: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val isCurrentLocal = com.videhub.QueueManager.isLocal(videoUrl)
+    val visibleQueue = remember(queue, isCurrentLocal) {
+        if (!isCurrentLocal) queue.filter { !com.videhub.QueueManager.isLocal(it.url) } else queue
+    }
+
     LazyColumn(
         state = listState,
         modifier = modifier
@@ -100,7 +106,7 @@ fun BelowPlayerContent(
         }
 
         queueSection(
-            queue = queue,
+            queue = visibleQueue,
             onVideoPlay = { url, thumbTitle, thumb, _ -> 
                 onVideoPlay(url, thumbTitle, thumb, isMusicMode)
             },

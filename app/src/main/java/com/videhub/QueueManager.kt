@@ -98,5 +98,18 @@ object QueueManager {
     fun clear() {
         _queue.value = emptyList()
     }
+
+    fun isLocal(url: String): Boolean {
+        return url.startsWith("/") || url.startsWith("file:") || url.startsWith("content:")
+    }
+
+    fun hasDownloadedItems(): Boolean {
+        return _queue.value.any { isLocal(it.url) }
+    }
+
+    fun clearDownloadedItems() {
+        _queue.value = _queue.value.filter { !isLocal(it.url) }
+    }
 }
+
 

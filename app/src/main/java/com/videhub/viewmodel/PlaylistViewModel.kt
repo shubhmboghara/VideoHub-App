@@ -73,6 +73,13 @@ class PlaylistViewModel : ViewModel() {
             putStringArrayListExtra("urls", java.util.ArrayList(items.map { it.url }))
             putStringArrayListExtra("titles", java.util.ArrayList(items.map { it.name }))
             putStringArrayListExtra("thumbnails", java.util.ArrayList(items.map { it.thumbnails.firstOrNull()?.url ?: "" }))
+            putStringArrayListExtra("durations", java.util.ArrayList(items.map { 
+                val s = it.duration
+                val m = s / 60
+                val sec = s % 60
+                if (s > 0) String.format(java.util.Locale.US, "%d:%02d", m, sec) else ""
+            }))
+            putStringArrayListExtra("channels", java.util.ArrayList(items.map { it.uploaderName ?: "" }))
             putExtra("playlistId", info.url ?: _uiState.value.playlistUrl)
             putExtra("playlistName", info.name)
             putExtra("playlistThumbnail", info.thumbnails.firstOrNull()?.url ?: items.firstOrNull()?.thumbnails?.firstOrNull()?.url ?: "")

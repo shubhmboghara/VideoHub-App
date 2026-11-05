@@ -1,17 +1,21 @@
 package com.videhub.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.widget.Toast
+import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-
-
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
@@ -20,14 +24,10 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SettingsBrightness
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -53,8 +53,11 @@ fun LibraryScreen(
         com.videhub.ui.theme.AppThemeMode.DARK -> true
     }
     var showThemeDialog by remember { mutableStateOf(false) }
-    
-    val scrollState = rememberScrollState(sharedViewModel.libraryScrollCache)
+    val scrollState = rememberScrollState(initial = sharedViewModel.libraryScrollCache)
+    val appLink = "https://crazy-store-rho.vercel.app/apps/videohub"
+    val shareText = remember(appLink) {
+        "Check out VideoHub, a clean, ad-free video and music player with offline downloads, background playback, and complete privacy: $appLink"
+    }
 
     if (showThemeDialog) {
         AlertDialog(
@@ -169,6 +172,18 @@ fun LibraryScreen(
         )
 
         SectionTitle("More")
+        LibraryItemRow(
+            title = "Share VideoHub App",
+            icon = Icons.Default.Share,
+            onClick = {
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "VideoHub - Private Video & Music Player")
+                    putExtra(Intent.EXTRA_TEXT, shareText)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Share VideoHub"))
+            }
+        )
         LibraryItemRow(
             title = "About VideoHub",
             icon = Icons.Default.Info,

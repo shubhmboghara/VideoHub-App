@@ -1,5 +1,9 @@
 package com.videhub.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -19,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.GraphicEq
@@ -29,6 +34,7 @@ import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.filled.Subtitles
@@ -37,6 +43,7 @@ import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -65,6 +72,12 @@ fun AboutScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         delay(40)
         hasAnimated = true
+    }
+
+    val context = LocalContext.current
+    val appLink = "https://crazy-store-rho.vercel.app/apps/videohub"
+    val shareText = remember(appLink) {
+        "Check out VideoHub, a clean, ad-free video and music player with offline downloads, background playback, and complete privacy: $appLink"
     }
 
     Scaffold(
@@ -171,7 +184,30 @@ fun AboutScreen(onBack: () -> Unit) {
                 )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Single Share App Pill under header
+            StaggeredEntrance(visible = hasAnimated, delayMillis = 120) {
+                FilledTonalButton(
+                    onClick = {
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_SUBJECT, "VideoHub - Private Video & Music Player")
+                            putExtra(Intent.EXTRA_TEXT, shareText)
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Share VideoHub"))
+                    },
+                    shape = RoundedCornerShape(20.dp),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    modifier = Modifier.height(40.dp)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Share App", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             StaggeredEntrance(visible = hasAnimated, delayMillis = 140) {
                 Text(
@@ -249,7 +285,6 @@ fun AboutScreen(onBack: () -> Unit) {
 
             val videoFeatures = listOf(
                 FeatureData(Icons.Default.PlayArrow, "Ad-free play", "100% Ad-Free Streaming", "Watch videos with zero pre-roll, mid-roll, or sponsored banners."),
-                FeatureData(Icons.Default.FlashOn, "Shorts icon", "Shorts Feed & Search Carousel", "Scroll seamless short-form vertical reels and explore Shorts directly inside search results."),
                 FeatureData(Icons.Default.PictureInPictureAlt, "PiP icon", "Picture-in-Picture & Background", "Multitask freely while keeping your video or audio playing seamlessly."),
                 FeatureData(Icons.Default.Speed, "Speed icon", "Speed & Pitch Controls", "Variable playback speed from 0.25x up to 3.0x with pitch-preservation."),
                 FeatureData(Icons.Default.Timer, "Sleep timer", "Custom Sleep Timer", "Schedule automatic playback shutoff when listening to sleep tracks or podcasts.")
@@ -342,6 +377,13 @@ fun AboutScreen(onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                PressableSocialButton(
+                    iconRes = R.drawable.ic_x_logo,
+                    text = "X (Twitter)",
+                    iconTint = MaterialTheme.colorScheme.onSurface
+                ) {
+                    uriHandler.openUri("https://x.com/shubhamdotai")
+                }
                 PressableSocialButton(
                     iconRes = R.drawable.ic_github_logo,
                     text = "GitHub",

@@ -21,7 +21,13 @@ class DownloadViewModel : ViewModel() {
         }
     }
 
-    fun cancelDownload(context: Context, notificationId: Int) {
+    fun cancelDownload(context: Context, notificationId: Int, videoId: String = "") {
+        if (videoId.isNotBlank()) {
+            com.videhub.utils.DownloadProgressTracker.markCancelledByUser(videoId)
+            androidx.work.WorkManager.getInstance(context).cancelUniqueWork(
+                com.videhub.service.DownloadWorker.getUniqueWorkName(videoId)
+            )
+        }
         val intent = Intent(context, DownloadService::class.java).apply {
             action = "CANCEL_$notificationId"
         }
@@ -87,39 +93,23 @@ class DownloadViewModel : ViewModel() {
                     putExtra("description", streamInfo?.description?.content ?: fresh?.description?.content ?: "")
                 }
 
-                if (!isAudioOnly) {
-                    val freshStream = if (resolution != null) {
-                        fresh?.videoStreams?.find { it.getResolution() == resolution && !it.isVideoOnly }
-                    } else {
-                        fresh?.videoStreams?.filter { !it.content.isNullOrBlank() && !it.isVideoOnly }?.maxByOrNull { it.height ?: 0 }
-                    }
-                    if (freshStream != null && freshStream.content != null) {
-                        intent.putExtra("url", freshStream.content ?: "")
-                        val res = resolution ?: freshStream.resolution ?: "Video"
-                        intent.putExtra("quality", res)
-                        intent.putExtra("suffix", "${res}.mp4")
-                        startService(context, intent)
-                    } else {
-                        activeDownloadUrls.remove(downloadKey)
-                        showToast(context, "Stream not available.")
-                    }
-                } else if (isAudioOnly) {
-                    val freshAudio = fresh?.audioStreams?.find { !it.content.isNullOrBlank() && it.averageBitrate == bitrate && it.format?.name == formatName }
-                        ?: fresh?.audioStreams?.find { !it.content.isNullOrBlank() && it.averageBitrate == bitrate }
-                        ?: fresh?.audioStreams?.filter { !it.content.isNullOrBlank() }?.maxByOrNull { it.averageBitrate }
-                        
-                    if (freshAudio != null && freshAudio.content != null) {
-                        intent.putExtra("url", freshAudio.content ?: "")
-                        val qual = if (bitrate != null && bitrate > 0) "${bitrate}kbps" else (freshAudio.format?.name ?: "Audio")
-                        intent.putExtra("quality", qual)
-                        val suffix = if (freshAudio.format?.name?.contains("WEBM", ignoreCase = true) == true) "${bitrate}kbps.webm" else "${bitrate}kbps.m4a"
-                        intent.putExtra("suffix", suffix)
-                        startService(context, intent)
-                    } else {
-                        activeDownloadUrls.remove(downloadKey)
-                        showToast(context, "Stream not available.")
-                    }
+                val qual = if (!isAudioOnly) {
+                    resolution ?: "Video"
+                } else {
+                    if (bitrate != null && bitrate > 0) "${bitrate}kbps" else "Audio"
                 }
+
+                com.videhub.service.DownloadWorker.enqueueDownload(
+                    context = context,
+                    videoId = videoUrl,
+                    title = title,
+                    thumbnailUrl = thumbnailUrl,
+                    channelName = streamInfo?.uploaderName ?: fresh?.uploaderName ?: "",
+                    isAudioOnly = isAudioOnly,
+                    quality = qual,
+                    replace = true
+                )
+                activeDownloadUrls.remove(downloadKey)
             } catch (e: Exception) {
                 activeDownloadUrls.remove(videoUrl)
                 showToast(context, "Could not prepare download: ${e.message}")

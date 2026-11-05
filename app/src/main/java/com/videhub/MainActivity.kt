@@ -103,6 +103,11 @@ class MainActivity : ComponentActivity() {
         } else {
             isAppInForeground = false
         }
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                com.videhub.data.DataBackupManager.createBackup(this@MainActivity, silent = true)
+            } catch (_: Exception) {}
+        }
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
@@ -161,6 +166,11 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             handleIntent(intent)
         }
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                com.videhub.data.DataBackupManager.restoreBackup(this@MainActivity, silent = true)
+            } catch (_: Exception) {}
+        }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
             window.attributes.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
@@ -182,9 +192,9 @@ class MainActivity : ComponentActivity() {
         
         lifecycleScope.launch(Dispatchers.IO) {
             try {
+                // Recover any interrupted or orphaned downloads on app start
+                com.videhub.service.DownloadRecoveryManager.recoverDownloads(applicationContext)
                 val db = com.videhub.data.AppDatabase.getDatabase(applicationContext)
-                db.downloadedPlaylistDao().deleteAllPendingPlaylistVideoCrossRefs()
-                db.downloadedVideoDao().deleteAllPendingVideos()
                 val channels = db.channelDao().getAllOnce()
                 
                 // Deduplicate: If there are channels with the same name, keep the one whose ID is a URL
@@ -347,6 +357,11 @@ fun MainScreen() {
         globalAutoplayJob = null
 
         val safeUrl = url ?: ""
+        val isLocal = com.videhub.QueueManager.isLocal(safeUrl)
+        if (!isLocal && com.videhub.QueueManager.hasDownloadedItems()) {
+            com.videhub.QueueManager.clearDownloadedItems()
+        }
+
         val isSameVideo = mediaPlayer?.currentMediaItem?.mediaId == safeUrl
         if (!isSameVideo) {
             mediaPlayer?.stop()
@@ -445,12 +460,17 @@ fun MainScreen() {
         launch {
             com.videhub.QueueManager.skipToNextEvent.collect {
                 if (currentRoute?.startsWith("player") == true && com.videhub.MainActivity.isAppInForeground) {
+                    val currentUrl = player.currentMediaItem?.mediaId
+                    val isCurrentLocal = currentUrl?.let { com.videhub.QueueManager.isLocal(it) } ?: false
+
+                    if (!isCurrentLocal && com.videhub.QueueManager.hasDownloadedItems()) {
+                        com.videhub.QueueManager.clearDownloadedItems()
+                    }
+
                     val nextItem = com.videhub.QueueManager.getNextVideo()
-                    if (nextItem != null) {
+                    if (nextItem != null && (isCurrentLocal || !com.videhub.QueueManager.isLocal(nextItem.url))) {
                         navigateToPlayer(nextItem.url, nextItem.title, nextItem.thumbnailUrl, MiniPlayerState.isMusicMode.value)
                     } else {
-                        val currentUrl = player.currentMediaItem?.mediaId
-                        val isCurrentLocal = currentUrl?.let { it.startsWith("/") || it.startsWith("file://") || it.startsWith("content://") } ?: false
                         if (isCurrentLocal) {
                             val isMusic = MiniPlayerState.isMusicMode.value
                             val nextD = getNextDownloadedItem(context, currentUrl!!, isMusic)
@@ -555,9 +575,14 @@ fun MainScreen() {
                     }
                 },
                 onCloseClick = {
+                    val currentUrl = mediaPlayer?.currentMediaItem?.mediaId ?: MiniPlayerState.currentVideoUrl.value
+                    val isLocal = currentUrl?.let { com.videhub.QueueManager.isLocal(it) } ?: false
                     mediaPlayer?.stop()
                     mediaPlayer?.clearMediaItems()
                     MiniPlayerState.hide()
+                    if (isLocal || com.videhub.QueueManager.hasDownloadedItems()) {
+                        com.videhub.QueueManager.clearDownloadedItems()
+                    }
                     scope.launch(Dispatchers.IO) {
                         com.videhub.data.SettingsManager.clearLastPlaybackState(context)
                     }

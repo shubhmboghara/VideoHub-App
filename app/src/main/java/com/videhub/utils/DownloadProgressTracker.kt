@@ -17,10 +17,21 @@ data class DownloadProgress(
     val videoId: String = "",
     val playlistId: String? = null,
     val isAudioOnly: Boolean = false,
-    val quality: String? = null
+    val quality: String? = null,
+    val errorMessage: String? = null,
+    val lastUpdatedAt: Long = System.currentTimeMillis()
 )
 
 object DownloadProgressTracker {
+    private val cancelledByUserVideoIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    fun markCancelledByUser(videoId: String) {
+        cancelledByUserVideoIds.add(videoId)
+    }
+
+    fun isCancelledByUser(videoId: String): Boolean {
+        return cancelledByUserVideoIds.remove(videoId)
+    }
     private val _activeDownloads = MutableStateFlow<Map<Int, DownloadProgress>>(emptyMap())
     val activeDownloads: StateFlow<Map<Int, DownloadProgress>> = _activeDownloads.asStateFlow()
 
@@ -36,7 +47,8 @@ object DownloadProgressTracker {
         videoId: String = "",
         playlistId: String? = null,
         isAudioOnly: Boolean? = null,
-        quality: String? = null
+        quality: String? = null,
+        errorMessage: String? = null
     ) {
         _activeDownloads.update { current ->
             val updated = current.toMutableMap()
@@ -46,6 +58,8 @@ object DownloadProgressTracker {
             val finalPlaylistId = playlistId ?: existing?.playlistId
             val finalIsAudioOnly = isAudioOnly ?: existing?.isAudioOnly ?: false
             val finalQuality = quality ?: existing?.quality
+            val finalErrorMsg = errorMessage ?: existing?.errorMessage
+            val now = System.currentTimeMillis()
             
             if (isComplete && progress == 100) {
                 updated[id] = DownloadProgress(
@@ -60,7 +74,9 @@ object DownloadProgressTracker {
                     videoId = finalVideoId,
                     playlistId = finalPlaylistId,
                     isAudioOnly = finalIsAudioOnly,
-                    quality = finalQuality
+                    quality = finalQuality,
+                    errorMessage = null,
+                    lastUpdatedAt = now
                 )
             } else {
                 updated[id] = DownloadProgress(
@@ -75,7 +91,9 @@ object DownloadProgressTracker {
                     videoId = finalVideoId,
                     playlistId = finalPlaylistId,
                     isAudioOnly = finalIsAudioOnly,
-                    quality = finalQuality
+                    quality = finalQuality,
+                    errorMessage = finalErrorMsg,
+                    lastUpdatedAt = now
                 )
             }
             updated

@@ -98,16 +98,6 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         get() = savedStateHandle.get<Int>("explore_scroll_offset") ?: 0
         set(value) { savedStateHandle.set("explore_scroll_offset", value) }
 
-    // Shorts screen cache
-    var shortsListCache: List<org.schabi.newpipe.extractor.stream.StreamInfoItem>? = null
-    
-    var shortsCategoryCache: String
-        get() = savedStateHandle.get<String>("shorts_category") ?: "All"
-        set(value) { savedStateHandle.set("shorts_category", value) }
-        
-    var shortsCurrentIndexCache: Int
-        get() = savedStateHandle.get<Int>("shorts_index") ?: 0
-        set(value) { savedStateHandle.set("shorts_index", value) }
 
     // Subscriptions screen cache
     var subscriptionsSelectedChannelCache: String?

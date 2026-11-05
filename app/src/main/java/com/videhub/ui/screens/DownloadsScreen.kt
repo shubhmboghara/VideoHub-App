@@ -1,11 +1,16 @@
 package com.videhub.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.os.Environment
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.animation.*
+import androidx.core.content.FileProvider
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -119,6 +124,86 @@ fun formatDuration(seconds: Long): String {
     }
 }
 
+object MediaMetadataHelper {
+    data class AudioMetadata(
+        val durationMs: Long = 0L,
+        val embeddedPicture: ByteArray? = null
+    )
+
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, AudioMetadata>()
+
+    fun getMetadata(filePath: String): AudioMetadata {
+        if (filePath.isBlank()) return AudioMetadata()
+        return cache.getOrPut(filePath) {
+            try {
+                val f = File(filePath)
+                if (!f.exists() || !f.isFile) return@getOrPut AudioMetadata()
+                val mmr = MediaMetadataRetriever()
+                mmr.setDataSource(filePath)
+                val dur = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                val pic = mmr.embeddedPicture
+                mmr.release()
+                AudioMetadata(dur, pic)
+            } catch (_: Exception) {
+                AudioMetadata()
+            }
+        }
+    }
+}
+
+fun extractYouTubeId(raw: String?): String? {
+    if (raw.isNullOrBlank()) return null
+    val clean = raw.trim()
+    if (clean.length == 11 && !clean.contains("/") && !clean.contains(".") && !clean.contains("?") && !clean.contains("&")) {
+        return clean
+    }
+    val regex = Regex("""(?:v=|/v/|/embed/|youtu\.be/|/shorts/)([a-zA-Z0-9_-]{11})""")
+    return regex.find(clean)?.groupValues?.get(1)
+}
+
+fun resolveThumbnailModel(
+    rawThumbnailUrl: String?,
+    videoId: String?,
+    filePath: String
+): Any {
+    if (!rawThumbnailUrl.isNullOrBlank()) {
+        if (rawThumbnailUrl.startsWith("http://") || rawThumbnailUrl.startsWith("https://")) {
+            return rawThumbnailUrl
+        }
+        val cleanPath = if (rawThumbnailUrl.startsWith("file://")) rawThumbnailUrl.removePrefix("file://") else rawThumbnailUrl
+        val f = File(cleanPath)
+        if (f.exists() && f.isFile && f.length() > 0L) {
+            return f
+        }
+    }
+    // Local path is dead or missing (e.g. from previous app update): recover thumbnail via YouTube ID
+    val ytId = extractYouTubeId(videoId)
+        ?: extractYouTubeId(rawThumbnailUrl)
+        ?: extractYouTubeId(filePath)
+        ?: extractYouTubeId(File(filePath).nameWithoutExtension)
+    if (!ytId.isNullOrBlank()) {
+        return "https://i.ytimg.com/vi/$ytId/hqdefault.jpg"
+    }
+    val localFile = File(filePath)
+    if (localFile.exists() && localFile.isFile && localFile.length() > 0L) {
+        return localFile
+    }
+    return android.R.drawable.ic_media_play
+}
+
+fun getYouTubeLink(entity: DownloadedVideoEntity?, file: File): String {
+    val id = extractYouTubeId(entity?.videoId)
+        ?: extractYouTubeId(entity?.thumbnailUrl)
+        ?: extractYouTubeId(file.nameWithoutExtension)
+    return if (!id.isNullOrBlank()) {
+        "https://www.youtube.com/watch?v=$id"
+    } else if (entity?.videoId?.startsWith("http") == true) {
+        entity.videoId
+    } else {
+        "https://www.youtube.com/results?search_query=${android.net.Uri.encode(cleanTitle(entity?.title ?: file.nameWithoutExtension))}"
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DownloadsScreen(
@@ -171,19 +256,46 @@ fun DownloadsScreen(
     }
 
     val downloadedPlaylists by db.downloadedPlaylistDao().getDownloadedPlaylistsSummary().collectAsStateWithLifecycle(initialValue = emptyList())
-    val allDownloads by db.downloadedVideoDao().getSingleDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
+    val allDownloads by db.downloadedVideoDao().getAllDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
     val playlistDownloads by db.downloadedVideoDao().getPlaylistDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
     val activeSingleDownloadsMap by DownloadProgressTracker.activeDownloads.collectAsStateWithLifecycle(initialValue = emptyMap())
 
-    val activeDownloads: List<DownloadProgress> = remember(activeSingleDownloadsMap) {
-        activeSingleDownloadsMap.values
+    val activeDownloads: List<DownloadProgress> = remember(activeSingleDownloadsMap, allDownloads) {
+        val inMemory = activeSingleDownloadsMap.values
             .filter { it.playlistId == null && !it.isComplete }
-            .sortedBy { it.notificationId }
+            .associateBy { it.videoId }
+
+        val dbPending = allDownloads
+            .filter { it.playlistId == null && it.state in listOf("DOWNLOADING", "QUEUED", "PAUSED", "FAILED") }
+            .map { entity ->
+                val existing = inMemory[entity.videoId]
+                existing ?: DownloadProgress(
+                    notificationId = (entity.videoId.hashCode() and 0x7FFFFFFF),
+                    title = entity.title,
+                    progress = entity.progress,
+                    isComplete = entity.state == "DONE",
+                    isError = entity.state == "FAILED",
+                    downloadedBytes = entity.bytesDownloaded,
+                    totalBytes = entity.totalBytes,
+                    thumbnailUrl = entity.thumbnailUrl,
+                    videoId = entity.videoId,
+                    playlistId = entity.playlistId,
+                    isAudioOnly = entity.isAudioOnly,
+                    errorMessage = entity.errorMessage,
+                    lastUpdatedAt = entity.lastUpdatedAt
+                )
+            }
+
+        val combinedMap = dbPending.associateBy { it.videoId }.toMutableMap()
+        inMemory.forEach { (vId, p) -> combinedMap[vId] = p }
+        combinedMap.values.sortedBy { it.notificationId }
     }
 
     var filesOnDisk by remember { mutableStateOf<List<File>>(emptyList()) }
     var fileToDelete by remember { mutableStateOf<File?>(null) }
+    var itemToDelete by remember { mutableStateOf<DownloadItemData?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var selectedItemForDetails by remember { mutableStateOf<DownloadItemData?>(null) }
     var cancelTargetProgress by remember { mutableStateOf<DownloadProgress?>(null) }
     var showCancelConfirmDialog by remember { mutableStateOf(false) }
     var deletedItems by remember { mutableStateOf(setOf<String>()) }
@@ -222,8 +334,8 @@ fun DownloadsScreen(
             val dir1 = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             val dir2 = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val exts = setOf("mp4", "webm", "m4a")
-            val f1 = dir1?.takeIf { it.exists() }?.listFiles { f -> f.isFile && f.extension in exts && !f.name.endsWith(".tmp") && !f.name.endsWith(".download") }?.toList() ?: emptyList()
-            val f2 = dir2.takeIf { it.exists() }?.listFiles { f -> f.isFile && f.extension in exts && !f.name.endsWith(".tmp") && !f.name.endsWith(".download") }?.toList() ?: emptyList()
+            val f1 = dir1?.takeIf { it.exists() }?.listFiles { f -> f.isFile && f.extension in exts && !f.name.endsWith(".tmp") && !f.name.endsWith(".download") && !f.name.endsWith(".part") }?.toList() ?: emptyList()
+            val f2 = dir2.takeIf { it.exists() }?.listFiles { f -> f.isFile && f.extension in exts && !f.name.endsWith(".tmp") && !f.name.endsWith(".download") && !f.name.endsWith(".part") }?.toList() ?: emptyList()
             val merged = (f1 + f2).distinctBy { it.absolutePath }
             withContext(Dispatchers.Main) {
                 filesOnDisk = merged
@@ -232,6 +344,29 @@ fun DownloadsScreen(
     }
 
     LaunchedEffect(Unit) { loadFiles() }
+
+    // Repair missing or dead local thumbnails automatically in background
+    LaunchedEffect(allDownloads) {
+        if (allDownloads.isNotEmpty()) {
+            withContext(Dispatchers.IO) {
+                allDownloads.forEach { entity ->
+                    val rawUrl = entity.thumbnailUrl
+                    val needsRepair = rawUrl.isNullOrBlank() ||
+                            (rawUrl.startsWith("file://") && !File(rawUrl.removePrefix("file://")).exists())
+                    if (needsRepair) {
+                        val localThumb = ThumbnailDownloader.downloadThumbnail(
+                            context,
+                            entity.videoId,
+                            rawUrl
+                        )
+                        if (!localThumb.isNullOrBlank() && localThumb != rawUrl) {
+                            db.downloadedVideoDao().updateThumbnailUrl(entity.videoId, localThumb)
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Filter out files that belong to active downloads or playlist downloads so partial files NEVER appear in finished lists
     val activeVideoIds = remember(activeDownloads) { activeDownloads.map { it.videoId }.toSet() }
@@ -243,9 +378,15 @@ fun DownloadsScreen(
             !playlistFileNames.contains(file.name) &&
             !activeFileNames.contains(file.name)
         }.mapNotNull { file ->
-            val entity = allDownloads.find { it.fileName == file.name }
-            if (entity != null && activeVideoIds.contains(entity.videoId)) {
-                // Currently actively downloading - MUST NOT appear in finished list
+            val entity = allDownloads.find {
+                it.fileName == file.name ||
+                it.fileName.equals(file.name, ignoreCase = true) ||
+                file.name.contains(it.videoId) ||
+                (it.videoId.isNotBlank() && file.name.contains(it.videoId.replace(Regex("[^a-zA-Z0-9]"), ""))) ||
+                file.nameWithoutExtension.startsWith(it.title.take(20).replace(Regex("[^a-zA-Z0-9]"), "_"), ignoreCase = true)
+            }
+            if (entity != null && (entity.state != "DONE" || activeVideoIds.contains(entity.videoId))) {
+                // Partial, downloading, paused, or failed: NEVER show in completed list
                 null
             } else {
                 DownloadItemData(file, entity)
@@ -254,11 +395,21 @@ fun DownloadsScreen(
     }
 
     val videos = remember(displayItems, deletedItems) {
-        displayItems.filter { !FileUtils.isAudio(it.dbEntity, it.file.absolutePath) && !deletedItems.contains(it.file.absolutePath) }
+        displayItems.filter { item ->
+            !FileUtils.isAudio(item.dbEntity, item.file.absolutePath) &&
+            !deletedItems.contains(item.file.absolutePath) &&
+            !deletedItems.contains(item.file.name) &&
+            (item.dbEntity?.videoId == null || !deletedItems.contains(item.dbEntity.videoId))
+        }
     }
 
     val audios = remember(displayItems, deletedItems) {
-        displayItems.filter { FileUtils.isAudio(it.dbEntity, it.file.absolutePath) && !deletedItems.contains(it.file.absolutePath) }
+        displayItems.filter { item ->
+            FileUtils.isAudio(item.dbEntity, item.file.absolutePath) &&
+            !deletedItems.contains(item.file.absolutePath) &&
+            !deletedItems.contains(item.file.name) &&
+            (item.dbEntity?.videoId == null || !deletedItems.contains(item.dbEntity.videoId))
+        }
     }
 
     // Filtered & Sorted items
@@ -302,9 +453,22 @@ fun DownloadsScreen(
     }
 
     // Delete Confirmation Dialog
-    if (showDeleteDialog && fileToDelete != null) {
+    if (showDeleteDialog && (fileToDelete != null || itemToDelete != null)) {
+        val targetFile = fileToDelete ?: itemToDelete?.file
+        val targetEntity = itemToDelete?.dbEntity
+            ?: allDownloads.find { download ->
+                targetFile != null && (
+                    download.fileName == targetFile.name ||
+                    download.fileName.equals(targetFile.name, ignoreCase = true) ||
+                    (download.videoId.isNotBlank() && targetFile.name.contains(download.videoId)) ||
+                    (download.title.isNotBlank() && targetFile.nameWithoutExtension.contains(download.title.take(15)))
+                )
+            }
+        val displayTitle = targetEntity?.title ?: cleanTitle(targetFile?.nameWithoutExtension ?: "")
+        val fileSizeText = formatMB(targetFile?.length() ?: 0L)
+
         AlertDialog(
-            onDismissRequest = { showDeleteDialog = false; fileToDelete = null },
+            onDismissRequest = { showDeleteDialog = false; fileToDelete = null; itemToDelete = null },
             icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = {
                 Text(
@@ -315,7 +479,7 @@ fun DownloadsScreen(
             },
             text = {
                 Text(
-                    text = "Are you sure you want to delete '${cleanTitle(fileToDelete?.nameWithoutExtension ?: "")}' (${formatMB(fileToDelete?.length() ?: 0L)})?",
+                    text = "Are you sure you want to delete '$displayTitle' ($fileSizeText)?",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -323,14 +487,89 @@ fun DownloadsScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        fileToDelete?.let { f ->
-                            if (f.exists()) f.delete()
-                            deletedItems = deletedItems + f.absolutePath
-                            scope.launch { db.downloadedVideoDao().deleteDownloadByFileName(f.name) }
-                            Toast.makeText(context, "File deleted", Toast.LENGTH_SHORT).show()
-                        }
+                        val f = targetFile
+                        val entity = targetEntity
+
                         showDeleteDialog = false
                         fileToDelete = null
+                        itemToDelete = null
+
+                        // Mark in-memory deleted set immediately to instantly hide from UI
+                        val idsToAdd = mutableSetOf<String>()
+                        if (f != null) {
+                            idsToAdd.add(f.absolutePath)
+                            idsToAdd.add(f.name)
+                            idsToAdd.add(f.nameWithoutExtension)
+                        }
+                        if (entity != null) {
+                            if (entity.videoId.isNotBlank()) idsToAdd.add(entity.videoId)
+                            if (entity.fileName.isNotBlank()) idsToAdd.add(entity.fileName)
+                        }
+                        deletedItems = deletedItems + idsToAdd
+
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                // 1. Thorough physical file deletion across all download directories
+                                val dir1 = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                                val dir2 = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                                val thumbnailDir = File(context.filesDir, "thumbnails")
+
+                                listOfNotNull(dir1, dir2, context.filesDir, context.cacheDir).forEach { dir ->
+                                    if (dir.exists()) {
+                                        dir.listFiles()?.forEach { match ->
+                                            val isMatch = (f != null && (match.name == f.name || match.nameWithoutExtension == f.nameWithoutExtension)) ||
+                                                    (entity != null && entity.videoId.isNotBlank() && match.name.contains(entity.videoId)) ||
+                                                    (entity != null && entity.fileName.isNotBlank() && match.name == entity.fileName)
+                                            if (isMatch) {
+                                                try {
+                                                    if (!match.delete()) {
+                                                        try {
+                                                            java.io.FileOutputStream(match).use { it.write(ByteArray(0)) }
+                                                            match.delete()
+                                                        } catch (_: Exception) {}
+                                                    }
+                                                } catch (_: Exception) {}
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (entity != null && thumbnailDir.exists()) {
+                                    val thumbFile = File(thumbnailDir, "${entity.videoId}.jpg")
+                                    if (thumbFile.exists()) try { thumbFile.delete() } catch (_: Exception) {}
+                                }
+
+                                // 2. Delete database records in Room across all matching keys
+                                if (entity != null) {
+                                    db.downloadedVideoDao().deleteDownload(entity)
+                                    if (entity.videoId.isNotBlank()) {
+                                        db.downloadedVideoDao().deleteDownloadByVideoIdAndPlaylist(entity.videoId, entity.playlistId ?: "")
+                                        db.downloadedVideoDao().deletePlaceholderByVideoId(entity.videoId)
+                                        db.savedLyricsDao().deleteLyrics(entity.videoId)
+                                        if (!entity.playlistId.isNullOrBlank()) {
+                                            db.downloadedPlaylistDao().deletePlaylistVideoCrossRef(entity.playlistId, entity.videoId)
+                                        }
+                                    }
+                                    if (entity.fileName.isNotBlank()) {
+                                        db.downloadedVideoDao().deleteDownloadByFileName(entity.fileName)
+                                    }
+                                }
+                                if (f != null) {
+                                    db.downloadedVideoDao().deleteDownloadByFileName(f.name)
+                                    db.downloadedVideoDao().deleteDownloadByFileName(f.nameWithoutExtension)
+                                }
+
+                                // 3. Reload files on disk & update UI state on Main thread
+                                withContext(Dispatchers.Main) {
+                                    loadFiles()
+                                    Toast.makeText(context, "Deleted '$displayTitle'", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "Error deleting file: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
@@ -338,7 +577,7 @@ fun DownloadsScreen(
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { showDeleteDialog = false; fileToDelete = null }) {
+                OutlinedButton(onClick = { showDeleteDialog = false; fileToDelete = null; itemToDelete = null }) {
                     Text("Cancel")
                 }
             }
@@ -355,6 +594,10 @@ fun DownloadsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
+                        com.videhub.utils.DownloadProgressTracker.markCancelledByUser(progressItem.videoId)
+                        androidx.work.WorkManager.getInstance(context).cancelUniqueWork(
+                            com.videhub.service.DownloadWorker.getUniqueWorkName(progressItem.videoId, progressItem.playlistId)
+                        )
                         val cancelIntent = android.content.Intent(context, DownloadService::class.java).apply {
                             action = "CANCEL_${progressItem.notificationId}"
                         }
@@ -365,6 +608,8 @@ fun DownloadsScreen(
 
                         scope.launch(Dispatchers.IO) {
                             try {
+                                val tempDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                                tempDir?.listFiles { f -> f.name.contains(progressItem.videoId) && f.name.endsWith(".part") }?.forEach { it.delete() }
                                 db.downloadedVideoDao().deletePlaceholderByVideoId(progressItem.videoId)
                             } catch (_: Exception) {}
                         }
@@ -380,6 +625,29 @@ fun DownloadsScreen(
                 TextButton(onClick = { showCancelConfirmDialog = false; cancelTargetProgress = null }) {
                     Text("Keep Download")
                 }
+            }
+        )
+    }
+
+    if (selectedItemForDetails != null) {
+        DownloadItemDetailsSheet(
+            item = selectedItemForDetails!!,
+            onDismiss = { selectedItemForDetails = null },
+            onPlay = { isMusic ->
+                val target = selectedItemForDetails ?: return@DownloadItemDetailsSheet
+                selectedItemForDetails = null
+                onVideoClick(
+                    target.file.absolutePath,
+                    target.dbEntity?.title ?: cleanTitle(target.file.nameWithoutExtension),
+                    target.dbEntity?.thumbnailUrl ?: "",
+                    isMusic
+                )
+            },
+            onDelete = {
+                itemToDelete = selectedItemForDetails
+                fileToDelete = selectedItemForDetails?.file
+                selectedItemForDetails = null
+                showDeleteDialog = true
             }
         )
     }
@@ -524,6 +792,38 @@ fun DownloadsScreen(
                                     }
                                 )
                             }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            DropdownMenuItem(
+                                text = { Text("Clean & Repair Storage", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold) },
+                                onClick = {
+                                    showSortMenu = false
+                                    scope.launch(Dispatchers.IO) {
+                                        try {
+                                            var cleanedCount = 0
+                                            val dir1 = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                                            val dir2 = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                                            listOfNotNull(dir1, dir2).forEach { dir ->
+                                                if (dir.exists()) {
+                                                    dir.listFiles { f -> f.length() == 0L || f.name.endsWith(".tmp") || f.name.endsWith(".part") }?.forEach {
+                                                        if (it.delete()) cleanedCount++
+                                                    }
+                                                }
+                                            }
+                                            withContext(Dispatchers.Main) {
+                                                loadFiles()
+                                                Toast.makeText(context, if (cleanedCount > 0) "Cleaned $cleanedCount broken files" else "Storage healthy!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            withContext(Dispatchers.Main) {
+                                                Toast.makeText(context, "Storage repair completed", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.CleaningServices, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            )
                         }
                     }
                 },
@@ -693,18 +993,16 @@ fun DownloadsScreen(
                                 showCancelConfirmDialog = true
                             },
                             onRetry = {
-                                val retryIntent = android.content.Intent(context, DownloadService::class.java).apply {
-                                    putExtra("title", progress.title)
-                                    putExtra("videoId", progress.videoId)
-                                    putExtra("thumbnailUrl", progress.thumbnailUrl)
-                                    putExtra("isAudioOnly", progress.isAudioOnly)
-                                    putExtra("quality", progress.quality)
-                                }
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                    context.startForegroundService(retryIntent)
-                                } else {
-                                    context.startService(retryIntent)
-                                }
+                                com.videhub.service.DownloadWorker.enqueueDownload(
+                                    context = context,
+                                    videoId = progress.videoId,
+                                    title = progress.title,
+                                    thumbnailUrl = progress.thumbnailUrl ?: "",
+                                    isAudioOnly = progress.isAudioOnly,
+                                    quality = progress.quality,
+                                    playlistId = progress.playlistId,
+                                    replace = true
+                                )
                                 Toast.makeText(context, "Retrying download...", Toast.LENGTH_SHORT).show()
                             }
                         )
@@ -743,12 +1041,37 @@ fun DownloadsScreen(
                                 filteredPlaylists,
                                 key = { index, playlist -> "pl_${playlist.playlistId}_$index" }
                             ) { _, playlist ->
-                                PlaylistDownloadCard(
-                                    playlist = playlist,
-                                    onClick = {
-                                        navController.navigate(com.videhub.navigation.Screen.DownloadedPlaylistDetail.createRoute(playlist.playlistId))
+                                if (playlist.playlistId.equals("WL", ignoreCase = true)) {
+                                    val wlEntity = remember(playlist) {
+                                        com.videhub.data.entity.DownloadedPlaylistEntity(
+                                            playlistId = playlist.playlistId,
+                                            title = playlist.playlistName ?: "Watch Later",
+                                            thumbnailUrl = playlist.coverThumbnailUrl,
+                                            totalCount = playlist.totalVideos,
+                                            completedCount = playlist.videoCount,
+                                            state = playlist.state,
+                                            progress = playlist.progress,
+                                            downloadedBytes = playlist.downloadedBytes,
+                                            totalBytes = playlist.totalBytes,
+                                            currentVideoIndex = playlist.currentVideoIndex,
+                                            currentVideoProgress = playlist.currentVideoProgress
+                                        )
                                     }
-                                )
+                                    com.videhub.ui.components.WatchLaterCard(
+                                        playlist = wlEntity,
+                                        onClick = {
+                                            navController.navigate("watch_later")
+                                        },
+                                        modifier = Modifier.width(220.dp)
+                                    )
+                                } else {
+                                    PlaylistDownloadCard(
+                                        playlist = playlist,
+                                        onClick = {
+                                            navController.navigate(com.videhub.navigation.Screen.DownloadedPlaylistDetail.createRoute(playlist.playlistId))
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -788,6 +1111,7 @@ fun DownloadsScreen(
                             thumbnailUrl = item.dbEntity?.thumbnailUrl,
                             fileSize = formatMB(item.file.length()),
                             audioFilePath = item.file.absolutePath,
+                            videoId = item.dbEntity?.videoId,
                             onClick = {
                                 com.videhub.QueueManager.clear()
                                 val validItems = filteredAudios
@@ -812,7 +1136,7 @@ fun DownloadsScreen(
                                     true
                                 )
                             },
-                            onMoreClick = { fileToDelete = item.file; showDeleteDialog = true }
+                            onMoreClick = { selectedItemForDetails = item }
                         )
                     }
                 }
@@ -851,6 +1175,7 @@ fun DownloadsScreen(
                             thumbnailUrl = item.dbEntity?.thumbnailUrl,
                             fileSize = formatMB(item.file.length()),
                             videoFilePath = item.file.absolutePath,
+                            videoId = item.dbEntity?.videoId,
                             onClick = {
                                 com.videhub.QueueManager.clear()
                                 val validItems = filteredVideos
@@ -875,7 +1200,7 @@ fun DownloadsScreen(
                                     false
                                 )
                             },
-                            onMoreClick = { fileToDelete = item.file; showDeleteDialog = true }
+                            onMoreClick = { selectedItemForDetails = item }
                         )
                     }
                 }
@@ -888,39 +1213,54 @@ fun DownloadsScreen(
 @Composable
 fun MusicThumbnail(
     url: String?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    audioFilePath: String? = null,
+    videoId: String? = null
 ) {
     val context = LocalContext.current
-    var isError by remember(url) { mutableStateOf(false) }
+    var isError by remember(url, audioFilePath, videoId) { mutableStateOf(false) }
+
+    val resolvedModel: Any? = remember(url, audioFilePath, videoId, isError) {
+        if (isError) null
+        else {
+            val model = resolveThumbnailModel(url, videoId, audioFilePath ?: "")
+            if (model is Int) null else model
+        }
+    }
 
     Box(
         modifier = modifier
-            .size(100.dp)
+            .size(96.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), RoundedCornerShape(14.dp)),
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(14.dp)),
         contentAlignment = Alignment.Center
     ) {
-        if (!url.isNullOrBlank() && !isError) {
+        if (resolvedModel != null) {
             // Blurred-background layer (Android 12+ / API 31+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 AsyncImage(
                     model = coil.request.ImageRequest.Builder(context)
-                        .data(url)
+                        .data(resolvedModel)
                         .crossfade(true)
                         .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxSize()
-                        .blur(18.dp)
+                        .blur(16.dp)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.32f))
                 )
             }
 
             // Foreground layer - keeps full 16:9 thumbnail centered without clipping edges!
             AsyncImage(
                 model = coil.request.ImageRequest.Builder(context)
-                    .data(url)
+                    .data(resolvedModel)
                     .crossfade(true)
                     .build(),
                 contentDescription = null,
@@ -928,6 +1268,8 @@ fun MusicThumbnail(
                 onError = { isError = true },
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(2.dp)
+                    .clip(RoundedCornerShape(8.dp))
                     .align(Alignment.Center)
             )
 
@@ -935,6 +1277,7 @@ fun MusicThumbnail(
             Surface(
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primary,
+                shadowElevation = 2.dp,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(6.dp)
@@ -957,7 +1300,7 @@ fun MusicThumbnail(
                     .background(
                         androidx.compose.ui.graphics.Brush.radialGradient(
                             colors = listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
                                 MaterialTheme.colorScheme.surfaceContainerHighest
                             )
                         )
@@ -1008,7 +1351,8 @@ fun ActiveDownloadCard(
             ) {
                 if (item.isAudioOnly) {
                     MusicThumbnail(
-                        url = item.thumbnailUrl
+                        url = item.thumbnailUrl,
+                        videoId = item.videoId
                     )
                 } else {
                     Box(
@@ -1072,22 +1416,34 @@ fun ActiveDownloadCard(
                             )
                         }
 
-                        val sizeText = if (item.totalBytes > 0)
+                        val isStalled = !item.isComplete && !item.isError && !isPaused && (System.currentTimeMillis() - item.lastUpdatedAt > 60_000L)
+
+                        val statusText = if (isPaused) {
+                            "Paused"
+                        } else if (item.isError) {
+                            item.errorMessage ?: "Failed • Tap to retry"
+                        } else if (isStalled) {
+                            "Stalled • Tap to retry"
+                        } else if (item.totalBytes > 0) {
                             "${formatMB(item.downloadedBytes)} / ${formatMB(item.totalBytes)}"
-                        else if (item.progress >= 0)
+                        } else if (item.progress >= 0) {
                             "${item.progress}%"
-                        else
+                        } else {
                             "Connecting..."
+                        }
 
                         Text(
-                            text = if (isPaused) "Paused" else sizeText,
+                            text = statusText,
                             fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (item.isError || isStalled) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = if (item.isError || isStalled) Modifier.clickable { onRetry() } else Modifier
                         )
                     }
                 }
+
+                val isStalledCard = !item.isComplete && !item.isError && !isPaused && (System.currentTimeMillis() - item.lastUpdatedAt > 60_000L)
 
                 Spacer(modifier = Modifier.width(16.dp))
 
@@ -1095,7 +1451,7 @@ fun ActiveDownloadCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    if (item.isError) {
+                    if (item.isError || isStalledCard) {
                         IconButton(
                             onClick = onRetry,
                             modifier = Modifier.size(36.dp)
@@ -1160,23 +1516,39 @@ fun PlaylistDownloadCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val activeSingleDownloadsMap by DownloadProgressTracker.activeDownloads.collectAsStateWithLifecycle(initialValue = emptyMap())
+    val isDownloading = playlist.state.equals("DOWNLOADING", ignoreCase = true) || 
+        playlist.state.equals("PREPARING", ignoreCase = true) || 
+        (playlist.totalVideos > 0 && playlist.videoCount < playlist.totalVideos)
+    val isPreparing = playlist.state.equals("PREPARING", ignoreCase = true) || (isDownloading && playlist.totalVideos <= 0)
 
-    val isDownloading = playlist.videoCount < playlist.totalVideos
-    val activeItems = activeSingleDownloadsMap.values.filter { it.playlistId == playlist.playlistId && !it.isComplete && it.progress > 0 }
-    val partialProgress = if (activeItems.isNotEmpty() && playlist.totalVideos > 0) {
-        activeItems.sumOf { (it.progress.coerceAtLeast(0).toFloat() / 100f).toDouble() }.toFloat() / playlist.totalVideos.toFloat()
+    val progressPercent = if (playlist.totalVideos > 0) {
+        val currItemProg = playlist.currentVideoProgress.coerceIn(0, 100) / 100f
+        ((playlist.videoCount.toFloat() + currItemProg) / playlist.totalVideos.toFloat()).coerceIn(0f, 1f)
     } else 0f
 
-    val progressPercent = if (playlist.totalVideos > 0) (playlist.videoCount.toFloat() / playlist.totalVideos.toFloat()) + partialProgress else 0f
+    val overallProgInt = (progressPercent * 100).toInt().coerceIn(0, 100)
+
+    val subtitleText = when {
+        isPreparing -> "Preparing…"
+        isDownloading -> {
+            val currIdx = if (playlist.currentVideoIndex > 0) playlist.currentVideoIndex else (playlist.videoCount + 1).coerceAtMost(playlist.totalVideos)
+            "Downloading $currIdx of ${playlist.totalVideos} • $overallProgInt%"
+        }
+        playlist.state.equals("FAILED", ignoreCase = true) -> "Download failed"
+        else -> "${playlist.videoCount} videos • ${formatMB(playlist.totalBytes.takeIf { it > 0 } ?: playlist.downloadedBytes)}"
+    }
 
     com.videhub.ui.components.PlaylistCard(
         title = playlist.playlistName ?: "Unknown Playlist",
-        subtitle = "${playlist.videoCount} / ${playlist.totalVideos} videos",
+        subtitle = subtitleText,
         thumbnailUrl = playlist.coverThumbnailUrl,
         onClick = onClick,
         modifier = modifier.width(220.dp),
-        downloadProgress = if (isDownloading) progressPercent else null
+        downloadProgress = if (isDownloading) progressPercent else null,
+        state = playlist.state,
+        currentTrackIndex = if (playlist.currentVideoIndex > 0) playlist.currentVideoIndex else (playlist.videoCount + 1),
+        totalCount = playlist.totalVideos,
+        itemProgress = playlist.currentVideoProgress
     )
 }
 
@@ -1189,20 +1561,29 @@ fun SpotifyMusicItem(
     thumbnailUrl: String?,
     fileSize: String,
     audioFilePath: String,
+    videoId: String? = null,
     onClick: () -> Unit,
     onMoreClick: () -> Unit
 ) {
+    val meta = remember(audioFilePath) {
+        MediaMetadataHelper.getMetadata(audioFilePath)
+    }
+    val durationStr = remember(meta.durationMs) {
+        formatDuration(meta.durationMs / 1000)
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(112.dp)
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         MusicThumbnail(
-            url = if (!thumbnailUrl.isNullOrBlank()) thumbnailUrl else if (audioFilePath.isNotBlank()) audioFilePath else null
+            url = thumbnailUrl,
+            audioFilePath = audioFilePath,
+            videoId = videoId
         )
 
         Column(
@@ -1211,16 +1592,26 @@ fun SpotifyMusicItem(
         ) {
             Text(
                 text = title,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 20.sp,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(5.dp))
+            val metaLine = buildString {
+                append("♪ ")
+                append(if (artist.isNotBlank()) artist else "Music")
+                if (durationStr.isNotBlank()) {
+                    append(" • ")
+                    append(durationStr)
+                }
+                append(" • ")
+                append(fileSize)
+            }
             Text(
-                text = "♪ ${if (artist.isNotBlank()) artist else "Music"} • $fileSize",
+                text = metaLine,
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -1234,7 +1625,7 @@ fun SpotifyMusicItem(
         ) {
             Icon(
                 imageVector = Icons.Default.MoreVert,
-                contentDescription = "More options",
+                contentDescription = "Options and link for $title",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -1250,13 +1641,20 @@ fun YouTubeVideoItem(
     thumbnailUrl: String?,
     fileSize: String,
     videoFilePath: String,
+    videoId: String? = null,
     onClick: () -> Unit,
     onMoreClick: () -> Unit
 ) {
+    val meta = remember(videoFilePath) {
+        MediaMetadataHelper.getMetadata(videoFilePath)
+    }
+    val durationStr = remember(meta.durationMs) {
+        formatDuration(meta.durationMs / 1000)
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(108.dp)
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1264,15 +1662,18 @@ fun YouTubeVideoItem(
     ) {
         Box(
             modifier = Modifier
-                .width(156.dp)
+                .width(148.dp)
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
         ) {
-            val modelToUse = if (!thumbnailUrl.isNullOrBlank()) thumbnailUrl else File(videoFilePath)
+            val modelToUse = remember(thumbnailUrl, videoFilePath, videoId) {
+                resolveThumbnailModel(thumbnailUrl, videoId, videoFilePath)
+            }
             AsyncImage(
                 model = coil.request.ImageRequest.Builder(LocalContext.current)
                     .data(modelToUse)
+                    .crossfade(true)
                     .error(android.R.drawable.ic_media_play)
                     .build(),
                 contentDescription = title,
@@ -1280,16 +1681,16 @@ fun YouTubeVideoItem(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Video HD Badge Overlay
+            // Duration badge at bottom-right
             Surface(
                 shape = RoundedCornerShape(4.dp),
-                color = Color.Black.copy(alpha = 0.75f),
+                color = Color.Black.copy(alpha = 0.8f),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(6.dp)
             ) {
                 Text(
-                    text = "HD",
+                    text = if (durationStr.isNotBlank()) durationStr else "HD",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -1304,16 +1705,17 @@ fun YouTubeVideoItem(
         ) {
             Text(
                 text = title,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 20.sp,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(5.dp))
+            val metaLine = if (channel.isNotBlank()) "$channel • $fileSize" else fileSize
             Text(
-                text = if (channel.isNotBlank()) "$channel • $fileSize" else fileSize,
+                text = metaLine,
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -1327,9 +1729,142 @@ fun YouTubeVideoItem(
         ) {
             Icon(
                 imageVector = Icons.Default.MoreVert,
-                contentDescription = "More options",
+                contentDescription = "Options and link for $title",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+// ── Download Item Details BottomSheet ─────────────────────────────────────────
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DownloadItemDetailsSheet(
+    item: DownloadItemData,
+    onDismiss: () -> Unit,
+    onPlay: (isMusic: Boolean) -> Unit,
+    onDelete: () -> Unit
+) {
+    val context = LocalContext.current
+    val isAudio = FileUtils.isAudio(item.dbEntity, item.file.absolutePath)
+    val title = item.dbEntity?.title ?: cleanTitle(item.file.nameWithoutExtension)
+    val artist = cleanChannelName(item.dbEntity?.channelName ?: if (isAudio) "Music" else "Video")
+    val fullLink = remember(item) { getYouTubeLink(item.dbEntity, item.file) }
+    val meta = remember(item.file.absolutePath) {
+        MediaMetadataHelper.getMetadata(item.file.absolutePath)
+    }
+    val durationStr = remember(meta.durationMs) { formatDuration(meta.durationMs / 1000) }
+    val fileSize = formatMB(item.file.length())
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            // Header: Artwork + Full Title + Metadata
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                if (isAudio) {
+                    MusicThumbnail(
+                        url = item.dbEntity?.thumbnailUrl,
+                        audioFilePath = item.file.absolutePath,
+                        videoId = item.dbEntity?.videoId,
+                        modifier = Modifier.size(80.dp)
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .width(120.dp)
+                            .aspectRatio(16f / 9f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    ) {
+                        val model = remember(item) {
+                            resolveThumbnailModel(item.dbEntity?.thumbnailUrl, item.dbEntity?.videoId, item.file.absolutePath)
+                        }
+                        AsyncImage(
+                            model = model,
+                            contentDescription = title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = artist,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = listOfNotNull(
+                            if (durationStr.isNotBlank()) durationStr else null,
+                            fileSize,
+                            if (isAudio) "Audio (M4A)" else "Video (MP4)"
+                        ).joinToString(" • "),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(Modifier.height(16.dp))
+
+
+
+            // Actions: Play & Delete
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = {
+                        onDismiss()
+                        onPlay(isAudio)
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (isAudio) "Play Music" else "Play Video")
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        onDismiss()
+                        onDelete()
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.DeleteOutline, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Delete")
+                }
+            }
         }
     }
 }
@@ -1350,3 +1885,4 @@ fun MusicThumbnailNullPreview() {
         MusicThumbnail(url = null)
     }
 }
+
