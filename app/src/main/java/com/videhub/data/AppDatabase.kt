@@ -46,7 +46,7 @@ import androidx.room.migration.Migration
         com.videhub.data.entity.SearchCacheEntity::class,
         com.videhub.data.entity.VideoMetadataEntity::class
     ],
-    version = 25,
+    version = 26,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

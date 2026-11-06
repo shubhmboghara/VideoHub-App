@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.unit.sp
@@ -49,7 +50,10 @@ import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 
-@kotlin.OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@kotlin.OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class
+)
 @Composable
 fun HomeScreen(
     sharedViewModel: com.videhub.viewmodel.MainViewModel,
@@ -413,79 +417,19 @@ fun HomeScreen(
         return
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                androidx.compose.foundation.Image(
-                    painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_logo),
-                    contentDescription = "Logo",
-                    modifier = Modifier.size(40.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "VideoHub",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
-            
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    onClick = { showInterestsSheet = true },
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .size(48.dp)
-                        .semantics {
-                            contentDescription = "Personalize interests and topics"
-                        }
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Filled.Tune,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
 
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    onClick = onSearchClick,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .size(48.dp)
-                        .semantics {
-                            contentDescription = "Search videos, channels, and playlists"
-                        }
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Filled.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-            }
-        }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection)
+    ) {
+        com.videhub.ui.components.VideoHubTopBar(
+            showFilter = true,
+            onSearch = onSearchClick,
+            onFilter = { showInterestsSheet = true },
+            scrollBehavior = scrollBehavior
+        )
         
         Row(
             modifier = Modifier
@@ -551,7 +495,7 @@ fun HomeScreen(
                     Surface(
                         modifier = Modifier
                             .minimumInteractiveComponentSize()
-                            .size(36.dp)
+                            .size(48.dp)
                             .semantics {
                                 contentDescription = "Add custom category"
                             },
@@ -562,7 +506,7 @@ fun HomeScreen(
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 Icons.Default.Add,
-                                contentDescription = null,
+                                contentDescription = "Add custom category",
                                 tint = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -888,4 +832,18 @@ fun HomeScreen(
     }
 }
 
-
+@OptIn(ExperimentalMaterial3Api::class)
+@androidx.compose.ui.tooling.preview.Preview(showBackground = true)
+@Composable
+fun HomeScreenPreview() {
+    MaterialTheme(colorScheme = darkColorScheme()) {
+        Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            com.videhub.ui.components.VideoHubTopBar(
+                showFilter = true,
+                onSearch = {},
+                onFilter = {}
+            )
+            VideoCardShimmer()
+        }
+    }
+}

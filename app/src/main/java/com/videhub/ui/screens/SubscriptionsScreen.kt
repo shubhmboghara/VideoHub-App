@@ -42,11 +42,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubscriptionsScreen(
     sharedViewModel: com.videhub.viewmodel.MainViewModel,
     onVideoClick: (String, String, String) -> Unit,
-    onChannelClick: (String) -> Unit
+    onChannelClick: (String) -> Unit,
+    onSearchClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -186,7 +190,23 @@ fun SubscriptionsScreen(
         }
     }
 
-    if (isInitialLoadingChannels) {
+    var showInterestsSheet by remember { mutableStateOf(false) }
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection)
+    ) {
+        com.videhub.ui.components.VideoHubTopBar(
+            showFilter = true,
+            onSearch = onSearchClick,
+            onFilter = { showInterestsSheet = true },
+            scrollBehavior = scrollBehavior
+        )
+
+        Box(modifier = Modifier.weight(1f)) {
+            if (isInitialLoadingChannels) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
@@ -248,7 +268,10 @@ fun SubscriptionsScreen(
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(
-                        onClick = { selectedChannel?.let { onChannelClick(it.channelId) } }
+                        onClick = { selectedChannel?.let { onChannelClick(it.channelId) } },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .size(48.dp)
                     ) {
                         Icon(
                             Icons.Default.Notifications,
@@ -263,6 +286,7 @@ fun SubscriptionsScreen(
             if (isLoadingVideos) {
                 items(4) { com.videhub.ui.components.VideoRowShimmer() }
             } else {
+                val isSingleChannel = selectedChannel != null || channels.size == 1
                 items(
                     count = latestVideos.size,
                     key = { index -> "${latestVideos[index].url ?: index.toString()}_$index" }
@@ -277,13 +301,14 @@ fun SubscriptionsScreen(
                     
                     val videoAvatar = try { video.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null }
                     val candidateAvatar = videoAvatar ?: selectedChannel?.thumbnailUrl
-                    val safeAvatar = candidateAvatar?.takeIf { !com.videhub.utils.AvatarHelper.isVideoThumbnail(it) }
+                    val safeAvatar = if (isSingleChannel) null else candidateAvatar?.takeIf { !com.videhub.utils.AvatarHelper.isVideoThumbnail(it) }
+                    val displayUploaderName = if (isSingleChannel) "" else (video.uploaderName ?: "")
 
                     com.videhub.ui.components.VideoRowItem(
                             modifier = Modifier.animateItem(),
                             videoUrl = video.url ?: "",
                             title = video.name ?: "",
-                            uploaderName = video.uploaderName ?: "",
+                            uploaderName = displayUploaderName,
                             thumbnailUrl = video.thumbnails?.firstOrNull()?.url,
                             duration = video.duration,
                             viewCount = video.viewCount ?: 0,
@@ -295,7 +320,7 @@ fun SubscriptionsScreen(
                                 val url = video.url ?: ""
                                 if (url.isNotBlank()) {
                                     onVideoClick(url, video.name ?: "", video.thumbnails?.firstOrNull()?.url ?: "")
-                            }
+                                }
                             }
                         )
                     }
@@ -315,8 +340,16 @@ fun SubscriptionsScreen(
                 }
             }
         }
-        }
     }
+
+    if (showInterestsSheet) {
+        com.videhub.ui.components.InterestsBottomSheet(
+            onDismiss = { showInterestsSheet = false }
+        )
+    }
+}
+}
+}
 
 // ── Channel avatar chip ──────────────────────────────────────────────────────
 @Composable
@@ -402,3 +435,43 @@ private fun ChannelAvatarItem(modifier: Modifier = Modifier,
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 private fun formatViewCount(count: Long): String = com.videhub.utils.FormatHelper.formatCount(count)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@androidx.compose.ui.tooling.preview.Preview(showBackground = true)
+@Composable
+fun SubscriptionsScreenPreview() {
+    MaterialTheme(colorScheme = darkColorScheme()) {
+        Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            com.videhub.ui.components.VideoHubTopBar(
+                showFilter = true,
+                onSearch = {},
+                onFilter = {}
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Tech Channel",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            com.videhub.ui.components.VideoRowItem(
+                videoUrl = "",
+                title = "Building Jetpack Compose Apps in 2026",
+                uploaderName = "",
+                thumbnailUrl = null,
+                duration = 645,
+                viewCount = 128000,
+                uploadDate = "2 days ago",
+                uploaderAvatarUrl = null,
+                onClick = {}
+            )
+        }
+    }
+}

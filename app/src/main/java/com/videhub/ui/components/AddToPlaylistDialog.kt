@@ -65,10 +65,9 @@ fun AddToPlaylistDialog(
             // Check Watch Later state
             isSavedInWatchLater = db.watchLaterDao().isInWatchLater(videoUrl)
 
-            // Watch Later cover thumbnail
+            // Watch Later cover thumbnail (ONLY use thumbnail of videos actually saved in Watch Later)
             val wlAll = db.watchLaterDao().getAllOnce()
             watchLaterCover = wlAll.firstOrNull { !it.thumbnailUrl.isNullOrBlank() }?.thumbnailUrl
-                ?: thumbnailUrl.takeIf { it.isNotBlank() }
 
             // Custom Playlists
             val allPlaylists = db.playlistDao().getAllPlaylistsOnce()
@@ -134,6 +133,8 @@ fun AddToPlaylistDialog(
                                     if (isSavedInWatchLater) {
                                         db.watchLaterDao().deleteById(videoUrl)
                                         isSavedInWatchLater = false
+                                        val remainingWl = db.watchLaterDao().getAllOnce()
+                                        watchLaterCover = remainingWl.firstOrNull { !it.thumbnailUrl.isNullOrBlank() }?.thumbnailUrl
                                         withContext(Dispatchers.Main) {
                                             Toast.makeText(context, "Removed from Watch later", Toast.LENGTH_SHORT).show()
                                         }
@@ -147,6 +148,9 @@ fun AddToPlaylistDialog(
                                             )
                                         )
                                         isSavedInWatchLater = true
+                                        if (watchLaterCover == null) {
+                                            watchLaterCover = thumbnailUrl
+                                        }
                                         withContext(Dispatchers.Main) {
                                             Toast.makeText(context, "Saved to Watch later", Toast.LENGTH_SHORT).show()
                                         }
@@ -165,7 +169,7 @@ fun AddToPlaylistDialog(
                                 .background(MaterialTheme.colorScheme.surfaceVariant),
                             contentAlignment = Alignment.Center
                         ) {
-                            val thumbToUse = watchLaterCover ?: thumbnailUrl
+                            val thumbToUse = watchLaterCover
                             if (!thumbToUse.isNullOrBlank()) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(LocalContext.current)
@@ -213,7 +217,7 @@ fun AddToPlaylistDialog(
                 // Subsequent Items: Custom Playlists (if any)
                 items(playlists, key = { it.id }) { playlist ->
                     val isSavedInThis = playlist.id in savedPlaylistIds
-                    val cover = playlistCovers[playlist.id] ?: thumbnailUrl
+                    val cover = playlistCovers[playlist.id]
 
                     Row(
                         modifier = Modifier
@@ -224,6 +228,9 @@ fun AddToPlaylistDialog(
                                     if (isSavedInThis) {
                                         db.playlistDao().deleteVideoByPair(playlist.id, videoUrl)
                                         savedPlaylistIds = savedPlaylistIds - playlist.id
+                                        val remainingVideos = db.playlistDao().getVideosOnce(playlist.id)
+                                        val newCover = remainingVideos.firstOrNull { !it.thumbnailUrl.isNullOrBlank() }?.thumbnailUrl
+                                        playlistCovers = playlistCovers + (playlist.id to newCover)
                                         withContext(Dispatchers.Main) {
                                             Toast.makeText(context, "Removed from '${playlist.name}'", Toast.LENGTH_SHORT).show()
                                         }
@@ -238,6 +245,9 @@ fun AddToPlaylistDialog(
                                             )
                                         )
                                         savedPlaylistIds = savedPlaylistIds + playlist.id
+                                        if (playlistCovers[playlist.id] == null) {
+                                            playlistCovers = playlistCovers + (playlist.id to thumbnailUrl)
+                                        }
                                         withContext(Dispatchers.Main) {
                                             Toast.makeText(context, "Added to '${playlist.name}'", Toast.LENGTH_SHORT).show()
                                         }

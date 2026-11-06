@@ -338,6 +338,10 @@ fun WatchLaterScreen(
             viewModel.deleteVideoFileOnly(video)
             Toast.makeText(context, "Deleted download for '${video.title}'", Toast.LENGTH_SHORT).show()
         },
+        onDownloadSingleVideo = { video ->
+            viewModel.retrySingleVideo(video.videoId)
+            Toast.makeText(context, "Download started for '${video.title}'", Toast.LENGTH_SHORT).show()
+        },
         snackbarHostState = snackbarHostState
     )
 }
@@ -365,6 +369,7 @@ fun WatchLaterDetailContent(
     onOpenSaveToPlaylist: (DownloadedVideoEntity) -> Unit = {},
     onRemoveVideoFromWatchLater: (DownloadedVideoEntity) -> Unit = {},
     onDeleteVideoFile: (DownloadedVideoEntity) -> Unit = {},
+    onDownloadSingleVideo: (DownloadedVideoEntity) -> Unit = {},
     snackbarHostState: SnackbarHostState? = null
 ) {
     val context = LocalContext.current
@@ -924,7 +929,7 @@ fun WatchLaterDetailContent(
                                     )
                                     DropdownMenuItem(
                                         text = { Text("Save to playlist") },
-                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null) },
+                                        leadingIcon = { Icon(Icons.Default.Bookmark, contentDescription = null) },
                                         onClick = {
                                             showRowMenu = false
                                             onOpenSaveToPlaylist(video)
@@ -932,18 +937,27 @@ fun WatchLaterDetailContent(
                                     )
                                     if (isDone) {
                                         DropdownMenuItem(
-                                            text = { Text("Delete download file", color = MaterialTheme.colorScheme.error) },
-                                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                            text = { Text("Delete download") },
+                                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
                                             onClick = {
                                                 showRowMenu = false
                                                 onDeleteVideoFile(video)
                                             }
                                         )
+                                    } else {
+                                        DropdownMenuItem(
+                                            text = { Text("Download") },
+                                            leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
+                                            onClick = {
+                                                showRowMenu = false
+                                                onDownloadSingleVideo(video)
+                                            }
+                                        )
                                     }
                                     HorizontalDivider()
                                     DropdownMenuItem(
-                                        text = { Text("Remove from Watch Later", color = MaterialTheme.colorScheme.error) },
-                                        leadingIcon = { Icon(Icons.Default.BookmarkRemove, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                        text = { Text("Remove from 'Watch Later'", color = MaterialTheme.colorScheme.error) },
+                                        leadingIcon = { Icon(Icons.Default.PlaylistRemove, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                                         onClick = {
                                             showRowMenu = false
                                             onRemoveVideoFromWatchLater(video)

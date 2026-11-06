@@ -474,67 +474,70 @@ fun VideoRowItem(
                                     contentDescription = "More options for $title"
                                 }
                         ) {
-                            Icon(
-                                Icons.Default.MoreVert,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-            
-            Spacer(Modifier.height(4.dp))
-            
-            // Avatar and Metadata
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (uploaderAvatarUrl != null) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .clickable(
-                                role = Role.Button,
-                                enabled = uploaderUrl != null
-                            ) { uploaderUrl?.let { onChannelClick(it) } }
-                            .semantics {
-                                contentDescription = "View channel $uploaderName"
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AsyncImage(
-                            model = uploaderAvatarUrl,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize().clip(CircleShape)
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "More options for $title",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
-                
-                val viewsText = if (viewCount > 0) "${com.videhub.utils.FormatHelper.formatCount(viewCount)} views" else "No views"
-                val formattedDate = com.videhub.utils.FormatHelper.formatDate(uploadDate)
-                val separator = if (viewCount > 0 && formattedDate.isNotEmpty()) " • " else ""
-                val metaText = "$uploaderName • $viewsText$separator$formattedDate"
-                
-                Text(
-                    text = metaText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Start,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.clickable(
-                        role = Role.Button,
-                        enabled = uploaderUrl != null
-                    ) { uploaderUrl?.let { onChannelClick(it) } }
-                )
             }
         }
+        
+        Spacer(Modifier.height(4.dp))
+        
+        // Avatar and Metadata
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (uploaderAvatarUrl != null) {
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable(
+                            role = Role.Button,
+                            enabled = uploaderUrl != null
+                        ) { uploaderUrl?.let { onChannelClick(it) } }
+                        .semantics {
+                            contentDescription = "View channel $uploaderName"
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = uploaderAvatarUrl,
+                        contentDescription = "Channel avatar for $uploaderName",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().clip(CircleShape)
+                    )
+                }
+            }
+            
+            val viewsText = if (viewCount > 0) "${com.videhub.utils.FormatHelper.formatCount(viewCount)} views" else "No views"
+            val formattedDate = com.videhub.utils.FormatHelper.formatDate(uploadDate)
+            val metaText = listOfNotNull(
+                uploaderName.takeIf { it.isNotBlank() },
+                viewsText,
+                formattedDate.takeIf { it.isNotEmpty() }
+            ).joinToString(" • ")
+            
+            Text(
+                text = metaText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Start,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable(
+                    role = Role.Button,
+                    enabled = uploaderUrl != null
+                ) { uploaderUrl?.let { onChannelClick(it) } }
+            )
+        }
     }
+}
 }
 
 @Composable

@@ -40,10 +40,11 @@ fun NavGraph(
             SubscriptionsScreen(
                 sharedViewModel = sharedViewModel,
                 onVideoClick = { url, t, thumb -> onNavigateToPlayer(url, t, thumb, false, false) },
-                onChannelClick = { ch -> navController.navigate(Screen.Channel.createRoute(ch)) }
+                onChannelClick = { ch -> navController.navigate(Screen.Channel.createRoute(ch)) },
+                onSearchClick = { navController.navigate(Screen.Explore.route) }
             )
         }
-                composable(Screen.Downloads.route) {
+        composable(Screen.Downloads.route) {
             DownloadsScreen(
                 navController = navController,
                 onVideoClick = { videoUrl, t, thumb, isMusic -> onNavigateToPlayer(videoUrl, t, thumb, isMusic, false) }
@@ -53,7 +54,8 @@ fun NavGraph(
             LibraryScreen(
                 sharedViewModel = sharedViewModel,
                 onNavigate = { route -> navController.navigate(route) },
-                onWatchLaterClick = { navController.navigate("watch_later") }
+                onWatchLaterClick = { navController.navigate("watch_later") },
+                onSearchClick = { navController.navigate(Screen.Explore.route) }
             )
         }
         composable(
