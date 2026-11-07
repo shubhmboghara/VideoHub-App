@@ -93,7 +93,13 @@ fun VideoActionBottomSheet(
 
                 ListItem(
                     headlineContent = { Text("Play next in queue") },
-                    leadingContent = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
+                    leadingContent = {
+                        Icon(
+                            painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_play_next),
+                            contentDescription = "Play next in queue",
+                            modifier = Modifier.size(24.dp)
+                        )
+                    },
                     modifier = Modifier.clickable {
                         scope.launch {
                             try {
@@ -188,6 +194,24 @@ fun VideoActionBottomSheet(
                         scope.launch {
                             com.videhub.data.SettingsManager.setAutoplay(context, !autoplayEnabled)
                         }
+                    }
+                )
+                ListItem(
+                    headlineContent = { Text("Share") },
+                    leadingContent = {
+                        Icon(
+                            painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_share_youtube),
+                            contentDescription = "Share video",
+                            modifier = Modifier.size(24.dp)
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, videoUrl)
+                        }
+                        context.startActivity(Intent.createChooser(sendIntent, "Share Video"))
+                        onDismiss()
                     }
                 )
 

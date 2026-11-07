@@ -201,7 +201,11 @@ fun AboutScreen(onBack: () -> Unit) {
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                     modifier = Modifier.height(40.dp)
                 ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(
+                        painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_share_youtube),
+                        contentDescription = "Share",
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Share App", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                 }

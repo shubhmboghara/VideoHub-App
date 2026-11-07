@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Play next in queue arrow and list lines matching image_e5f0ec9b.png -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6,19h-2V7a2,2 0 0,1 2,-2h3V2l5,4.5L9,11V8H6V19z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M15,5.5h6v2h-6z M8,11h13v2H8z M8,16.5h13v2H8z" />
+</vector>

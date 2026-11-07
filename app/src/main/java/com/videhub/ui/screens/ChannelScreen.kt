@@ -203,6 +203,7 @@ fun ChannelScreen(
     
     var isSubscribed by remember { mutableStateOf(false) }
     var playlistDialogVideo by remember { mutableStateOf<StreamInfoItem?>(null) }
+    var selectedPlaylistForMenu by remember { mutableStateOf<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem?>(null) }
     var pagingSource by remember { mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(if (isSameChannel) sharedViewModel.channelPagingSourceCache else null) }
     var isPaginating by remember { mutableStateOf(false) }
     var headerRetryTrigger by remember { mutableIntStateOf(0) }
@@ -442,8 +443,9 @@ fun ChannelScreen(
                                 text = { Text("Share") },
                                 leadingIcon = {
                                     Icon(
-                                        Icons.Default.Share,
-                                        contentDescription = "Share channel"
+                                        painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_share_youtube),
+                                        contentDescription = "Share channel",
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 },
                                 onClick = {
@@ -907,6 +909,9 @@ fun ChannelScreen(
                                     if (url.isNotBlank()) {
                                         onPlaylistClick(url)
                                     }
+                                },
+                                onMoreClick = {
+                                    selectedPlaylistForMenu = playlist
                                 }
                             )
                         }
@@ -923,6 +928,13 @@ fun ChannelScreen(
                 thumbnailUrl = video.thumbnails?.firstOrNull()?.url ?: "",
                 channelName = video.uploaderName ?: "",
                 onDismiss = { playlistDialogVideo = null }
+            )
+        }
+
+        selectedPlaylistForMenu?.let { playlistItem ->
+            com.videhub.ui.components.PlaylistActionBottomSheet(
+                playlist = playlistItem,
+                onDismiss = { selectedPlaylistForMenu = null }
             )
         }
     }

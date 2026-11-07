@@ -126,8 +126,9 @@ fun ChannelAboutScreen(
                                 text = { Text("Share") },
                                 leadingIcon = {
                                     Icon(
-                                        Icons.Default.Share,
-                                        contentDescription = "Share channel"
+                                        painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_share_youtube),
+                                        contentDescription = "Share channel",
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 },
                                 onClick = {

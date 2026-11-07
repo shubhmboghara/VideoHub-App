@@ -1111,7 +1111,13 @@ fun PlaylistDetailContent(
                                     )
                                     DropdownMenuItem(
                                         text = { Text("Play next in queue") },
-                                        leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
+                                        leadingIcon = {
+                                            Icon(
+                                                painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_play_next),
+                                                contentDescription = "Play next in queue",
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        },
                                         onClick = {
                                             showRowMenu = false
                                             onPlayNext(video)

@@ -261,7 +261,7 @@ fun LibraryScreen(
             LibraryItemRow(
                 title = "Share VideoHub App",
                 subtitle = null,
-                icon = Icons.Default.Share,
+                painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_share_youtube),
                 onClick = {
                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
@@ -349,7 +349,8 @@ fun LibraryProminentCard(
 fun LibraryItemRow(
     title: String,
     subtitle: String? = null,
-    icon: ImageVector,
+    icon: ImageVector? = null,
+    painter: androidx.compose.ui.graphics.painter.Painter? = null,
     onClick: () -> Unit
 ) {
     Row(
@@ -361,12 +362,21 @@ fun LibraryItemRow(
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = title,
-            tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.size(24.dp)
-        )
+        if (painter != null) {
+            Icon(
+                painter = painter,
+                contentDescription = title,
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(24.dp)
+            )
+        } else if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(24.dp)
+            )
+        }
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(

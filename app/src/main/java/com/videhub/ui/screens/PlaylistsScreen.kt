@@ -461,8 +461,8 @@ fun PlaylistsScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                        contentDescription = null,
+                        painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_play_next),
+                        contentDescription = "Play next in queue",
                         tint = Color.White,
                         modifier = Modifier.size(24.dp)
                     )
@@ -634,8 +634,8 @@ fun PlaylistsScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                        contentDescription = null,
+                        painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_play_next),
+                        contentDescription = "Play next in queue",
                         tint = Color.White,
                         modifier = Modifier.size(24.dp)
                     )

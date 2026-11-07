@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- YouTube style curved outline share arrow matching image_e5f0ec9b.png -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M15,5.63L20.66,12L15,18.37V14h-1c-3.96,0 -7.14,1 -9.75,3.09 1.84,-4.07 5.11,-6.4 9.89,-7.1l0.86,-0.13V5.63M14,3v6C8.62,9.77 5.24,13.04 3,19c3.15,-2.58 6.96,-3.95 11,-4v6l8,-9 -8,-9z" />
+</vector>

@@ -185,6 +185,7 @@ fun CompactPlaylistResultItem(
     playlist: PlaylistInfoItem,
     onClick: () -> Unit,
     onChannelClick: ((String) -> Unit)? = null,
+    onMoreClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val thumbUrl = playlist.thumbnails?.firstOrNull()?.url
@@ -275,12 +276,17 @@ fun CompactPlaylistResultItem(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "More options",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
-                )
+                IconButton(
+                    onClick = { onMoreClick?.invoke() },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "More options",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(4.dp))

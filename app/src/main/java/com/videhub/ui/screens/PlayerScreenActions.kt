@@ -79,7 +79,8 @@ fun PlayerScreenActions(
         @Composable
         fun ActionChipItem(
             label: String,
-            icon: androidx.compose.ui.graphics.vector.ImageVector,
+            icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+            painter: androidx.compose.ui.graphics.painter.Painter? = null,
             isActive: Boolean = false,
             onClick: () -> Unit
         ) {
@@ -94,12 +95,21 @@ fun PlayerScreenActions(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = label,
-                        modifier = Modifier.size(18.dp),
-                        tint = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (painter != null) {
+                        Icon(
+                            painter = painter,
+                            contentDescription = label,
+                            modifier = Modifier.size(18.dp),
+                            tint = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else if (icon != null) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = label,
+                            modifier = Modifier.size(18.dp),
+                            tint = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Text(
                         text = label,
                         style = MaterialTheme.typography.labelLarge,
@@ -219,8 +229,19 @@ fun PlayerScreenActions(
             )
         }
         ActionChipItem(
+            label = "Share",
+            painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_share_youtube),
+            onClick = {
+                val sendIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_TEXT, videoUrl)
+                }
+                context.startActivity(android.content.Intent.createChooser(sendIntent, "Share Video"))
+            }
+        )
+        ActionChipItem(
             label = "Queue",
-            icon = Icons.Default.QueuePlayNext,
+            painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_play_next),
             onClick = {
                 val currentMediaItem = mediaPlayer?.currentMediaItem
                 val targetUrl = currentMediaItem?.mediaId ?: videoUrl
