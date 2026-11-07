@@ -58,6 +58,12 @@ interface DownloadedVideoDao {
     @Query("SELECT * FROM downloaded_videos WHERE state = 'DONE' AND fileName NOT LIKE 'PENDING_%' ORDER BY downloadedAt DESC")
     fun getCompletedDownloads(): Flow<List<DownloadedVideoEntity>>
 
+    @Query("SELECT COUNT(*) FROM downloaded_videos WHERE state = 'DONE' AND fileName NOT LIKE 'PENDING_%'")
+    fun getCompletedCount(): Flow<Int>
+
+    @Query("SELECT SUM(CASE WHEN totalBytes > 0 THEN totalBytes ELSE bytesDownloaded END) FROM downloaded_videos WHERE state = 'DONE' AND fileName NOT LIKE 'PENDING_%'")
+    fun getTotalDownloadedBytes(): Flow<Long?>
+
     @Query("SELECT * FROM downloaded_videos WHERE state = 'DONE' AND fileName NOT LIKE 'PENDING_%' ORDER BY downloadedAt DESC")
     suspend fun getCompletedDownloadsSync(): List<DownloadedVideoEntity>
 

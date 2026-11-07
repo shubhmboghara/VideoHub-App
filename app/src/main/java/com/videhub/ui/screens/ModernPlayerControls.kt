@@ -38,7 +38,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -189,7 +188,7 @@ fun ModernPlayerControls(
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
+                            fontFeatureSettings = "tnum"
                         )
                     )
                     Icon(
@@ -337,8 +336,10 @@ fun ModernPlayerControls(
                     ) {
                         Text(
                             text = "${formatVideoDuration(currentTime)} / ${formatVideoDuration(totalTime)}",
-                            style = TextStyle(
-                                fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            softWrap = false,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFeatureSettings = "tnum",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color.White.copy(alpha = 0.92f),

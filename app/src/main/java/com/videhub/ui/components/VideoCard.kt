@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -174,8 +175,8 @@ fun VideoCard(
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(8.dp),
-                    shape = MaterialTheme.shapes.small,
+                        .padding(4.dp),
+                    shape = RoundedCornerShape(4.dp),
                     color = MaterialTheme.colorScheme.error
                 ) {
                     Text(
@@ -184,20 +185,20 @@ fun VideoCard(
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Start,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
             } else if (duration > 0) {
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(8.dp),
-                    shape = MaterialTheme.shapes.small,
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.9f)
+                        .padding(4.dp),
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color.Black.copy(alpha = 0.8f)
                 ) {
                     Text(
-                        text = "%d:%02d".format(duration / 60, duration % 60),
-                        color = MaterialTheme.colorScheme.onSurface,
+                        text = com.videhub.utils.FormatHelper.formatDuration(duration),
+                        color = Color.White,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Medium,
                         textAlign = TextAlign.Start,
@@ -261,11 +262,18 @@ fun VideoCard(
                 )
                 Spacer(Modifier.height(4.dp))
                 val viewsText = if (views > 0) "${com.videhub.utils.FormatHelper.formatCount(views)} views" else ""
-                val formattedDate = com.videhub.utils.FormatHelper.formatDate(if (uploadDate.isNotBlank()) uploadDate else "unknown")
-                val separator = if (views > 0 && formattedDate.isNotBlank()) " · " else ""
-                val metaText = "$viewsText$separator$formattedDate"
+                val formattedDate = if (uploadDate.isNotBlank()) com.videhub.utils.FormatHelper.formatDate(uploadDate) else ""
+                val statsSuffix = when {
+                    viewsText.isNotBlank() && formattedDate.isNotBlank() -> " • $viewsText • $formattedDate"
+                    viewsText.isNotBlank() -> " • $viewsText"
+                    formattedDate.isNotBlank() -> " • $formattedDate"
+                    else -> ""
+                }
                 
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
                         text = channel,
                         style = MaterialTheme.typography.bodySmall,
@@ -273,17 +281,17 @@ fun VideoCard(
                         maxLines = 1,
                         textAlign = TextAlign.Start,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable(role = Role.Button) { onChannelClick(channelUrl) }
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .clickable(role = Role.Button) { onChannelClick(channelUrl) }
                     )
-                    if (metaText.isNotEmpty()) {
+                    if (statsSuffix.isNotEmpty()) {
                         Text(
-                            text = " · $metaText",
+                            text = statsSuffix,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
-                            textAlign = TextAlign.Start,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
+                            textAlign = TextAlign.Start
                         )
                     }
                 }
@@ -374,12 +382,12 @@ fun VideoRowItem(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.Top
     ) {
-        // Left Column: Thumbnail
+        // Left Column: Thumbnail (16:9, ~140dp wide, 12dp corners)
         Box(
             modifier = Modifier
-                .width(150.dp)
+                .width(140.dp)
                 .aspectRatio(16f / 9f)
-                .clip(MaterialTheme.shapes.small)
+                .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {
             if (thumbnailUrl != null) {
@@ -398,20 +406,18 @@ fun VideoRowItem(
                 )
             }
             
-            // Duration badge
+            // Duration badge: black 80% background, white labelSmall, 4dp radius, 4dp inset from the bottom-right corner
             if (duration > 0) {
-                val mins = duration / 60
-                val secs = duration % 60
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(4.dp),
-                    shape = MaterialTheme.shapes.small,
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.9f)
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color.Black.copy(alpha = 0.8f)
                 ) {
                     Text(
-                        text = "%d:%02d".format(mins, secs),
-                        color = MaterialTheme.colorScheme.onSurface,
+                        text = com.videhub.utils.FormatHelper.formatDuration(duration),
+                        color = Color.White,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Medium,
                         textAlign = TextAlign.Start,
@@ -422,7 +428,7 @@ fun VideoRowItem(
             if (iconBadge != null) {
                 Surface(
                     shape = RoundedCornerShape(4.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.8f),
+                    color = Color.Black.copy(alpha = 0.8f),
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(4.dp)
@@ -430,7 +436,7 @@ fun VideoRowItem(
                     Icon(
                         imageVector = iconBadge,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface,
+                        tint = Color.White,
                         modifier = Modifier
                             .padding(4.dp)
                             .size(14.dp)
@@ -450,8 +456,8 @@ fun VideoRowItem(
                 Text(
                     text = com.videhub.utils.FormatHelper.cleanDisplayTitle(title),
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Start,
                     maxLines = 2,
@@ -474,69 +480,72 @@ fun VideoRowItem(
                                     contentDescription = "More options for $title"
                                 }
                         ) {
-                        Icon(
-                            Icons.Default.MoreVert,
-                            contentDescription = "More options for $title",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "More options for $title",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
-        }
         
-        Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(4.dp))
         
-        // Avatar and Metadata
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (uploaderAvatarUrl != null) {
-                Box(
+            // Avatar and Metadata on ONE line with ellipsis
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (uploaderAvatarUrl != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable(
+                                role = Role.Button,
+                                enabled = uploaderUrl != null
+                            ) { uploaderUrl?.let { onChannelClick(it) } }
+                            .semantics {
+                                contentDescription = "View channel $uploaderName"
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = uploaderAvatarUrl,
+                            contentDescription = "Channel avatar for $uploaderName",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape)
+                        )
+                    }
+                }
+            
+                val viewsText = if (viewCount > 0) "${com.videhub.utils.FormatHelper.formatCount(viewCount)} views" else null
+                val formattedDate = if (uploadDate.isNotBlank()) com.videhub.utils.FormatHelper.formatDate(uploadDate).takeIf { it.isNotBlank() } else null
+                val metaText = listOfNotNull(
+                    uploaderName.takeIf { it.isNotBlank() },
+                    viewsText,
+                    formattedDate
+                ).joinToString(" • ")
+            
+                Text(
+                    text = metaText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Start,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .weight(1f)
                         .clickable(
                             role = Role.Button,
-                            enabled = uploaderUrl != null
+                            enabled = uploaderUrl != null && uploaderName.isNotBlank()
                         ) { uploaderUrl?.let { onChannelClick(it) } }
-                        .semantics {
-                            contentDescription = "View channel $uploaderName"
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    AsyncImage(
-                        model = uploaderAvatarUrl,
-                        contentDescription = "Channel avatar for $uploaderName",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape)
-                    )
-                }
+                )
             }
-            
-            val viewsText = if (viewCount > 0) "${com.videhub.utils.FormatHelper.formatCount(viewCount)} views" else "No views"
-            val formattedDate = com.videhub.utils.FormatHelper.formatDate(uploadDate)
-            val metaText = listOfNotNull(
-                uploaderName.takeIf { it.isNotBlank() },
-                viewsText,
-                formattedDate.takeIf { it.isNotEmpty() }
-            ).joinToString(" • ")
-            
-            Text(
-                text = metaText,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Start,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable(
-                    role = Role.Button,
-                    enabled = uploaderUrl != null
-                ) { uploaderUrl?.let { onChannelClick(it) } }
-            )
         }
-    }
 }
 }
 

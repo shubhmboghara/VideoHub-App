@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -260,36 +261,41 @@ fun CompactPlaylistResultItem(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.Center
         ) {
-            Text(
-                text = playlist.name ?: "Untitled Playlist",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            val uploader = playlist.uploaderName
-            if (!uploader.isNullOrBlank()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
                 Text(
-                    text = uploader,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    text = playlist.name ?: "Untitled Playlist",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = if (onChannelClick != null && !playlist.uploaderUrl.isNullOrBlank()) {
-                        Modifier.clickable { onChannelClick(playlist.uploaderUrl ?: "") }
-                    } else Modifier
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "More options",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
                 )
             }
 
+            Spacer(modifier = Modifier.height(4.dp))
+
+            val uploader = playlist.uploaderName ?: ""
+            val subtitle = if (uploader.isNotBlank()) "$uploader • Playlist" else "Playlist"
             Text(
-                text = if (playlist.streamCount > 0) "${playlist.streamCount} videos • Playlist" else "Playlist",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Medium
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (onChannelClick != null && !playlist.uploaderUrl.isNullOrBlank()) {
+                    Modifier.clickable { onChannelClick(playlist.uploaderUrl ?: "") }
+                } else Modifier
             )
         }
     }

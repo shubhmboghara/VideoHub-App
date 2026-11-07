@@ -836,14 +836,24 @@ fun HomeScreen(
 @androidx.compose.ui.tooling.preview.Preview(showBackground = true)
 @Composable
 fun HomeScreenPreview() {
-    MaterialTheme(colorScheme = darkColorScheme()) {
+    com.videhub.ui.theme.AppTheme {
         Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             com.videhub.ui.components.VideoHubTopBar(
                 showFilter = true,
                 onSearch = {},
                 onFilter = {}
             )
-            VideoCardShimmer()
+            com.videhub.ui.components.VideoCard(
+                title = "Android Jetpack Compose Architecture Guide 2026",
+                channelName = "Android Developers and 2 more creators",
+                thumbnailUrl = "",
+                url = "preview_url",
+                duration = 345L,
+                viewCount = 21600L,
+                channelAvatarUrl = null,
+                uploadDate = "2 years ago",
+                onClick = { _, _, _ -> }
+            )
         }
     }
 }

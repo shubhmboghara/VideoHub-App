@@ -28,7 +28,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -216,11 +215,15 @@ fun VideoSeekBar(
             ) {
                 Text(
                     text = formatVideoDuration(displayTimeMs),
+                    maxLines = 1,
+                    softWrap = false,
                     style = VideoTimeLabelStyle,
                     textAlign = TextAlign.Start
                 )
                 Text(
                     text = formatVideoDuration(durationMs),
+                    maxLines = 1,
+                    softWrap = false,
                     style = VideoTimeLabelStyle,
                     textAlign = TextAlign.End
                 )
@@ -230,7 +233,8 @@ fun VideoSeekBar(
 }
 
 val VideoTimeLabelStyle = TextStyle(
-    fontFamily = FontFamily.Monospace,
+    fontFamily = com.videhub.ui.theme.Inter,
+    fontFeatureSettings = "tnum",
     fontSize = 12.sp,
     fontWeight = FontWeight.Medium,
     color = Color.White.copy(alpha = 0.90f),
@@ -242,13 +246,6 @@ val VideoTimeLabelStyle = TextStyle(
 )
 
 fun formatVideoDuration(durationMs: Long): String {
-    val totalSeconds = durationMs / 1000
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return if (hours > 0) {
-        String.format("%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format("%02d:%02d", minutes, seconds)
-    }
+    if (durationMs <= 0L) return "0:00"
+    return com.videhub.utils.FormatHelper.formatDuration(durationMs / 1000L)
 }

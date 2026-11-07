@@ -8,11 +8,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,22 +42,75 @@ import androidx.compose.ui.platform.LocalContext
 @Composable
 fun ChannelAboutScreen(
     sharedViewModel: MainViewModel,
+    channelId: String? = null,
     onBack: () -> Unit,
     onChannelClick: (String) -> Unit
 ) {
-    val info = sharedViewModel.channelInfoCache
-    val aboutInfo = sharedViewModel.channelAboutInfoCache
+    var info by remember { mutableStateOf(sharedViewModel.channelInfoCache) }
+    var aboutInfo by remember { mutableStateOf(sharedViewModel.channelAboutInfoCache) }
+    val effectiveChannelId = channelId?.ifBlank { null } ?: sharedViewModel.currentChannelId
+    var isLoading by remember { mutableStateOf(info == null && !effectiveChannelId.isNullOrBlank()) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var retryTrigger by remember { mutableIntStateOf(0) }
     val uriHandler = LocalUriHandler.current
+
+    LaunchedEffect(effectiveChannelId, retryTrigger) {
+        if (info == null && !effectiveChannelId.isNullOrBlank()) {
+            isLoading = true
+            errorMessage = null
+            try {
+                val actualUrl = when {
+                    effectiveChannelId.startsWith("http") -> effectiveChannelId
+                    effectiveChannelId.startsWith("@") -> "https://www.youtube.com/$effectiveChannelId"
+                    else -> "https://www.youtube.com/channel/$effectiveChannelId"
+                }
+                val (fetchedInfo, fetchedAbout) = kotlinx.coroutines.coroutineScope {
+                    val infoDeferred = async(Dispatchers.IO) { com.videhub.extractor.ExtractorHelper.getChannelInfo(actualUrl) }
+                    val aboutDeferred = async(Dispatchers.IO) { com.videhub.extractor.ExtractorHelper.getChannelAboutInfo(actualUrl) }
+                    Pair(infoDeferred.await(), aboutDeferred.await())
+                }
+                info = fetchedInfo
+                aboutInfo = fetchedAbout
+                sharedViewModel.channelInfoCache = fetchedInfo
+                sharedViewModel.channelAboutInfoCache = fetchedAbout
+                sharedViewModel.currentChannelId = effectiveChannelId
+            } catch (e: Exception) {
+                errorMessage = e.message ?: "Failed to load channel info"
+            } finally {
+                isLoading = false
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("About") },
+                title = { 
+                    Text(
+                        text = info?.name ?: "About",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    ) 
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back"
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { }) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = "Search"
+                        )
+                    }
+                    IconButton(onClick = { }) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "More options"
                         )
                     }
                 },
@@ -56,6 +121,18 @@ fun ChannelAboutScreen(
             )
         }
     ) { paddingValues ->
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            }
+            return@Scaffold
+        }
+
         if (info == null) {
             Box(
                 modifier = Modifier
@@ -63,10 +140,29 @@ fun ChannelAboutScreen(
                     .padding(paddingValues),
                 contentAlignment = Alignment.Center
             ) {
-                Text("Channel info not available.")
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(24.dp)
+                ) {
+                    Text(
+                        text = errorMessage ?: "Channel info not available.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    if (!effectiveChannelId.isNullOrBlank()) {
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { retryTrigger++ }) {
+                            Text("Retry")
+                        }
+                    }
+                }
             }
             return@Scaffold
         }
+
+        val nonNullInfo = info!!
+        val currentAbout = aboutInfo
 
         Column(
             modifier = Modifier
@@ -78,13 +174,13 @@ fun ChannelAboutScreen(
         ) {
 
             // ── Description ──────────────────────────────────────────
-            val rawDescription = info.description?.trim() ?: ""
+            val rawDescription = nonNullInfo.description?.trim() ?: ""
             if (rawDescription.isNotBlank()) {
                 val context = LocalContext.current
                 Column {
                     Text(
                         text = "Description",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
@@ -123,189 +219,114 @@ fun ChannelAboutScreen(
                 }
             }
 
-            // ── Links (from getTags() — where YouTube puts social links) ──
-            // getTags() returns things like:
-            // ["https://instagram.com/xyz", "https://twitter.com/xyz"]
-            val allTags = try { info.tags ?: emptyList() } catch (e: Throwable) { emptyList() }
-
-            // Filter tags that look like URLs (social links)
-            val linkTags = androidx.compose.runtime.remember(allTags) { allTags.filter { tag ->
-                tag.startsWith("http://") || tag.startsWith("https://")
-            } }
-
-            // Also check donationLinks as secondary source
-            val donationList = try {
-                info.donationLinks?.toList() ?: emptyList()
-            } catch (e: Throwable) {
-                emptyList()
-            }
-
-            // Merge both, deduplicate and filter out the current channel URL (already shown in More info)
-            val aboutLinks = aboutInfo?.socialLinks ?: emptyList()
-            val allLinks = (linkTags + donationList + aboutLinks)
-                .distinct()
-                .filter { link ->
-                    val lower = link.lowercase()
-                    // Filter out any YouTube links that look like a channel
-                    val isYouTubeChannel = lower.contains("youtube.com/channel/") || 
-                                           lower.contains("youtube.com/@") ||
-                                           lower.contains("youtube.com/c/") ||
-                                           lower.contains("youtube.com/user/")
-                    !isYouTubeChannel
-                }
-
-            if (allLinks.isNotEmpty()) {
-                Column {
-                    Text(
-                        text = "Links",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-
-                    allLinks.forEach { link ->
-                        val lower = link.lowercase()
-                        val isYouTubeChannel = lower.contains("youtube.com/channel/") || 
-                                               lower.contains("youtube.com/@")
-
-                        // Map URL to branded icon + label
-                        val (iconUrl, platformName) = when {
-                            lower.contains("instagram.com") ->
-                                "https://cdn-icons-png.flaticon.com/512/1384/1384063.png" to "Instagram"
-                            lower.contains("twitter.com") || lower.contains("x.com") ->
-                                "https://cdn-icons-png.flaticon.com/512/5969/5969020.png" to "Twitter / X"
-                            lower.contains("facebook.com") ->
-                                "https://cdn-icons-png.flaticon.com/512/1384/1384053.png" to "Facebook"
-                            lower.contains("tiktok.com") ->
-                                "https://cdn-icons-png.flaticon.com/512/3046/3046122.png" to "TikTok"
-                            lower.contains("reddit.com") ->
-                                "https://cdn-icons-png.flaticon.com/512/1384/1384066.png" to "Reddit"
-                            lower.contains("discord.gg") || lower.contains("discord.com") ->
-                                "https://cdn-icons-png.flaticon.com/512/5968/5968756.png" to "Discord"
-                            lower.contains("twitch.tv") ->
-                                "https://cdn-icons-png.flaticon.com/512/5968/5968819.png" to "Twitch"
-                            lower.contains("spotify.com") ->
-                                "https://cdn-icons-png.flaticon.com/512/1384/1384012.png" to "Spotify"
-                            lower.contains("patreon.com") ->
-                                "https://cdn-icons-png.flaticon.com/512/3670/3670157.png" to "Patreon"
-                            lower.contains("youtube.com") ->
-                                "https://cdn-icons-png.flaticon.com/512/1384/1384060.png" to "YouTube"
-                            lower.contains("linkedin.com") ->
-                                "https://cdn-icons-png.flaticon.com/512/1384/1384014.png" to "LinkedIn"
-                            lower.contains("snapchat.com") ->
-                                "https://cdn-icons-png.flaticon.com/512/1384/1384023.png" to "Snapchat"
-                            else ->
-                                null to link // generic link — show raw URL
-                        }
-
-                        // Clean display text — strip https:// and trailing slash
-                        val displayText = if (iconUrl != null) {
-                            val urlPath = link.substringAfter("://", "").substringAfter("/", "").substringBefore("?")
-                            val segments = urlPath.split("/").filter { it.isNotBlank() }
-                            val ignorePaths = setOf("add", "c", "user", "channel", "in", "p", "reel", "shorts")
-                            val handleRaw = segments.firstOrNull { it.lowercase() !in ignorePaths } ?: ""
-                            val handle = try { java.net.URLDecoder.decode(handleRaw, "UTF-8") } catch(e: Exception) { handleRaw }
-                            
-                            if (handle.isNotEmpty()) {
-                                if (handle.startsWith("@")) handle else "@$handle"
-                            } else {
-                                platformName
-                            }
-                        } else {
-                            link.removePrefix("https://")
-                                .removePrefix("http://")
-                                .trimEnd('/')
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    if (isYouTubeChannel) {
-                                        onChannelClick(link)
-                                    } else {
-                                        try { uriHandler.openUri(link) } catch (e: Exception) { }
-                                    }
-                                }
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Icon circle
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (iconUrl != null) {
-                                    AsyncImage(
-                                        model = iconUrl,
-                                        contentDescription = platformName,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.Link,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(16.dp))
-
-                            Text(
-                                text = displayText,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ── More Info ─────────────────────────────────────────────
-            Column {
+            // ── More info (Image 7) ──────────────────────────────────
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(
                     text = "More info",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    modifier = Modifier.padding(bottom = 4.dp)
                 )
 
-                // Subscriber count
-                val subCount = info.subscriberCount
-                if (subCount >= 0) {
-                    InfoRow(
-                        label = formatSubscriberCount(subCount) + " subscribers"
-                    )
-                }
-
-                // Total views
-                if (aboutInfo != null && aboutInfo.totalViews > 0) {
-                    InfoRow(
-                        label = formatSubscriberCount(aboutInfo.totalViews) + " views"
-                    )
+                // Channel URL link
+                val channelUrl = nonNullInfo.url ?: ""
+                if (channelUrl.isNotBlank()) {
+                    val displayUrl = channelUrl.removePrefix("https://").removePrefix("http://")
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                try { uriHandler.openUri(channelUrl) } catch (_: Exception) {}
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Public,
+                            contentDescription = "Channel link",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(
+                            text = displayUrl,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
                 // Country
-                if (aboutInfo?.country != null && aboutInfo.country.isNotBlank()) {
-                    val country = aboutInfo.country
-                    val flag = getFlagEmoji(country)
-                    InfoRow(
-                        label = if (flag.isNotEmpty()) "$flag $country" else country
-                    )
+                val country = currentAbout?.country
+                if (!country.isNullOrBlank()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Public,
+                            contentDescription = "Location",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(
+                            text = country,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
 
                 // Join date
-                if (aboutInfo?.joinDate != null && aboutInfo.joinDate.isNotBlank()) {
-                    InfoRow(
-                        label = aboutInfo.joinDate // e.g. "Joined Feb 5, 2010" or we prefix it if not present
-                    )
+                val joinDate = currentAbout?.joinDate
+                if (!joinDate.isNullOrBlank()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "Joined date",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        val joinText = if (joinDate.startsWith("Joined", ignoreCase = true)) {
+                            joinDate
+                        } else {
+                            "Joined $joinDate"
+                        }
+                        Text(
+                            text = joinText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+
+                // Total views
+                val totalViews = currentAbout?.totalViews ?: -1L
+                if (totalViews > 0) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.TrendingUp,
+                            contentDescription = "Views",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        val formattedViews = String.format(java.util.Locale.US, "%,d views", totalViews)
+                        Text(
+                            text = formattedViews,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
             }
         }

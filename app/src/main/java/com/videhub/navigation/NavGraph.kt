@@ -123,12 +123,23 @@ fun NavGraph(
                 onBack = { navController.popBackStack() },
                 onVideoClick = { videoUrl, t, thumb -> onNavigateToPlayer(videoUrl, t, thumb, false, false) },
                 onPlaylistClick = { playlistUrl -> navController.navigate(Screen.OnlinePlaylist.createRoute(playlistUrl)) },
-                onAboutClick = { navController.navigate("channel_about") }
+                onAboutClick = {
+                    val encodedId = try { java.net.URLEncoder.encode(channelId, "UTF-8") } catch (e: Exception) { channelId }
+                    navController.navigate("channel_about?channelId=$encodedId")
+                }
             )
         }
-        composable("channel_about") {
+        composable(
+            route = "channel_about?channelId={channelId}",
+            arguments = listOf(navArgument("channelId") {
+                type = NavType.StringType
+                defaultValue = ""
+            })
+        ) { backStackEntry ->
+            val navChannelId = backStackEntry.arguments?.getString("channelId") ?: ""
             ChannelAboutScreen(
                 sharedViewModel = sharedViewModel,
+                channelId = navChannelId.ifBlank { sharedViewModel.currentChannelId },
                 onBack = { navController.popBackStack() },
                 onChannelClick = { ch -> navController.navigate(Screen.Channel.createRoute(ch)) }
             )

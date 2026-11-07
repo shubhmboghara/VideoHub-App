@@ -121,7 +121,7 @@ fun AppTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography,
+        typography = AppTypography,
         content = {
             androidx.compose.material3.Surface(
                 color = colorScheme.background,

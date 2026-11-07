@@ -16,6 +16,9 @@ interface LikedVideoDao {
     @Query("SELECT * FROM liked_videos ORDER BY likedAt DESC")
     fun getAll(): Flow<List<LikedVideoEntity>>
 
+    @Query("SELECT COUNT(*) FROM liked_videos")
+    fun getCount(): Flow<Int>
+
     @Query("SELECT * FROM liked_videos ORDER BY likedAt DESC")
     suspend fun getAllOnce(): List<LikedVideoEntity>
 

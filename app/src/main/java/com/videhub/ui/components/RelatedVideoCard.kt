@@ -67,8 +67,6 @@ fun RelatedVideoCard(
             
             // Duration badge
             if (duration > 0) {
-                val mins = duration / 60
-                val secs = duration % 60
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -78,7 +76,7 @@ fun RelatedVideoCard(
                         .padding(horizontal = 4.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "%d:%02d".format(mins, secs),
+                        text = com.videhub.utils.FormatHelper.formatDuration(duration),
                         color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.labelSmall
                     )

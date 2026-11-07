@@ -1,20 +1,20 @@
 package com.videhub.data
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
 import com.videhub.data.dao.*
 import com.videhub.data.entity.*
+import java.io.File
 
 @Database(
     entities = [
-        ChannelEntity::class, 
-        PlaylistEntity::class, 
-        PlaylistVideoEntity::class, 
+        ChannelEntity::class,
+        PlaylistEntity::class,
+        PlaylistVideoEntity::class,
         HistoryEntity::class,
         LikedVideoEntity::class,
         DownloadedVideoEntity::class,
@@ -49,152 +49,373 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         private const val DB_NAME = "videhub_database"
         private const val TAG = "AppDatabase"
+        private const val CURRENT_VERSION = 30
+        private const val EXPECTED_IDENTITY_HASH = "5cd88d7abbb6dec277cd1f70b530ab5e"
 
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
-        val MIGRATION_7_8 = object : Migration(7, 8) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("CREATE TABLE IF NOT EXISTS `saved_lyrics` (`videoId` TEXT NOT NULL, `lyricsJson` TEXT NOT NULL, PRIMARY KEY(`videoId`))")
-            }
-        }
+        private data class TableSpec(
+            val name: String,
+            val createSql: String,
+            val columnsWithFallbacks: List<Pair<String, String>>,
+            val preserveData: Boolean = true,
+            val postCopySql: List<String> = emptyList()
+        )
 
-        val MIGRATION_8_9 = object : Migration(8, 9) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                addColumnIfNotExists(db, "downloaded_videos", "lyrics", "TEXT")
-            }
-        }
+        private val TABLE_SPECS = listOf(
+            TableSpec(
+                name = "channels",
+                createSql = "CREATE TABLE IF NOT EXISTS `channels` (`channelId` TEXT NOT NULL, `name` TEXT NOT NULL, `thumbnailUrl` TEXT, PRIMARY KEY(`channelId`))",
+                columnsWithFallbacks = listOf(
+                    "channelId" to "''",
+                    "name" to "''",
+                    "thumbnailUrl" to "NULL"
+                )
+            ),
+            TableSpec(
+                name = "playlists",
+                createSql = "CREATE TABLE IF NOT EXISTS `playlists` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `customCoverUrl` TEXT, `createdAt` INTEGER NOT NULL)",
+                columnsWithFallbacks = listOf(
+                    "id" to "0",
+                    "name" to "'Playlist'",
+                    "customCoverUrl" to "NULL",
+                    "createdAt" to "0"
+                )
+            ),
+            TableSpec(
+                name = "playlist_videos",
+                createSql = "CREATE TABLE IF NOT EXISTS `playlist_videos` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `playlistId` INTEGER NOT NULL, `videoId` TEXT NOT NULL, `title` TEXT NOT NULL, `channelName` TEXT NOT NULL, `thumbnailUrl` TEXT, `durationText` TEXT, `addedAt` INTEGER NOT NULL, `viewCount` INTEGER NOT NULL, `uploadDate` TEXT NOT NULL, FOREIGN KEY(`playlistId`) REFERENCES `playlists`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+                columnsWithFallbacks = listOf(
+                    "id" to "0",
+                    "playlistId" to "0",
+                    "videoId" to "''",
+                    "title" to "''",
+                    "channelName" to "''",
+                    "thumbnailUrl" to "NULL",
+                    "durationText" to "NULL",
+                    "addedAt" to "0",
+                    "viewCount" to "-1",
+                    "uploadDate" to "''"
+                ),
+                postCopySql = listOf(
+                    "DELETE FROM `playlist_videos` WHERE `playlistId` NOT IN (SELECT `id` FROM `playlists`)",
+                    "CREATE INDEX IF NOT EXISTS `index_playlist_videos_playlistId` ON `playlist_videos` (`playlistId`)"
+                )
+            ),
+            TableSpec(
+                name = "history_entities",
+                createSql = "CREATE TABLE IF NOT EXISTS `history_entities` (`videoId` TEXT NOT NULL, `title` TEXT NOT NULL, `channelName` TEXT NOT NULL, `thumbnailUrl` TEXT, `durationText` TEXT, `timestamp` INTEGER NOT NULL, `viewCount` INTEGER NOT NULL, `uploadDate` TEXT NOT NULL, PRIMARY KEY(`videoId`))",
+                columnsWithFallbacks = listOf(
+                    "videoId" to "''",
+                    "title" to "''",
+                    "channelName" to "''",
+                    "thumbnailUrl" to "NULL",
+                    "durationText" to "NULL",
+                    "timestamp" to "0",
+                    "viewCount" to "-1",
+                    "uploadDate" to "''"
+                )
+            ),
+            TableSpec(
+                name = "liked_videos",
+                createSql = "CREATE TABLE IF NOT EXISTS `liked_videos` (`videoId` TEXT NOT NULL, `title` TEXT NOT NULL, `thumbnailUrl` TEXT NOT NULL, `channelName` TEXT NOT NULL, `likedAt` INTEGER NOT NULL, `viewCount` INTEGER NOT NULL, `uploadDate` TEXT NOT NULL, PRIMARY KEY(`videoId`))",
+                columnsWithFallbacks = listOf(
+                    "videoId" to "''",
+                    "title" to "''",
+                    "thumbnailUrl" to "''",
+                    "channelName" to "''",
+                    "likedAt" to "0",
+                    "viewCount" to "-1",
+                    "uploadDate" to "''"
+                )
+            ),
+            TableSpec(
+                name = "downloaded_videos",
+                createSql = "CREATE TABLE IF NOT EXISTS `downloaded_videos` (`fileName` TEXT NOT NULL, `videoId` TEXT NOT NULL, `title` TEXT NOT NULL, `thumbnailUrl` TEXT NOT NULL, `channelName` TEXT NOT NULL, `viewCount` INTEGER NOT NULL, `uploadDate` TEXT NOT NULL, `isAudioOnly` INTEGER NOT NULL, `downloadedAt` INTEGER NOT NULL, `lyrics` TEXT, `playlistId` TEXT, `playlistName` TEXT, `playlistIndex` INTEGER NOT NULL, `state` TEXT NOT NULL, `progress` INTEGER NOT NULL, `bytesDownloaded` INTEGER NOT NULL, `totalBytes` INTEGER NOT NULL, `duration` TEXT NOT NULL, `errorMessage` TEXT, `lastUpdatedAt` INTEGER NOT NULL, `partialFilePath` TEXT, `noLongerInWatchLater` INTEGER NOT NULL, PRIMARY KEY(`fileName`))",
+                columnsWithFallbacks = listOf(
+                    "fileName" to "''",
+                    "videoId" to "''",
+                    "title" to "''",
+                    "thumbnailUrl" to "''",
+                    "channelName" to "''",
+                    "viewCount" to "0",
+                    "uploadDate" to "''",
+                    "isAudioOnly" to "0",
+                    "downloadedAt" to "0",
+                    "lyrics" to "NULL",
+                    "playlistId" to "NULL",
+                    "playlistName" to "NULL",
+                    "playlistIndex" to "0",
+                    "state" to "'DONE'",
+                    "progress" to "0",
+                    "bytesDownloaded" to "0",
+                    "totalBytes" to "0",
+                    "duration" to "''",
+                    "errorMessage" to "NULL",
+                    "lastUpdatedAt" to "0",
+                    "partialFilePath" to "NULL",
+                    "noLongerInWatchLater" to "0"
+                )
+            ),
+            TableSpec(
+                name = "watch_later",
+                createSql = "CREATE TABLE IF NOT EXISTS `watch_later` (`videoId` TEXT NOT NULL, `title` TEXT NOT NULL, `thumbnailUrl` TEXT NOT NULL, `channelName` TEXT NOT NULL, `addedAt` INTEGER NOT NULL, PRIMARY KEY(`videoId`))",
+                columnsWithFallbacks = listOf(
+                    "videoId" to "''",
+                    "title" to "''",
+                    "thumbnailUrl" to "''",
+                    "channelName" to "''",
+                    "addedAt" to "0"
+                )
+            ),
+            TableSpec(
+                name = "search_history",
+                createSql = "CREATE TABLE IF NOT EXISTS `search_history` (`query` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, PRIMARY KEY(`query`))",
+                columnsWithFallbacks = listOf(
+                    "query" to "''",
+                    "timestamp" to "0"
+                )
+            ),
+            TableSpec(
+                name = "saved_lyrics",
+                createSql = "CREATE TABLE IF NOT EXISTS `saved_lyrics` (`videoId` TEXT NOT NULL, `lyricsJson` TEXT NOT NULL, PRIMARY KEY(`videoId`))",
+                columnsWithFallbacks = listOf(
+                    "videoId" to "''",
+                    "lyricsJson" to "''"
+                )
+            ),
+            TableSpec(
+                name = "downloaded_playlists",
+                createSql = "CREATE TABLE IF NOT EXISTS `downloaded_playlists` (`playlistId` TEXT NOT NULL, `title` TEXT NOT NULL, `thumbnailUrl` TEXT, `totalCount` INTEGER NOT NULL, `completedCount` INTEGER NOT NULL, `state` TEXT NOT NULL, `progress` INTEGER NOT NULL, `downloadedBytes` INTEGER NOT NULL, `totalBytes` INTEGER NOT NULL, `currentVideoTitle` TEXT, `currentVideoIndex` INTEGER NOT NULL, `currentVideoProgress` INTEGER NOT NULL, `downloadedAt` INTEGER NOT NULL, `lastUpdatedAt` INTEGER NOT NULL, `errorMessage` TEXT, PRIMARY KEY(`playlistId`))",
+                columnsWithFallbacks = listOf(
+                    "playlistId" to "''",
+                    "title" to "''",
+                    "thumbnailUrl" to "NULL",
+                    "totalCount" to "0",
+                    "completedCount" to "0",
+                    "state" to "'DONE'",
+                    "progress" to "0",
+                    "downloadedBytes" to "0",
+                    "totalBytes" to "0",
+                    "currentVideoTitle" to "NULL",
+                    "currentVideoIndex" to "0",
+                    "currentVideoProgress" to "0",
+                    "downloadedAt" to "0",
+                    "lastUpdatedAt" to "0",
+                    "errorMessage" to "NULL"
+                )
+            ),
+            TableSpec(
+                name = "downloaded_playlist_video_cross_ref",
+                createSql = "CREATE TABLE IF NOT EXISTS `downloaded_playlist_video_cross_ref` (`playlistId` TEXT NOT NULL, `videoId` TEXT NOT NULL, PRIMARY KEY(`playlistId`, `videoId`), FOREIGN KEY(`playlistId`) REFERENCES `downloaded_playlists`(`playlistId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+                columnsWithFallbacks = listOf(
+                    "playlistId" to "''",
+                    "videoId" to "''"
+                ),
+                postCopySql = listOf(
+                    "DELETE FROM `downloaded_playlist_video_cross_ref` WHERE `playlistId` NOT IN (SELECT `playlistId` FROM `downloaded_playlists`)",
+                    "CREATE INDEX IF NOT EXISTS `index_downloaded_playlist_video_cross_ref_videoId` ON `downloaded_playlist_video_cross_ref` (`videoId`)"
+                )
+            ),
+            TableSpec(
+                name = "watch_progress",
+                createSql = "CREATE TABLE IF NOT EXISTS `watch_progress` (`videoId` TEXT NOT NULL, `positionMs` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL, `watchedAt` INTEGER NOT NULL, PRIMARY KEY(`videoId`))",
+                columnsWithFallbacks = listOf(
+                    "videoId" to "''",
+                    "positionMs" to "0",
+                    "durationMs" to "0",
+                    "watchedAt" to "0"
+                )
+            ),
+            TableSpec(
+                name = "feed_cache",
+                createSql = "CREATE TABLE IF NOT EXISTS `feed_cache` (`videoId` TEXT NOT NULL, `title` TEXT NOT NULL, `thumbnailUrl` TEXT NOT NULL, `channelName` TEXT NOT NULL, `channelAvatarUrl` TEXT, `viewCount` INTEGER NOT NULL, `duration` INTEGER NOT NULL, `publishedText` TEXT NOT NULL, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`videoId`))",
+                columnsWithFallbacks = emptyList(),
+                preserveData = false
+            ),
+            TableSpec(
+                name = "search_cache",
+                createSql = "CREATE TABLE IF NOT EXISTS `search_cache` (`id` TEXT NOT NULL, `query` TEXT NOT NULL, `type` TEXT NOT NULL, `url` TEXT NOT NULL, `title` TEXT NOT NULL, `thumbnailUrl` TEXT NOT NULL, `channelName` TEXT NOT NULL, `viewCount` INTEGER NOT NULL, `duration` INTEGER NOT NULL, `orderIndex` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                columnsWithFallbacks = emptyList(),
+                preserveData = false
+            ),
+            TableSpec(
+                name = "video_metadata",
+                createSql = "CREATE TABLE IF NOT EXISTS `video_metadata` (`videoId` TEXT NOT NULL, `title` TEXT NOT NULL, `thumbnailUrl` TEXT NOT NULL, `channelName` TEXT NOT NULL, `viewCount` INTEGER NOT NULL, `duration` INTEGER NOT NULL, `streamUrl` TEXT, `audioUrl` TEXT, `uploaderUrl` TEXT, `description` TEXT, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`videoId`))",
+                columnsWithFallbacks = emptyList(),
+                preserveData = false
+            )
+        )
 
-        val MIGRATION_9_10 = object : Migration(9, 10) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS `new_downloaded_videos` (
-                        `fileName` TEXT NOT NULL,
-                        `videoId` TEXT NOT NULL,
-                        `title` TEXT NOT NULL,
-                        `thumbnailUrl` TEXT NOT NULL,
-                        `channelName` TEXT NOT NULL,
-                        `viewCount` INTEGER NOT NULL,
-                        `uploadDate` TEXT NOT NULL,
-                        `isAudioOnly` INTEGER NOT NULL,
-                        `downloadedAt` INTEGER NOT NULL,
-                        `lyrics` TEXT,
-                        PRIMARY KEY(`fileName`)
-                    )
-                """.trimIndent())
-                db.execSQL("""
-                    INSERT INTO `new_downloaded_videos` (`fileName`, `videoId`, `title`, `thumbnailUrl`, `channelName`, `viewCount`, `uploadDate`, `isAudioOnly`, `downloadedAt`, `lyrics`)
-                    SELECT `fileName`, `videoId`, `title`, `thumbnailUrl`, `channelName`, `viewCount`, `uploadDate`, `isAudioOnly`, `downloadedAt`, `lyrics` FROM `downloaded_videos`
-                """.trimIndent())
-                db.execSQL("DROP TABLE IF EXISTS `downloaded_videos`")
-                db.execSQL("ALTER TABLE `new_downloaded_videos` RENAME TO `downloaded_videos`")
-            }
-        }
+        /**
+         * Inspects any existing SQLite file on disk BEFORE Room opens it.
+         * If the database version, identity_hash, or table definitions differ from what
+         * Room's generated AppDatabase_Impl expects, rebuilds every table to match the
+         * exact Room DDL while preserving existing user data.
+         */
+        private fun healDatabaseBeforeRoomOpens(appContext: Context) {
+            val dbFile: File = appContext.getDatabasePath(DB_NAME)
+            if (!dbFile.exists()) return
 
-        val MIGRATION_21_22 = object : Migration(21, 22) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("CREATE TABLE IF NOT EXISTS `search_cache` (`id` TEXT NOT NULL, `query` TEXT NOT NULL, `type` TEXT NOT NULL, `url` TEXT NOT NULL, `title` TEXT NOT NULL, `thumbnailUrl` TEXT NOT NULL, `channelName` TEXT NOT NULL, `viewCount` INTEGER NOT NULL, `duration` INTEGER NOT NULL, `orderIndex` INTEGER NOT NULL, PRIMARY KEY(`id`))")
-            }
-        }
-
-        val MIGRATION_22_23 = object : Migration(22, 23) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("CREATE TABLE IF NOT EXISTS `video_metadata` (`videoId` TEXT NOT NULL, `title` TEXT NOT NULL, `thumbnailUrl` TEXT NOT NULL, `channelName` TEXT NOT NULL, `viewCount` INTEGER NOT NULL, `duration` INTEGER NOT NULL, `streamUrl` TEXT, `audioUrl` TEXT, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`videoId`))")
-            }
-        }
-
-        private fun addColumnIfNotExists(db: SupportSQLiteDatabase, table: String, column: String, columnDef: String) {
-            var hasColumn = false
+            var sqliteDb: SQLiteDatabase? = null
             try {
-                db.query("PRAGMA table_info(`$table`)").use { cursor ->
+                sqliteDb = SQLiteDatabase.openDatabase(
+                    dbFile.absolutePath,
+                    null,
+                    SQLiteDatabase.OPEN_READWRITE
+                )
+
+                val currentVersion = sqliteDb.version
+                var currentHash: String? = null
+                try {
+                    sqliteDb.rawQuery(
+                        "SELECT identity_hash FROM room_master_table WHERE id = 42 LIMIT 1",
+                        null
+                    ).use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            currentHash = cursor.getString(0)
+                        }
+                    }
+                } catch (_: Throwable) {
+                    // room_master_table might not exist yet
+                }
+
+                val needsRebuild = currentVersion != CURRENT_VERSION ||
+                    currentHash != EXPECTED_IDENTITY_HASH ||
+                    !allTablesMatchCleanSchema(sqliteDb)
+
+                if (needsRebuild) {
+                    Log.i(
+                        TAG,
+                        "Healing SQLite schema before Room open (version=$currentVersion -> $CURRENT_VERSION, hash=$currentHash -> $EXPECTED_IDENTITY_HASH)"
+                    )
+                    sqliteDb.execSQL("PRAGMA foreign_keys = OFF")
+                    sqliteDb.beginTransaction()
+                    try {
+                        for (spec in TABLE_SPECS) {
+                            rebuildTableLosslessly(sqliteDb, spec)
+                        }
+                        sqliteDb.execSQL("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)")
+                        sqliteDb.execSQL("DELETE FROM room_master_table")
+                        sqliteDb.execSQL("INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '$EXPECTED_IDENTITY_HASH')")
+                        sqliteDb.version = CURRENT_VERSION
+                        sqliteDb.setTransactionSuccessful()
+                    } finally {
+                        sqliteDb.endTransaction()
+                        sqliteDb.execSQL("PRAGMA foreign_keys = ON")
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Pre-flight SQLite heal encountered unrecoverable error, deleting DB file", t)
+                try {
+                    sqliteDb?.close()
+                } catch (_: Throwable) {}
+                sqliteDb = null
+                deleteDatabaseFiles(appContext)
+            } finally {
+                try {
+                    sqliteDb?.close()
+                } catch (_: Throwable) {}
+            }
+        }
+
+        private fun allTablesMatchCleanSchema(sqliteDb: SQLiteDatabase): Boolean {
+            for (spec in TABLE_SPECS) {
+                val existingCols = mutableMapOf<String, String?>()
+                try {
+                    sqliteDb.rawQuery("PRAGMA table_info(`${spec.name}`)", null).use { cursor ->
+                        val nameIdx = cursor.getColumnIndex("name")
+                        val dfltIdx = cursor.getColumnIndex("dflt_value")
+                        while (cursor.moveToNext()) {
+                            if (nameIdx >= 0) {
+                                val colName = cursor.getString(nameIdx)
+                                val dfltVal = if (dfltIdx >= 0 && !cursor.isNull(dfltIdx)) cursor.getString(dfltIdx) else null
+                                existingCols[colName] = dfltVal
+                            }
+                        }
+                    }
+                } catch (_: Throwable) {
+                    return false
+                }
+                if (existingCols.isEmpty()) return false
+                // Check all expected columns exist and have no leftover DEFAULT value from old ALTER TABLE statements
+                for ((expectedCol, _) in spec.columnsWithFallbacks) {
+                    if (!existingCols.containsKey(expectedCol)) return false
+                    if (existingCols[expectedCol] != null) return false
+                }
+            }
+            return true
+        }
+
+        private fun rebuildTableLosslessly(sqliteDb: SQLiteDatabase, spec: TableSpec) {
+            if (!spec.preserveData) {
+                sqliteDb.execSQL("DROP TABLE IF EXISTS `${spec.name}`")
+                sqliteDb.execSQL(spec.createSql)
+                for (sql in spec.postCopySql) {
+                    sqliteDb.execSQL(sql)
+                }
+                return
+            }
+
+            val existingColumns = mutableSetOf<String>()
+            try {
+                sqliteDb.rawQuery("PRAGMA table_info(`${spec.name}`)", null).use { cursor ->
                     val nameIdx = cursor.getColumnIndex("name")
                     if (nameIdx >= 0) {
                         while (cursor.moveToNext()) {
-                            if (cursor.getString(nameIdx).equals(column, ignoreCase = true)) {
-                                hasColumn = true
-                                break
-                            }
+                            existingColumns.add(cursor.getString(nameIdx))
                         }
                     }
                 }
             } catch (_: Throwable) {}
 
-            if (!hasColumn) {
+            val tempTableName = "_temp_migration_${spec.name}"
+            sqliteDb.execSQL("DROP TABLE IF EXISTS `$tempTableName`")
+            val tempCreateSql = spec.createSql.replaceFirst(
+                "CREATE TABLE IF NOT EXISTS `${spec.name}`",
+                "CREATE TABLE `$tempTableName`"
+            )
+            sqliteDb.execSQL(tempCreateSql)
+
+            if (existingColumns.isNotEmpty()) {
+                val targetColumns = spec.columnsWithFallbacks.joinToString(", ") { "`${it.first}`" }
+                val selectExpressions = spec.columnsWithFallbacks.joinToString(", ") { (colName, fallbackExpr) ->
+                    val matchedCol = existingColumns.firstOrNull { it.equals(colName, ignoreCase = true) }
+                    if (matchedCol != null) {
+                        if (fallbackExpr == "NULL") {
+                            "`$matchedCol`"
+                        } else {
+                            "COALESCE(`$matchedCol`, $fallbackExpr)"
+                        }
+                    } else {
+                        fallbackExpr
+                    }
+                }
                 try {
-                    db.execSQL("ALTER TABLE `$table` ADD COLUMN `$column` $columnDef")
-                } catch (_: Throwable) {}
-            }
-        }
-
-        private fun migrateToLatestSchema(db: SupportSQLiteDatabase) {
-            // 1. Ensure playlists table has customCoverUrl column
-            addColumnIfNotExists(db, "playlists", "customCoverUrl", "TEXT")
-
-            // 2. Ensure downloaded_videos has all latest columns
-            addColumnIfNotExists(db, "downloaded_videos", "lyrics", "TEXT")
-            addColumnIfNotExists(db, "downloaded_videos", "playlistId", "TEXT")
-            addColumnIfNotExists(db, "downloaded_videos", "playlistName", "TEXT")
-            addColumnIfNotExists(db, "downloaded_videos", "playlistIndex", "INTEGER NOT NULL DEFAULT 0")
-            addColumnIfNotExists(db, "downloaded_videos", "state", "TEXT NOT NULL DEFAULT 'DONE'")
-            addColumnIfNotExists(db, "downloaded_videos", "progress", "INTEGER NOT NULL DEFAULT 0")
-            addColumnIfNotExists(db, "downloaded_videos", "bytesDownloaded", "INTEGER NOT NULL DEFAULT 0")
-            addColumnIfNotExists(db, "downloaded_videos", "totalBytes", "INTEGER NOT NULL DEFAULT 0")
-            addColumnIfNotExists(db, "downloaded_videos", "duration", "TEXT NOT NULL DEFAULT ''")
-            addColumnIfNotExists(db, "downloaded_videos", "errorMessage", "TEXT")
-            addColumnIfNotExists(db, "downloaded_videos", "lastUpdatedAt", "INTEGER NOT NULL DEFAULT 0")
-            addColumnIfNotExists(db, "downloaded_videos", "partialFilePath", "TEXT")
-            addColumnIfNotExists(db, "downloaded_videos", "noLongerInWatchLater", "INTEGER NOT NULL DEFAULT 0")
-
-            // 3. Ensure search_cache table exists
-            db.execSQL("CREATE TABLE IF NOT EXISTS `search_cache` (`id` TEXT NOT NULL, `query` TEXT NOT NULL, `type` TEXT NOT NULL, `url` TEXT NOT NULL, `title` TEXT NOT NULL, `thumbnailUrl` TEXT NOT NULL, `channelName` TEXT NOT NULL, `viewCount` INTEGER NOT NULL, `duration` INTEGER NOT NULL, `orderIndex` INTEGER NOT NULL, PRIMARY KEY(`id`))")
-
-            // 4. Ensure video_metadata table exists with all required columns
-            db.execSQL("CREATE TABLE IF NOT EXISTS `video_metadata` (`videoId` TEXT NOT NULL, `title` TEXT NOT NULL, `thumbnailUrl` TEXT NOT NULL, `channelName` TEXT NOT NULL, `viewCount` INTEGER NOT NULL, `duration` INTEGER NOT NULL, `streamUrl` TEXT, `audioUrl` TEXT, `uploaderUrl` TEXT, `description` TEXT, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`videoId`))")
-            addColumnIfNotExists(db, "video_metadata", "uploaderUrl", "TEXT")
-            addColumnIfNotExists(db, "video_metadata", "description", "TEXT")
-
-            // 5. Ensure downloaded_playlists exists
-            db.execSQL("CREATE TABLE IF NOT EXISTS `downloaded_playlists` (`playlistId` TEXT NOT NULL, `title` TEXT NOT NULL, `thumbnailUrl` TEXT, `totalCount` INTEGER NOT NULL, `completedCount` INTEGER NOT NULL, `state` TEXT NOT NULL, `progress` INTEGER NOT NULL, `downloadedBytes` INTEGER NOT NULL, `totalBytes` INTEGER NOT NULL, `currentVideoTitle` TEXT, `currentVideoIndex` INTEGER NOT NULL, `currentVideoProgress` INTEGER NOT NULL, `downloadedAt` INTEGER NOT NULL, `lastUpdatedAt` INTEGER NOT NULL, `errorMessage` TEXT, PRIMARY KEY(`playlistId`))")
-
-            // 6. Ensure downloaded_playlist_video_cross_ref exists
-            db.execSQL("CREATE TABLE IF NOT EXISTS `downloaded_playlist_video_cross_ref` (`playlistId` TEXT NOT NULL, `videoId` TEXT NOT NULL, PRIMARY KEY(`playlistId`, `videoId`), FOREIGN KEY(`playlistId`) REFERENCES `downloaded_playlists`(`playlistId`) ON UPDATE NO ACTION ON DELETE CASCADE )")
-            db.execSQL("CREATE INDEX IF NOT EXISTS `index_downloaded_playlist_video_cross_ref_videoId` ON `downloaded_playlist_video_cross_ref` (`videoId`)")
-
-            // 7. Ensure watch_progress exists
-            db.execSQL("CREATE TABLE IF NOT EXISTS `watch_progress` (`videoId` TEXT NOT NULL, `positionMs` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL, `watchedAt` INTEGER NOT NULL, PRIMARY KEY(`videoId`))")
-
-            // 8. Ensure feed_cache exists
-            db.execSQL("CREATE TABLE IF NOT EXISTS `feed_cache` (`videoId` TEXT NOT NULL, `title` TEXT NOT NULL, `thumbnailUrl` TEXT NOT NULL, `channelName` TEXT NOT NULL, `channelAvatarUrl` TEXT, `viewCount` INTEGER NOT NULL, `duration` INTEGER NOT NULL, `publishedText` TEXT NOT NULL, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`videoId`))")
-
-            // 9. Ensure saved_lyrics exists
-            db.execSQL("CREATE TABLE IF NOT EXISTS `saved_lyrics` (`videoId` TEXT NOT NULL, `lyricsJson` TEXT NOT NULL, PRIMARY KEY(`videoId`))")
-        }
-
-        private fun createMigration(from: Int, to: Int): Migration {
-            return object : Migration(from, to) {
-                override fun migrate(db: SupportSQLiteDatabase) {
-                    migrateToLatestSchema(db)
+                    sqliteDb.execSQL(
+                        "INSERT OR IGNORE INTO `$tempTableName` ($targetColumns) SELECT $selectExpressions FROM `${spec.name}`"
+                    )
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Could not copy rows for ${spec.name}: ${e.message}")
                 }
             }
+
+            sqliteDb.execSQL("DROP TABLE IF EXISTS `${spec.name}`")
+            sqliteDb.execSQL("ALTER TABLE `$tempTableName` RENAME TO `${spec.name}`")
+
+            for (sql in spec.postCopySql) {
+                sqliteDb.execSQL(sql)
+            }
         }
 
-        private val ALL_MIGRATIONS: Array<Migration> = arrayOf(
-            MIGRATION_7_8,
-            MIGRATION_8_9,
-            MIGRATION_9_10,
-            MIGRATION_21_22,
-            MIGRATION_22_23,
-            createMigration(20, 30),
-            createMigration(21, 30),
-            createMigration(22, 30),
-            createMigration(23, 30),
-            createMigration(24, 30),
-            createMigration(25, 30),
-            createMigration(26, 30),
-            createMigration(27, 30),
-            createMigration(28, 30),
-            createMigration(29, 30)
-        )
+        private fun deleteDatabaseFiles(appContext: Context) {
+            try {
+                val dbFile = appContext.getDatabasePath(DB_NAME)
+                SQLiteDatabase.deleteDatabase(dbFile)
+                appContext.deleteDatabase(DB_NAME)
+            } catch (_: Throwable) {}
+        }
 
         private fun buildDatabaseInstance(appContext: Context): AppDatabase {
             return Room.databaseBuilder(
@@ -202,7 +423,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DB_NAME
             )
-            .addMigrations(*ALL_MIGRATIONS)
+            .allowMainThreadQueries()
             .fallbackToDestructiveMigration(true)
             .fallbackToDestructiveMigrationOnDowngrade(true)
             .build()
@@ -214,32 +435,39 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Resets the singleton instance (used in unit tests to simulate app restarts across upgrades).
+         */
+        internal fun resetInstanceForTesting() {
+            synchronized(this) {
+                try {
+                    INSTANCE?.close()
+                } catch (_: Throwable) {}
+                INSTANCE = null
+            }
+        }
+
         private fun createAndValidateDatabase(context: Context): AppDatabase {
             val appContext = context.applicationContext
 
-            // 1. Attempt normal initialization with all migrations and fallback
+            // Step 1: Pre-flight heal any existing SQLite file on disk before Room opens it
+            healDatabaseBeforeRoomOpens(appContext)
+
+            // Step 2: Open via Room and verify schema + read/write health immediately
             try {
                 val db = buildDatabaseInstance(appContext)
-                // Proactively test opening the database to verify schema and identity hash immediately
                 db.openHelper.writableDatabase
                 return db
             } catch (t: Throwable) {
-                Log.e(TAG, "Database initialization/migration failed: ${t.message}. Performing auto-recovery.", t)
+                Log.e(TAG, "Room open failed after pre-flight heal: ${t.message}. Resetting DB.", t)
                 try {
                     INSTANCE?.close()
                 } catch (_: Throwable) {}
                 INSTANCE = null
             }
 
-            // 2. Auto-recovery: If an existing user's phone has an incompatible hash or corrupt database,
-            // clean up the files so the app can launch fresh without crashing.
-            try {
-                appContext.deleteDatabase(DB_NAME)
-            } catch (t: Throwable) {
-                Log.e(TAG, "Error deleting corrupted database file: ${t.message}", t)
-            }
-
-            // 3. Build a fresh clean database instance
+            // Step 3: Ultimate fallback — clean recreate so the app never crashes on launch
+            deleteDatabaseFiles(appContext)
             val freshDb = buildDatabaseInstance(appContext)
             try {
                 freshDb.openHelper.writableDatabase

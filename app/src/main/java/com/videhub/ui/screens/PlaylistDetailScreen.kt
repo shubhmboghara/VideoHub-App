@@ -127,14 +127,14 @@ fun PlaylistDetailScreen(
             title = {
                 Text(
                     text = "Delete playlist?",
-                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
             },
             text = {
                 Text(
                     text = "Do you want to delete '${uiState.playlistName}'? Keep your downloaded files?",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.SansSerif),
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
@@ -187,14 +187,14 @@ fun PlaylistDetailScreen(
             title = {
                 Text(
                     text = "Delete download?",
-                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
             },
             text = {
                 Text(
                     text = "Delete this download? Frees $fileSize.",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.SansSerif),
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
@@ -642,7 +642,7 @@ fun PlaylistDetailContent(
                             text = uiState.playlistName,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -719,7 +719,7 @@ fun PlaylistDetailContent(
                     // Title centered under cover (matching screenshot)
                     Text(
                         text = uiState.playlistName,
-                        style = MaterialTheme.typography.headlineMedium.copy(fontFamily = FontFamily.SansSerif),
+                        style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
                         textAlign = TextAlign.Center,
@@ -734,7 +734,7 @@ fun PlaylistDetailContent(
                     val subtitleText = "Local Playlist • $summaryText"
                     Text(
                         text = subtitleText,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.SansSerif),
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth()
@@ -865,7 +865,7 @@ fun PlaylistDetailContent(
                                 ) {
                                     Text(
                                         text = currentSortLabel,
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.SansSerif),
+                                        style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Medium,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
@@ -941,7 +941,7 @@ fun PlaylistDetailContent(
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = "No videos in this playlist",
-                            style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -1042,7 +1042,7 @@ fun PlaylistDetailContent(
                         ) {
                             Text(
                                 text = video.title,
-                                style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.SansSerif),
+                                style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 2,
@@ -1052,7 +1052,7 @@ fun PlaylistDetailContent(
 
                             Text(
                                 text = metadataString.ifBlank { video.channelName },
-                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.SansSerif),
+                                style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Normal,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,

@@ -121,6 +121,7 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     var channelAboutInfoCache: com.videhub.extractor.ChannelAboutInfo? = null
     var channelVideosCache: List<org.schabi.newpipe.extractor.stream.StreamInfoItem>? = null
     var channelPlaylistsCache: List<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem>? = null
+    var channelLiveStreamsCache: List<org.schabi.newpipe.extractor.stream.StreamInfoItem>? = null
     var channelPagingSourceCache: com.videhub.extractor.ListExtractorPagingSource? = null
     var channelScrollIndexCache: Int = 0
     var channelScrollOffsetCache: Int = 0

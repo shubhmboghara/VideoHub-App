@@ -15,6 +15,9 @@ data class PlaylistWithThumbnail(
 interface PlaylistDao {
     @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
     fun getAllPlaylists(): Flow<List<PlaylistEntity>>
+
+    @Query("SELECT COUNT(*) FROM playlists")
+    fun getCount(): Flow<Int>
     
     @Query("""
         SELECT p.*, 

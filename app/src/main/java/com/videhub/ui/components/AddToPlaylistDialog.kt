@@ -107,7 +107,7 @@ fun AddToPlaylistDialog(
             // Header Title: "Save to..."
             Text(
                 text = "Save to...",
-                style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.SansSerif),
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(vertical = 8.dp)
@@ -196,7 +196,7 @@ fun AddToPlaylistDialog(
                         // Middle: Title "Watch later" (No public/private subtitle)
                         Text(
                             text = "Watch later",
-                            style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f),
@@ -292,7 +292,7 @@ fun AddToPlaylistDialog(
                         // Middle: Playlist Title (No public/private subtitle)
                         Text(
                             text = playlist.name,
-                            style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f),
@@ -336,7 +336,7 @@ fun AddToPlaylistDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "New playlist",
-                        style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -396,7 +396,7 @@ fun NewPlaylistDialog(
                 // Title
                 Text(
                     text = "New playlist",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily.SansSerif),
+                    style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )

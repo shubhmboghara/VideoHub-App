@@ -93,7 +93,7 @@ fun EditPlaylistSheet(
             ) {
                 Text(
                     text = "Edit",
-                    style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.SansSerif),
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )

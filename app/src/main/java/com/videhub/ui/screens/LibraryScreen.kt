@@ -138,6 +138,53 @@ fun LibraryScreen(
             scrollBehavior = scrollBehavior
         )
 
+        val db = remember { com.videhub.data.AppDatabase.getDatabase(context) }
+        val historyCount by db.historyDao().getCount().collectAsStateWithLifecycle(initialValue = null)
+        val watchLaterCount by db.watchLaterDao().getCount().collectAsStateWithLifecycle(initialValue = null)
+        val playlistsCount by db.playlistDao().getCount().collectAsStateWithLifecycle(initialValue = null)
+        val downloadsCount by db.downloadedVideoDao().getCompletedCount().collectAsStateWithLifecycle(initialValue = null)
+        val totalDownloadedBytes by db.downloadedVideoDao().getTotalDownloadedBytes().collectAsStateWithLifecycle(initialValue = null)
+        val likedCount by db.likedVideoDao().getCount().collectAsStateWithLifecycle(initialValue = null)
+
+        val watchLaterSubtitle = when {
+            watchLaterCount == null -> null
+            watchLaterCount == 1 -> "1 video"
+            watchLaterCount!! > 1 -> "$watchLaterCount videos"
+            else -> null
+        }
+
+        val downloadsSubtitle = when {
+            downloadsCount == null -> null
+            downloadsCount!! > 0 -> {
+                val countLabel = if (downloadsCount == 1) "1 video" else "$downloadsCount videos"
+                val totalBytes = totalDownloadedBytes ?: 0L
+                if (totalBytes > 0L) {
+                    val mb = totalBytes.toDouble() / (1024.0 * 1024.0)
+                    val sizeLabel = if (mb >= 1024.0) {
+                        String.format(java.util.Locale.US, "%.1f GB", mb / 1024.0)
+                    } else {
+                        String.format(java.util.Locale.US, "%.0f MB", mb)
+                    }
+                    "$countLabel · $sizeLabel"
+                } else {
+                    countLabel
+                }
+            }
+            else -> null
+        }
+
+        val playlistsSubtitle = when {
+            playlistsCount == null -> null
+            playlistsCount!! > 0 -> "$playlistsCount"
+            else -> null
+        }
+
+        val likedSubtitle = when {
+            likedCount == null -> null
+            likedCount!! > 0 -> "$likedCount"
+            else -> null
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -147,33 +194,52 @@ fun LibraryScreen(
                 .padding(bottom = 120.dp)
         ) {
             SectionTitle("My content")
+
+            // Prominent Downloads and Watch Later cards side by side
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                LibraryProminentCard(
+                    title = "Downloads",
+                    subtitle = downloadsSubtitle,
+                    icon = Icons.Default.Download,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onNavigate("downloads") }
+                )
+                LibraryProminentCard(
+                    title = "Watch Later",
+                    subtitle = watchLaterSubtitle,
+                    icon = Icons.Default.Bookmark,
+                    modifier = Modifier.weight(1f),
+                    onClick = onWatchLaterClick
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
             LibraryItemRow(
                 title = "History",
+                subtitle = null,
                 icon = Icons.Default.History,
                 onClick = { onNavigate("history") }
             )
             LibraryItemRow(
-                title = "Watch Later",
-                icon = Icons.Default.Bookmark,
-                onClick = onWatchLaterClick
-            )
-            LibraryItemRow(
                 title = "Playlists",
+                subtitle = playlistsSubtitle,
                 icon = Icons.AutoMirrored.Filled.PlaylistPlay,
                 onClick = { onNavigate("playlists") }
             )
             LibraryItemRow(
-                title = "Downloads",
-                icon = Icons.Default.Download,
-                onClick = { onNavigate("downloads") }
-            )
-            LibraryItemRow(
                 title = "Liked Videos",
+                subtitle = likedSubtitle,
                 icon = Icons.Default.ThumbUp,
                 onClick = { onNavigate("liked_videos") }
             )
 
-            SectionTitle("Settings")
+            SectionTitle("Preferences")
             ThemePreferenceRow(
                 themeMode = themeMode,
                 onClick = { showThemeDialog = true }
@@ -188,11 +254,13 @@ fun LibraryScreen(
             }
             LibraryItemRow(
                 title = "Settings",
+                subtitle = null,
                 icon = Icons.Default.Settings,
                 onClick = { onNavigate("proxy_settings") }
             )
             LibraryItemRow(
                 title = "Share VideoHub App",
+                subtitle = null,
                 icon = Icons.Default.Share,
                 onClick = {
                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -205,6 +273,7 @@ fun LibraryScreen(
             )
             LibraryItemRow(
                 title = "About VideoHub",
+                subtitle = null,
                 icon = Icons.Default.Info,
                 onClick = onAboutClick
             )
@@ -224,8 +293,62 @@ fun SectionTitle(title: String) {
 }
 
 @Composable
+fun LibraryProminentCard(
+    title: String,
+    subtitle: String?,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = modifier
+            .minimumInteractiveComponentSize()
+            .defaultMinSize(minHeight = 88.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun LibraryItemRow(
     title: String,
+    subtitle: String? = null,
     icon: ImageVector,
     onClick: () -> Unit
 ) {
@@ -235,7 +358,7 @@ fun LibraryItemRow(
             .minimumInteractiveComponentSize()
             .clickable(onClick = onClick)
             .defaultMinSize(minHeight = 56.dp)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -245,12 +368,21 @@ fun LibraryItemRow(
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(16.dp))
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f)
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
 
@@ -345,7 +477,7 @@ fun ThemePreferenceRow(
 @Preview(showBackground = true)
 @Composable
 fun LibraryScreenPreview() {
-    MaterialTheme(colorScheme = darkColorScheme()) {
+    com.videhub.ui.theme.AppTheme {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -356,14 +488,33 @@ fun LibraryScreenPreview() {
                 onSearch = {}
             )
             SectionTitle("My content")
-            LibraryItemRow(title = "History", icon = Icons.Default.History, onClick = {})
-            LibraryItemRow(title = "Watch Later", icon = Icons.Default.Bookmark, onClick = {})
-            LibraryItemRow(title = "Playlists", icon = Icons.AutoMirrored.Filled.PlaylistPlay, onClick = {})
-            LibraryItemRow(title = "Downloads", icon = Icons.Default.Download, onClick = {})
-            LibraryItemRow(title = "Liked Videos", icon = Icons.Default.ThumbUp, onClick = {})
-            SectionTitle("Settings")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                LibraryProminentCard(
+                    title = "Downloads",
+                    subtitle = "5 videos · 120 MB",
+                    icon = Icons.Default.Download,
+                    modifier = Modifier.weight(1f),
+                    onClick = {}
+                )
+                LibraryProminentCard(
+                    title = "Watch Later",
+                    subtitle = "3 videos",
+                    icon = Icons.Default.Bookmark,
+                    modifier = Modifier.weight(1f),
+                    onClick = {}
+                )
+            }
+            LibraryItemRow(title = "History", subtitle = null, icon = Icons.Default.History, onClick = {})
+            LibraryItemRow(title = "Playlists", subtitle = "2", icon = Icons.AutoMirrored.Filled.PlaylistPlay, onClick = {})
+            LibraryItemRow(title = "Liked Videos", subtitle = "12", icon = Icons.Default.ThumbUp, onClick = {})
+            SectionTitle("Preferences")
             ThemePreferenceRow(themeMode = AppThemeMode.DARK, onClick = {})
-            LibraryItemRow(title = "Settings", icon = Icons.Default.Settings, onClick = {})
+            LibraryItemRow(title = "Settings", subtitle = null, icon = Icons.Default.Settings, onClick = {})
         }
     }
 }

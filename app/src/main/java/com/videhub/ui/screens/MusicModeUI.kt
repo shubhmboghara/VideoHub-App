@@ -115,7 +115,10 @@ fun MusicModeUI(
                 }
             } else {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    MaterialTheme(colorScheme = com.videhub.ui.theme.BogharaDarkColorScheme) {
+                    MaterialTheme(
+                        colorScheme = com.videhub.ui.theme.BogharaDarkColorScheme,
+                        typography = com.videhub.ui.theme.AppTypography
+                    ) {
                     com.videhub.ui.components.NowPlayingScreen(
                     title = title,
                     artist = channelName,

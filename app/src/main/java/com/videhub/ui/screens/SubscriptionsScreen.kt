@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material3.*
@@ -229,13 +228,14 @@ fun SubscriptionsScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-            // ── Channel strip ────────────────────────────────────────────────
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    itemsIndexed(channels, key = { index, channel -> "${channel.channelId}_$index" }) { index, channel ->
+            // ── Channel strip (Only when 2 or more channels) ────────────────
+            if (channels.size >= 2) {
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        itemsIndexed(channels, key = { index, channel -> "${channel.channelId}_$index" }) { index, channel ->
                             ChannelAvatarItem(
                                 modifier = Modifier.animateItem(),
                                 channel = channel,
@@ -247,13 +247,16 @@ fun SubscriptionsScreen(
                                 },
                                 onLongClick = { onChannelClick(channel.channelId) }
                             )
+                        }
                     }
+                    androidx.compose.material3.HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                        thickness = 1.dp
+                    )
                 }
-                androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), thickness = 1.dp)
-                
-}
+            }
             
-            // ── Latest videos header ─────────────────────────────────────────
+            // ── Channel heading ─────────────────────────────────────────────
             item {
                 Row(
                     modifier = Modifier
@@ -262,23 +265,20 @@ fun SubscriptionsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = selectedChannel?.name ?: "Latest Videos",
+                        text = selectedChannel?.name ?: if (channels.size == 1) channels.first().name else "Latest Videos",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(
-                        onClick = { selectedChannel?.let { onChannelClick(it.channelId) } },
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .size(48.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Notifications,
-                            contentDescription = "Open Channel",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                            .weight(1f)
+                            .clickable(
+                                enabled = selectedChannel != null || channels.size == 1,
+                                role = androidx.compose.ui.semantics.Role.Button
+                            ) {
+                                val targetId = selectedChannel?.channelId ?: channels.firstOrNull()?.channelId
+                                targetId?.let { onChannelClick(it) }
+                            }
+                    )
                 }
             }
 
@@ -286,7 +286,7 @@ fun SubscriptionsScreen(
             if (isLoadingVideos) {
                 items(4) { com.videhub.ui.components.VideoRowShimmer() }
             } else {
-                val isSingleChannel = selectedChannel != null || channels.size == 1
+                val isSingleChannel = channels.size == 1
                 items(
                     count = latestVideos.size,
                     key = { index -> "${latestVideos[index].url ?: index.toString()}_$index" }
@@ -305,26 +305,26 @@ fun SubscriptionsScreen(
                     val displayUploaderName = if (isSingleChannel) "" else (video.uploaderName ?: "")
 
                     com.videhub.ui.components.VideoRowItem(
-                            modifier = Modifier.animateItem(),
-                            videoUrl = video.url ?: "",
-                            title = video.name ?: "",
-                            uploaderName = displayUploaderName,
-                            thumbnailUrl = video.thumbnails?.firstOrNull()?.url,
-                            duration = video.duration,
-                            viewCount = video.viewCount ?: 0,
-                            uploadDate = video.textualUploadDate ?: "",
-                            uploaderUrl = video.uploaderUrl,
-                            uploaderAvatarUrl = safeAvatar,
-                            onChannelClick = onChannelClick,
-                            onClick = { 
-                                val url = video.url ?: ""
-                                if (url.isNotBlank()) {
-                                    onVideoClick(url, video.name ?: "", video.thumbnails?.firstOrNull()?.url ?: "")
-                                }
+                        modifier = Modifier.animateItem(),
+                        videoUrl = video.url ?: "",
+                        title = video.name ?: "",
+                        uploaderName = displayUploaderName,
+                        thumbnailUrl = video.thumbnails?.firstOrNull()?.url,
+                        duration = video.duration,
+                        viewCount = video.viewCount ?: 0,
+                        uploadDate = video.textualUploadDate ?: "",
+                        uploaderUrl = video.uploaderUrl,
+                        uploaderAvatarUrl = safeAvatar,
+                        onChannelClick = onChannelClick,
+                        onClick = { 
+                            val url = video.url ?: ""
+                            if (url.isNotBlank()) {
+                                onVideoClick(url, video.name ?: "", video.thumbnails?.firstOrNull()?.url ?: "")
                             }
-                        )
-                    }
+                        }
+                    )
                 }
+            }
                 if (isPaginating) {
                     item {
                         Box(
@@ -440,7 +440,7 @@ private fun formatViewCount(count: Long): String = com.videhub.utils.FormatHelpe
 @androidx.compose.ui.tooling.preview.Preview(showBackground = true)
 @Composable
 fun SubscriptionsScreenPreview() {
-    MaterialTheme(colorScheme = darkColorScheme()) {
+    com.videhub.ui.theme.AppTheme {
         Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             com.videhub.ui.components.VideoHubTopBar(
                 showFilter = true,
@@ -467,8 +467,8 @@ fun SubscriptionsScreenPreview() {
                 uploaderName = "",
                 thumbnailUrl = null,
                 duration = 645,
-                viewCount = 128000,
-                uploadDate = "2 days ago",
+                viewCount = 94,
+                uploadDate = "1 day ago",
                 uploaderAvatarUrl = null,
                 onClick = {}
             )

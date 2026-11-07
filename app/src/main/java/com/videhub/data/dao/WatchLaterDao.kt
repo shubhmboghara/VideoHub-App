@@ -12,6 +12,9 @@ interface WatchLaterDao {
     @Query("SELECT * FROM watch_later ORDER BY addedAt DESC")
     fun getAll(): Flow<List<WatchLaterEntity>>
 
+    @Query("SELECT COUNT(*) FROM watch_later")
+    fun getCount(): Flow<Int>
+
     @Query("SELECT * FROM watch_later ORDER BY addedAt DESC")
     suspend fun getAllOnce(): List<WatchLaterEntity>
 

@@ -169,8 +169,10 @@ fun MusicSeekBar(
             ) {
                 Text(
                     text = formatMusicDuration(displayPositionMs),
+                    maxLines = 1,
+                    softWrap = false,
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = FontFamily.Monospace,
+                        fontFeatureSettings = "tnum",
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     ),
@@ -326,8 +328,10 @@ fun MusicSeekBar(
             // Elapsed Time
             Text(
                 text = formatMusicDuration(displayPositionMs),
-                style = TextStyle(
-                    fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                softWrap = false,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontFeatureSettings = "tnum",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
@@ -348,8 +352,10 @@ fun MusicSeekBar(
 
             Text(
                 text = displayRightText,
-                style = TextStyle(
-                    fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                softWrap = false,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontFeatureSettings = "tnum",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
@@ -374,13 +380,5 @@ fun MusicSeekBar(
  */
 fun formatMusicDuration(durationMs: Long): String {
     if (durationMs <= 0L) return "0:00"
-    val totalSeconds = durationMs / 1000
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return if (hours > 0) {
-        String.format("%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format("%d:%02d", minutes, seconds)
-    }
+    return com.videhub.utils.FormatHelper.formatDuration(durationMs / 1000L)
 }

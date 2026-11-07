@@ -64,6 +64,18 @@ object FormatHelper {
         }
     }
 
+    fun formatDuration(seconds: Long): String {
+        if (seconds <= 0L) return "0:00"
+        val hours = seconds / 3600
+        val minutes = (seconds % 3600) / 60
+        val remainingSeconds = seconds % 60
+        return if (hours > 0) {
+            String.format(java.util.Locale.US, "%d:%02d:%02d", hours, minutes, remainingSeconds)
+        } else {
+            String.format(java.util.Locale.US, "%d:%02d", minutes, remainingSeconds)
+        }
+    }
+
     fun formatDate(dateString: String?): String {
         if (dateString.isNullOrBlank()) return ""
         return dateCache.getOrPut(dateString) {

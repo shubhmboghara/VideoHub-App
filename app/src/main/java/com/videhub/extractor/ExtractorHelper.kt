@@ -693,6 +693,51 @@ object ExtractorHelper {
         return@withContext items.distinctBy { it.url ?: it.name ?: "" }
     }
 
+    suspend fun getChannelLiveStreams(
+        channelUrl: String,
+        maxPages: Int = 3
+    ): List<org.schabi.newpipe.extractor.stream.StreamInfoItem> = withContext(Dispatchers.IO) {
+        val svc = ServiceList.YouTube
+        val items = mutableListOf<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+        try {
+            val info = ChannelInfo.getInfo(svc, channelUrl)
+            val liveTab = info.tabs?.firstOrNull { tab ->
+                val linkHandler = tab as? org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
+                linkHandler?.url?.contains("streams", ignoreCase = true) == true ||
+                linkHandler?.url?.contains("live", ignoreCase = true) == true ||
+                linkHandler?.id?.contains("streams", ignoreCase = true) == true ||
+                linkHandler?.id?.contains("live", ignoreCase = true) == true
+            } as? org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
+
+            val tabHandler = liveTab ?: try {
+                val cleanUrl = if (channelUrl.endsWith("/")) "${channelUrl}streams" else "$channelUrl/streams"
+                svc.channelTabLHFactory.fromUrl(cleanUrl)
+            } catch (_: Exception) { null }
+
+            if (tabHandler != null) {
+                val extractor = svc.getChannelTabExtractor(tabHandler)
+                extractor.fetchPage()
+                val initialItems = extractor.initialPage.items?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+                    ?: emptyList()
+                items.addAll(initialItems)
+
+                var currentPage = extractor.initialPage
+                var pagesFetched = 1
+                while (currentPage.hasNextPage() && pagesFetched < maxPages) {
+                    val nextPage = extractor.getPage(currentPage.nextPage)
+                    val nextItems = nextPage.items?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+                        ?: emptyList()
+                    items.addAll(nextItems)
+                    currentPage = nextPage
+                    pagesFetched++
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext items.distinctBy { it.url ?: it.name ?: "" }
+    }
+
     suspend fun searchPlaylists(query: String): List<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem> = withContext(Dispatchers.IO) {
         try {
             val handler = try {

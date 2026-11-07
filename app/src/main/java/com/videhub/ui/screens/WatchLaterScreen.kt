@@ -444,7 +444,7 @@ fun WatchLaterDetailContent(
                             text = "Watch Later",
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -532,7 +532,7 @@ fun WatchLaterDetailContent(
                     // Title: "Watch Later" (headlineMedium, bold)
                     Text(
                         text = "Watch Later",
-                        style = MaterialTheme.typography.headlineMedium.copy(fontFamily = FontFamily.SansSerif),
+                        style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
                         textAlign = TextAlign.Center,
@@ -547,7 +547,7 @@ fun WatchLaterDetailContent(
                     val videoCountLabel = if (savedVideosCount == 1) "1 video" else "$savedVideosCount videos"
                     Text(
                         text = videoCountLabel,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.SansSerif),
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth()
@@ -673,7 +673,7 @@ fun WatchLaterDetailContent(
                                 ) {
                                     Text(
                                         text = currentSortLabel,
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.SansSerif),
+                                        style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Medium,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
@@ -741,7 +741,7 @@ fun WatchLaterDetailContent(
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = "No videos in Watch Later",
-                            style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif),
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -844,7 +844,7 @@ fun WatchLaterDetailContent(
                         ) {
                             Text(
                                 text = video.title,
-                                style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.SansSerif),
+                                style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 2,
@@ -854,7 +854,7 @@ fun WatchLaterDetailContent(
 
                             Text(
                                 text = metadataString.ifBlank { video.channelName },
-                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.SansSerif),
+                                style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Normal,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
