@@ -49,12 +49,7 @@ private fun formatDurationString(durationSeconds: Long): String? {
 
 private fun formatViewCount(views: Long?): String? {
     if (views == null || views <= 0) return null
-    return when {
-        views >= 1_000_000_000 -> String.format("%.1fB views", views / 1_000_000_000.0).replace(".0B", "B")
-        views >= 1_000_000 -> String.format("%.1fM views", views / 1_000_000.0).replace(".0M", "M")
-        views >= 1_000 -> String.format("%.1fK views", views / 1_000.0).replace(".0K", "K")
-        else -> "$views views"
-    }
+    return "${com.videhub.utils.FormatHelper.formatCount(views)} views"
 }
 
 private fun buildMetadataString(channel: String?, durationSeconds: Long, viewCount: Long?): String {

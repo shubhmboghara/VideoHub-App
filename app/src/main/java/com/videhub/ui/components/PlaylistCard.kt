@@ -51,7 +51,7 @@ fun PlaylistCard(
             "Downloading $currIdx of $tot • $overallPercent%"
         }
         isFailed -> "Download failed"
-        else -> subtitle ?: if (totalCount > 0) "$totalCount videos" else "Preparing…"
+        else -> subtitle ?: if (totalCount > 0) "${com.videhub.utils.FormatHelper.formatCount(totalCount.toLong())} videos" else "Preparing…"
     }
 
     Card(

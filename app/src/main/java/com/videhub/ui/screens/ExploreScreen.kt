@@ -1352,7 +1352,7 @@ private fun FeaturedChannelCard(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 val subCount = channel.subscriberCount
-                val countText = if (subCount > 0) "${formatCount(subCount)} subscribers" else "Channel"
+                val countText = if (subCount > 0) com.videhub.utils.FormatHelper.formatSubscriberCount(subCount) else "Channel"
                 Text(
                     text = countText,
                     style = MaterialTheme.typography.bodySmall,
@@ -1467,7 +1467,7 @@ private fun ChannelResultItem(
             )
             channel.subscriberCount.takeIf { it > 0 }?.let {
                 Text(
-                    text = "${formatCount(it)} subscribers",
+                    text = com.videhub.utils.FormatHelper.formatSubscriberCount(it),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1504,8 +1504,5 @@ private fun ChannelResultItem(
     }
 }
 
-private fun formatCount(count: Long): String = when {
-    count >= 1_000_000 -> "%.1fM".format(count / 1_000_000.0)
-    count >= 1_000 -> "%.1fK".format(count / 1_000.0)
-    else -> count.toString()
-}
+private fun formatCount(count: Long): String = com.videhub.utils.FormatHelper.formatCount(count)
+

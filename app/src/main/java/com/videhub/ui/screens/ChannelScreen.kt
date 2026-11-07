@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
@@ -179,8 +180,10 @@ fun ChannelScreen(
     onBack: () -> Unit,
     onVideoClick: (String, String, String) -> Unit,
     onPlaylistClick: (String) -> Unit = {},
-    onAboutClick: () -> Unit
+    onAboutClick: () -> Unit,
+    onSearchClick: () -> Unit = {}
 ) {
+    var showChannelMenu by remember { mutableStateOf(false) }
     // Determine if we should load from cache
     val isSameChannel = sharedViewModel.currentChannelId == channelId
     var channelInfo by remember { mutableStateOf<ChannelInfo?>(if (isSameChannel) sharedViewModel.channelInfoCache else null) }
@@ -419,16 +422,64 @@ fun ChannelScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { },
+                        onClick = onSearchClick,
                         modifier = Modifier.size(48.dp)
                     ) {
                         Icon(Icons.Default.Search, contentDescription = "Search")
                     }
-                    IconButton(
-                        onClick = { },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                    Box {
+                        IconButton(
+                            onClick = { showChannelMenu = true },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                        }
+                        DropdownMenu(
+                            expanded = showChannelMenu,
+                            onDismissRequest = { showChannelMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Share") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Share,
+                                        contentDescription = "Share channel"
+                                    )
+                                },
+                                onClick = {
+                                    showChannelMenu = false
+                                    val shareUrl = channelInfo?.url?.ifBlank { null }
+                                        ?: when {
+                                            channelId.startsWith("http") -> channelId
+                                            channelId.startsWith("@") -> "https://www.youtube.com/$channelId"
+                                            else -> "https://www.youtube.com/channel/$channelId"
+                                        }
+                                    val sendIntent = android.content.Intent().apply {
+                                        action = android.content.Intent.ACTION_SEND
+                                        putExtra(android.content.Intent.EXTRA_TEXT, shareUrl)
+                                        type = "text/plain"
+                                    }
+                                    val shareIntent = android.content.Intent.createChooser(sendIntent, "Share channel")
+                                    context.startActivity(shareIntent)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("About") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Info,
+                                        contentDescription = "About channel"
+                                    )
+                                },
+                                onClick = {
+                                    showChannelMenu = false
+                                    sharedViewModel.currentChannelId = channelId
+                                    sharedViewModel.channelInfoCache = channelInfo
+                                    sharedViewModel.channelAboutInfoCache = channelAboutInfo
+                                    onAboutClick()
+                                }
+                            )
+                        }
                     }
                 },
                 windowInsets = WindowInsets(0.dp)
@@ -480,7 +531,8 @@ fun ChannelScreen(
                             info.javaClass.getMethod("getStreamCount").invoke(info) as? Long
                         } catch (e: Exception) { null }
                         val statsText = if (streamCount != null && streamCount > 0) {
-                            "$subText • $streamCount videos"
+                            val formattedVideos = "${com.videhub.utils.FormatHelper.formatCount(streamCount)} videos"
+                            "$subText • $formattedVideos"
                         } else {
                             subText
                         }
@@ -949,7 +1001,7 @@ fun ChannelForYouCard(
                 )
             }
             Spacer(modifier = Modifier.height(4.dp))
-            val viewsPart = if (video.viewCount > 0) com.videhub.utils.FormatHelper.formatSubscriberCount(video.viewCount) else null
+            val viewsPart = if (video.viewCount > 0) "${com.videhub.utils.FormatHelper.formatCount(video.viewCount)} views" else null
             val datePart = video.textualUploadDate?.ifBlank { null }
             val meta = listOfNotNull(viewsPart, datePart).joinToString(" • ")
             if (meta.isNotBlank()) {
@@ -1087,13 +1139,13 @@ fun ChannelLiveStreamItem(
 
             val metadataText = when {
                 isRunningLive -> {
-                    if (video.viewCount > 0) "${video.viewCount} watching" else "LIVE"
+                    if (video.viewCount > 0) "${com.videhub.utils.FormatHelper.formatCount(video.viewCount)} watching" else "LIVE"
                 }
                 isUpcoming -> {
                     video.textualUploadDate?.ifBlank { "Upcoming" } ?: "Upcoming"
                 }
                 else -> {
-                    val viewsPart = if (video.viewCount > 0) com.videhub.utils.FormatHelper.formatSubscriberCount(video.viewCount) + " views" else null
+                    val viewsPart = if (video.viewCount > 0) "${com.videhub.utils.FormatHelper.formatCount(video.viewCount)} views" else null
                     val datePart = video.textualUploadDate?.ifBlank { null }
                     listOfNotNull(viewsPart, datePart).joinToString(" • ")
                 }
@@ -1418,7 +1470,7 @@ fun ChannelHeaderExpandedPreview() {
                     name = "Rom Rom Ji",
                     handle = "RomRomJi",
                     isVerified = true,
-                    statsText = "6.29 lakh subscribers • 456 videos",
+                    statsText = "629k subscribers • 456 videos",
                     descriptionSummary = "Rom Rom ji",
                     isSubscribed = true,
                     onSubscribeClick = {},

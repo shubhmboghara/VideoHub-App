@@ -120,7 +120,7 @@ fun OnlinePlaylistScreen(
                     item {
                         com.videhub.ui.components.PlaylistHeader(
                             title = uiState.playlistInfo?.name ?: "Playlist",
-                            subtitle = "Online Playlist • ${playlistItems.size} videos",
+                            subtitle = "Online Playlist • ${com.videhub.utils.FormatHelper.formatCount(playlistItems.size.toLong())} videos",
                             thumbnailUrl = firstVideoThumb,
                             isPlayAllEnabled = playlistItems.isNotEmpty(),
                             isShuffleEnabled = playlistItems.isNotEmpty(),

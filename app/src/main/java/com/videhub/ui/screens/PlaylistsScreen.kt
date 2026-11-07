@@ -748,7 +748,7 @@ fun SmartPlaylistCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = subtitle ?: "${count ?: 0} videos",
+                        text = subtitle ?: "${com.videhub.utils.FormatHelper.formatCount((count ?: 0).toLong())} videos",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.8f)
                     )
@@ -767,7 +767,7 @@ fun PlaylistListItem(
 ) {
     com.videhub.ui.components.PlaylistCard(
         title = playlist.playlist.name,
-        subtitle = "${playlist.videoCount} videos",
+        subtitle = "${com.videhub.utils.FormatHelper.formatCount(playlist.videoCount.toLong())} videos",
         thumbnailUrl = playlist.thumbnailUrl,
         onClick = onClick,
         onMoreClick = onMoreClick,

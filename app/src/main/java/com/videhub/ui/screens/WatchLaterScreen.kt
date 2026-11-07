@@ -544,7 +544,7 @@ fun WatchLaterDetailContent(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     // Subtitle: "X videos" (NO "by username", NO "Private", NO "No views")
-                    val videoCountLabel = if (savedVideosCount == 1) "1 video" else "$savedVideosCount videos"
+                    val videoCountLabel = if (savedVideosCount == 1) "1 video" else "${com.videhub.utils.FormatHelper.formatCount(savedVideosCount.toLong())} videos"
                     Text(
                         text = videoCountLabel,
                         style = MaterialTheme.typography.bodyMedium,

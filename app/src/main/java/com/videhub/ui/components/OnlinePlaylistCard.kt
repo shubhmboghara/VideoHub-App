@@ -112,7 +112,7 @@ fun OnlinePlaylistItemCard(
                             modifier = Modifier.size(16.dp)
                         )
                         val countText = if (playlist.streamCount > 0) {
-                            "${playlist.streamCount} videos"
+                            "${com.videhub.utils.FormatHelper.formatCount(playlist.streamCount)} videos"
                         } else {
                             "Playlist"
                         }
@@ -247,7 +247,7 @@ fun CompactPlaylistResultItem(
                         modifier = Modifier.size(12.dp)
                     )
                     Text(
-                        text = if (playlist.streamCount > 0) "${playlist.streamCount}" else "List",
+                        text = if (playlist.streamCount > 0) com.videhub.utils.FormatHelper.formatCount(playlist.streamCount) else "List",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White,
                         fontWeight = FontWeight.Bold
@@ -388,7 +388,7 @@ fun RecommendedPlaylistCard(
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
-                            text = if (playlist.isMix) "Mix" else if (playlist.streamCount > 0) "${playlist.streamCount}" else "Playlist",
+                            text = if (playlist.isMix) "Mix" else if (playlist.streamCount > 0) com.videhub.utils.FormatHelper.formatCount(playlist.streamCount) else "Playlist",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.White,
                             fontWeight = FontWeight.Bold

@@ -1673,7 +1673,7 @@ fun PlaylistDownloadCard(
             "Downloading $currIdx of ${playlist.totalVideos} • $overallProgInt%"
         }
         playlist.state.equals("FAILED", ignoreCase = true) -> "Download failed"
-        else -> "${playlist.videoCount} videos • ${formatMB(playlist.totalBytes.takeIf { it > 0 } ?: playlist.downloadedBytes)}"
+        else -> "${com.videhub.utils.FormatHelper.formatCount(playlist.videoCount.toLong())} videos • ${formatMB(playlist.totalBytes.takeIf { it > 0 } ?: playlist.downloadedBytes)}"
     }
 
     com.videhub.ui.components.PlaylistCard(

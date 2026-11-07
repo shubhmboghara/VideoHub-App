@@ -23,44 +23,41 @@ object FormatHelper {
     }
 
     fun formatCount(count: Long): String {
+        if (count < 0) return ""
+        if (count < 1_000) return count.toString()
         val formatFn = { value: Double, suffix: String ->
-            val formatted = String.format(java.util.Locale.US, "%.1f", value)
-            if (formatted.endsWith(".0")) {
-                formatted.substringBefore(".") + suffix
-            } else {
-                formatted + suffix
+            val formatted = when {
+                suffix == "k" && value >= 10.0 -> String.format(java.util.Locale.US, "%.0f", value) + suffix
+                suffix == "m" && value >= 100.0 -> String.format(java.util.Locale.US, "%.0f", value) + suffix
+                suffix == "b" && value >= 100.0 -> String.format(java.util.Locale.US, "%.0f", value) + suffix
+                else -> {
+                    val str = String.format(java.util.Locale.US, "%.1f", value)
+                    if (str.endsWith(".0")) {
+                        str.substringBefore(".") + suffix
+                    } else {
+                        str + suffix
+                    }
+                }
             }
+            formatted
         }
         return countCache.getOrPut(count) { 
-        when {
-            count >= 1_000_000_000 -> formatFn(count / 1_000_000_000.0, "b")
-            count >= 1_000_000 -> formatFn(count / 1_000_000.0, "m")
-            count >= 1_000 -> formatFn(count / 1_000.0, "k")
-            else -> count.toString()
-        }
+            when {
+                count >= 1_000_000_000 -> formatFn(count / 1_000_000_000.0, "b")
+                count >= 1_000_000 -> formatFn(count / 1_000_000.0, "m")
+                count >= 1_000 -> formatFn(count / 1_000.0, "k")
+                else -> count.toString()
+            }
         }
     }
-    
     
     private val subCountCache = java.util.concurrent.ConcurrentHashMap<Long, String>()
     
     fun formatSubscriberCount(count: Long): String {
+        if (count < 0) return ""
         return subCountCache.getOrPut(count) {
-            val formatFn = { value: Double, suffix: String ->
-                val formatted = String.format(java.util.Locale.US, "%.1f", value)
-                if (formatted.endsWith(".0")) {
-                    formatted.substringBefore(".") + suffix
-                } else {
-                    formatted + suffix
-                }
-            }
-            val countText = when {
-                count >= 10_000_000 -> formatFn(count / 10_000_000.0, "Cr")
-                count >= 100_000 -> formatFn(count / 100_000.0, "L")
-                count >= 1_000 -> formatFn(count / 1_000.0, "K")
-                else -> count.toString()
-            }
-            "$countText subscribers"
+            val countText = formatCount(count)
+            if (count == 1L) "$countText subscriber" else "$countText subscribers"
         }
     }
 

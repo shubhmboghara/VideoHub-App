@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -44,8 +45,11 @@ fun ChannelAboutScreen(
     sharedViewModel: MainViewModel,
     channelId: String? = null,
     onBack: () -> Unit,
-    onChannelClick: (String) -> Unit
+    onChannelClick: (String) -> Unit,
+    onSearchClick: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    var showAboutMenu by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf(sharedViewModel.channelInfoCache) }
     var aboutInfo by remember { mutableStateOf(sharedViewModel.channelAboutInfoCache) }
     val effectiveChannelId = channelId?.ifBlank { null } ?: sharedViewModel.currentChannelId
@@ -101,17 +105,52 @@ fun ChannelAboutScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { }) {
+                    IconButton(onClick = onSearchClick) {
                         Icon(
                             Icons.Default.Search,
                             contentDescription = "Search"
                         )
                     }
-                    IconButton(onClick = { }) {
-                        Icon(
-                            Icons.Default.MoreVert,
-                            contentDescription = "More options"
-                        )
+                    Box {
+                        IconButton(onClick = { showAboutMenu = true }) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "More options"
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showAboutMenu,
+                            onDismissRequest = { showAboutMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Share") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Share,
+                                        contentDescription = "Share channel"
+                                    )
+                                },
+                                onClick = {
+                                    showAboutMenu = false
+                                    val shareUrl = info?.url?.ifBlank { null }
+                                        ?: when {
+                                            effectiveChannelId.isNullOrBlank() -> null
+                                            effectiveChannelId.startsWith("http") -> effectiveChannelId
+                                            effectiveChannelId.startsWith("@") -> "https://www.youtube.com/$effectiveChannelId"
+                                            else -> "https://www.youtube.com/channel/$effectiveChannelId"
+                                        }
+                                    if (!shareUrl.isNullOrBlank()) {
+                                        val sendIntent = android.content.Intent().apply {
+                                            action = android.content.Intent.ACTION_SEND
+                                            putExtra(android.content.Intent.EXTRA_TEXT, shareUrl)
+                                            type = "text/plain"
+                                        }
+                                        val shareIntent = android.content.Intent.createChooser(sendIntent, "Share channel")
+                                        context.startActivity(shareIntent)
+                                    }
+                                }
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -320,7 +359,7 @@ fun ChannelAboutScreen(
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(16.dp))
-                        val formattedViews = String.format(java.util.Locale.US, "%,d views", totalViews)
+                        val formattedViews = "${com.videhub.utils.FormatHelper.formatCount(totalViews)} views"
                         Text(
                             text = formattedViews,
                             style = MaterialTheme.typography.bodyMedium,
@@ -343,14 +382,8 @@ private fun InfoRow(label: String) {
     )
 }
 
-private fun formatSubscriberCount(count: Long): String {
-    return when {
-        count >= 1_000_000_000 -> "%.1fB".format(count / 1_000_000_000.0)
-        count >= 1_000_000 -> "%.1fM".format(count / 1_000_000.0)
-        count >= 1_000 -> "%.1fK".format(count / 1_000.0)
-        else -> count.toString()
-    }
-}
+private fun formatSubscriberCount(count: Long): String = com.videhub.utils.FormatHelper.formatCount(count)
+
 
 private fun getFlagEmoji(countryName: String): String {
     val locale = java.util.Locale.getAvailableLocales().firstOrNull { 

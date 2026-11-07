@@ -562,7 +562,7 @@ fun PlaylistDetailContent(
     // Summary line calculations
     val totalMinutes = (uiState.totalDurationSeconds + 59) / 60
     val durationText = if (totalMinutes > 0) "$totalMinutes min" else ""
-    val videoCountText = if (totalCount == 1) "1 video" else "$totalCount videos"
+    val videoCountText = if (totalCount == 1) "1 video" else "${com.videhub.utils.FormatHelper.formatCount(totalCount.toLong())} videos"
 
     val summaryText = when {
         isDownloading -> {

@@ -126,7 +126,8 @@ fun NavGraph(
                 onAboutClick = {
                     val encodedId = try { java.net.URLEncoder.encode(channelId, "UTF-8") } catch (e: Exception) { channelId }
                     navController.navigate("channel_about?channelId=$encodedId")
-                }
+                },
+                onSearchClick = { navController.navigate(Screen.Explore.route) }
             )
         }
         composable(
@@ -141,7 +142,8 @@ fun NavGraph(
                 sharedViewModel = sharedViewModel,
                 channelId = navChannelId.ifBlank { sharedViewModel.currentChannelId },
                 onBack = { navController.popBackStack() },
-                onChannelClick = { ch -> navController.navigate(Screen.Channel.createRoute(ch)) }
+                onChannelClick = { ch -> navController.navigate(Screen.Channel.createRoute(ch)) },
+                onSearchClick = { navController.navigate(Screen.Explore.route) }
             )
         }
         composable("history") {

@@ -131,7 +131,7 @@ fun LikedVideosScreen(
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         Text(
-                            "${likedVideos.size} liked videos",
+                            "${com.videhub.utils.FormatHelper.formatCount(likedVideos.size.toLong())} liked videos",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
