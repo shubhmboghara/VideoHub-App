@@ -1,7 +1,6 @@
 package com.videhub.ui.components
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -42,6 +41,62 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+
+@Composable
+fun PulsatingLiveBadge(
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "live_pulse")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 750, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "live_pulse_alpha"
+    )
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.9f,
+        targetValue = 1.1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 750, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "live_pulse_scale"
+    )
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFFCC0000)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Sensors,
+                contentDescription = "Live",
+                tint = Color.White,
+                modifier = Modifier
+                    .size(12.dp)
+                    .graphicsLayer {
+                        this.alpha = alpha
+                        this.scaleX = scale
+                        this.scaleY = scale
+                    }
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "LIVE",
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
 
 @Composable
 fun VideoCardShimmer() {
@@ -240,32 +295,11 @@ fun VideoCard(
 
             // Duration badge / LIVE badge at BottomEnd
             if (isLive || (duration <= 0L && uploadDate.contains("Live", ignoreCase = true))) {
-                Surface(
+                PulsatingLiveBadge(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(8.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFCC0000)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Sensors,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "LIVE",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+                        .padding(8.dp)
+                )
             } else if (duration > 0) {
                 Surface(
                     modifier = Modifier

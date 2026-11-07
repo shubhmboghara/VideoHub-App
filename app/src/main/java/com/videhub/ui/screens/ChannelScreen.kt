@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.videhub.ui.components.CompactPlaylistResultItem
+import com.videhub.ui.components.PulsatingLiveBadge
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -1126,32 +1127,11 @@ fun ChannelLiveStreamItem(
             }
 
             if (isRunningLive) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFCC0000),
+                com.videhub.ui.components.PulsatingLiveBadge(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(4.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Sensors,
-                            contentDescription = "Live",
-                            tint = Color.White,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = "LIVE",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+                )
             } else if (isUpcoming) {
                 Surface(
                     shape = RoundedCornerShape(4.dp),
