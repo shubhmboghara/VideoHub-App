@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Public
@@ -46,6 +47,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.border
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.videhub.data.AppDatabase
@@ -340,13 +343,15 @@ fun ChannelScreen(
         }
     }
 
-    LaunchedEffect(selectedTab, channelInfo, liveRetryTrigger) {
-        if (selectedTab == 2 && channelInfo != null) {
+    LaunchedEffect(channelInfo, liveRetryTrigger) {
+        if (channelInfo != null) {
             if (channelLiveStreams.isNotEmpty() && !isRefreshing) return@LaunchedEffect
             isLiveLoading = true
             liveError = null
             try {
-                val streams = ExtractorHelper.getChannelLiveStreams(channelInfo!!.url)
+                val streams = withContext(Dispatchers.IO) {
+                    ExtractorHelper.getChannelLiveStreams(channelInfo!!.url)
+                }
                 channelLiveStreams = streams
                 sharedViewModel.channelLiveStreamsCache = streams
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -387,6 +392,18 @@ fun ChannelScreen(
                 channelVideos = channelVideos + items
             } catch (e: Exception) {}
             isPaginating = false
+        }
+    }
+
+    val topLiveStream = remember(channelLiveStreams) {
+        if (channelLiveStreams.isEmpty()) null
+        else {
+            val active = channelLiveStreams.filter { item ->
+                item.streamType == org.schabi.newpipe.extractor.stream.StreamType.LIVE_STREAM ||
+                item.streamType == org.schabi.newpipe.extractor.stream.StreamType.AUDIO_LIVE_STREAM ||
+                item.duration <= 0L
+            }.ifEmpty { channelLiveStreams }
+            active.maxByOrNull { it.viewCount }
         }
     }
 
@@ -560,6 +577,17 @@ fun ChannelScreen(
                             statsText = statsText,
                             descriptionSummary = descriptionSummary,
                             isSubscribed = isSubscribed,
+                            hasLiveStream = topLiveStream != null,
+                            onAvatarClick = {
+                                topLiveStream?.let { liveItem ->
+                                    val liveUrl = liveItem.url ?: ""
+                                    val liveTitle = liveItem.name ?: info.name
+                                    val liveThumb = liveItem.thumbnails?.firstOrNull()?.url ?: avatarUrl ?: ""
+                                    if (liveUrl.isNotBlank()) {
+                                        onVideoClick(liveUrl, liveTitle, liveThumb)
+                                    }
+                                }
+                            },
                             onSubscribeClick = {
                                 scope.launch(Dispatchers.IO) {
                                     val avatar = com.videhub.utils.AvatarHelper.getBestAvatarUrl(info.avatars) ?: ""
@@ -602,13 +630,40 @@ fun ChannelScreen(
                     )
                 }
 
-                // Tab 0: Home Tab (For You carousel + Videos section, no "Our members")
+                // Tab 0: Home Tab (Featured Live Stream + For You carousel + Videos section)
                 if (selectedTab == 0) {
-                    if (videoLoading) {
+                    // Featured top live stream at the top of Home tab
+                    topLiveStream?.let { liveStream ->
+                        item(key = "channel_featured_live_stream") {
+                            val liveUrl = liveStream.url ?: ""
+                            val liveTitle = liveStream.name ?: ""
+                            val liveThumb = liveStream.thumbnails?.firstOrNull()?.url ?: ""
+                            val avatarUrl = try { channelInfo?.avatars?.firstOrNull()?.url } catch (e: Exception) { null }
+
+                            com.videhub.ui.components.VideoCard(
+                                title = liveTitle,
+                                channelName = channelInfo?.name ?: liveStream.uploaderName ?: "",
+                                thumbnailUrl = liveThumb,
+                                url = liveUrl,
+                                duration = liveStream.duration,
+                                viewCount = liveStream.viewCount,
+                                channelAvatarUrl = avatarUrl,
+                                uploadDate = "Live",
+                                channelUrl = channelInfo?.url ?: "",
+                                isLive = true,
+                                onClick = { url, t, th ->
+                                    if (url.isNotBlank()) onVideoClick(url, t, th)
+                                },
+                                onChannelClick = {}
+                            )
+                        }
+                    }
+
+                    if (videoLoading && topLiveStream == null) {
                         items(4) {
                             com.videhub.ui.components.VideoCardShimmer()
                         }
-                    } else if (channelVideos.isEmpty()) {
+                    } else if (channelVideos.isEmpty() && topLiveStream == null) {
                         item {
                             com.videhub.ui.components.EmptyState(
                                 icon = Icons.Default.PlayArrow,
@@ -1006,7 +1061,7 @@ fun ChannelForYouCard(
                     modifier = Modifier.weight(1f)
                 )
                 Icon(
-                    imageVector = Icons.Default.MoreVert,
+                    imageVector = Icons.Default.MoreHoriz,
                     contentDescription = "More options",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp)
@@ -1072,19 +1127,30 @@ fun ChannelLiveStreamItem(
 
             if (isRunningLive) {
                 Surface(
-                    shape = RoundedCornerShape(4.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = Color(0xFFCC0000),
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(4.dp)
                 ) {
-                    Text(
-                        text = "LIVE",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sensors,
+                            contentDescription = "Live",
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "LIVE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             } else if (isUpcoming) {
                 Surface(
@@ -1141,7 +1207,7 @@ fun ChannelLiveStreamItem(
                     modifier = Modifier.weight(1f)
                 )
                 Icon(
-                    imageVector = Icons.Default.MoreVert,
+                    imageVector = Icons.Default.MoreHoriz,
                     contentDescription = "More options",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp)
@@ -1157,9 +1223,11 @@ fun ChannelLiveStreamItem(
                     video.textualUploadDate?.ifBlank { "Upcoming" } ?: "Upcoming"
                 }
                 else -> {
-                    val viewsPart = if (video.viewCount > 0) "${com.videhub.utils.FormatHelper.formatCount(video.viewCount)} views" else null
+                    val viewsPart = if (video.viewCount > 0) com.videhub.utils.FormatHelper.formatCount(video.viewCount) else null
                     val datePart = video.textualUploadDate?.ifBlank { null }
-                    listOfNotNull(viewsPart, datePart).joinToString(" • ")
+                    val isStreamEnded = datePart?.contains("Streamed", ignoreCase = true) == true || video.streamType?.name?.contains("ENDED", ignoreCase = true) == true
+                    val formattedDate = if (isStreamEnded) datePart else (datePart?.let { "Streamed $it" } ?: "Streamed")
+                    listOfNotNull(viewsPart, formattedDate).joinToString(" · ")
                 }
             }
 
@@ -1184,6 +1252,8 @@ fun ChannelHeaderSection(
     statsText: String,
     descriptionSummary: String,
     isSubscribed: Boolean,
+    hasLiveStream: Boolean = false,
+    onAvatarClick: () -> Unit = {},
     onSubscribeClick: () -> Unit,
     onAboutClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -1215,34 +1285,71 @@ fun ChannelHeaderSection(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Row: Avatar (72dp) on the left, Channel info on the right (Matches Image 1 & 6)
+        // Row: Avatar on the left with glowing red ring & LIVE badge if hasLiveStream
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Avatar on the left
-            if (!avatarUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = avatarUrl,
-                    contentDescription = "Channel avatar",
+            Box(
+                modifier = Modifier
+                    .wrapContentSize()
+                    .clickable(enabled = hasLiveStream) { onAvatarClick() },
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Box(
                     modifier = Modifier
-                        .size(72.dp)
-                        .clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.size(72.dp)
+                        .size(78.dp)
+                        .then(
+                            if (hasLiveStream) {
+                                Modifier
+                                    .border(
+                                        width = 3.dp,
+                                        brush = Brush.horizontalGradient(
+                                            listOf(Color(0xFFE50914), Color(0xFFFF2E63))
+                                        ),
+                                        shape = CircleShape
+                                    )
+                                    .padding(3.dp)
+                            } else Modifier
+                        )
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
+                    if (!avatarUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = avatarUrl,
+                            contentDescription = "Channel avatar",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
                         Text(
                             text = name.firstOrNull()?.toString()?.uppercase() ?: "?",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.titleLarge
+                        )
+                    }
+                }
+
+                if (hasLiveStream) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFE50914),
+                        modifier = Modifier.offset(y = 6.dp)
+                    ) {
+                        Text(
+                            text = "LIVE",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.sp
+                            ),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
                 }
@@ -1364,30 +1471,35 @@ fun ChannelTabsSection(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 2.dp
     ) {
-        val tabTitles = listOf("Home", "Videos", "Live", "Playlists")
-        PrimaryTabRow(
-            selectedTabIndex = selectedTab,
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.primary,
-            divider = {}
-        ) {
-            tabTitles.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedTab == index,
-                    onClick = { onTabSelected(index) },
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .defaultMinSize(minHeight = 48.dp),
-                    text = {
-                        Text(
-                            text = title,
-                            fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            val tabTitles = listOf("Home", "Videos", "Live", "Playlists")
+            PrimaryTabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.primary,
+                divider = {}
+            ) {
+                tabTitles.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTab == index,
+                        onClick = { onTabSelected(index) },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .defaultMinSize(minHeight = 48.dp),
+                        text = {
+                            Text(
+                                text = title,
+                                fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    )
+                }
             }
+            HorizontalDivider(
+                color = Color(0xFF272727),
+                thickness = 1.dp
+            )
         }
-        HorizontalDivider()
     }
 }
 
