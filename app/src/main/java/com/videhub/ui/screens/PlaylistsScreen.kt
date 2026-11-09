@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -281,7 +282,7 @@ fun PlaylistsScreen(
             }
 
             if (playlists.isNotEmpty()) {
-                itemsIndexed(playlists, key = { index, playlist -> "${playlist.playlist.id}_$index" }) { _, playlist ->
+                items(playlists, key = { it.playlist.id }) { playlist ->
                     PlaylistListItem(
                         playlist = playlist,
                         onClick = { onPlaylistClick(playlist.playlist.id) },
@@ -297,10 +298,17 @@ fun PlaylistsScreen(
         com.videhub.ui.components.NewPlaylistDialog(
             onDismiss = { showCreateDialog = false },
             onCreate = { name ->
-                coroutineScope.launch {
-                    AppDatabase.getDatabase(context).playlistDao()
-                        .insertPlaylist(PlaylistEntity(name = name))
-                    showCreateDialog = false
+                coroutineScope.launch(Dispatchers.IO) {
+                    val trimmed = name.trim()
+                    if (trimmed.isNotBlank()) {
+                        db.playlistDao().insertPlaylist(PlaylistEntity(name = trimmed))
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "Created playlist \"$trimmed\"", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        showCreateDialog = false
+                    }
                 }
             }
         )

@@ -180,7 +180,8 @@ fun PlaylistActionBottomSheet(
                                     ?: ""
 
                                 withContext(Dispatchers.IO) {
-                                    val playlistId = db.playlistDao().insertPlaylist(
+                                    val existing = db.playlistDao().getPlaylistByName(targetTitle)
+                                    val playlistId = existing?.id ?: db.playlistDao().insertPlaylist(
                                         PlaylistEntity(
                                             name = targetTitle,
                                             customCoverUrl = coverUrl

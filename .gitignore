@@ -22,3 +22,16 @@ debug.keystore
 *.patch
 *.diff
 *.txt
+
+# AI Studio temporary artifacts and chat attachments
+.aistudio/
+**/.aistudio/
+**/.tempmediaStorage/
+/public/assets/aistudio/
+
+# Android build outputs
+/app/build/
+*.apk
+*.aab
+*.ap_
+*.dex

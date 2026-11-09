@@ -228,7 +228,7 @@ fun LibraryScreen(
             )
             LibraryItemRow(
                 title = "Playlists",
-                subtitle = playlistsSubtitle,
+                subtitle = null,
                 icon = Icons.AutoMirrored.Filled.PlaylistPlay,
                 onClick = { onNavigate("playlists") }
             )

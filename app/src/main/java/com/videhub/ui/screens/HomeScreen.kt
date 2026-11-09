@@ -86,6 +86,13 @@ fun HomeScreen(
     val currentTabVideos = sharedViewModel.homeVideosCacheMap[selectedTab]
     val isTabLoaded = currentTabVideos != null
     val videos = currentTabVideos ?: emptyList()
+    LaunchedEffect(videos) {
+        if (videos.isNotEmpty()) {
+            videos.filterIsInstance<StreamInfoItem>().forEach { video ->
+                com.videhub.utils.ChannelLiveStatusManager.processStreamItem(video)
+            }
+        }
+    }
     var isLoading by remember { mutableStateOf(!isTabLoaded) }
     var isPaginating by remember { mutableStateOf(false) }
     var pagingSource by remember { mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(sharedViewModel.homePagingSourceMap[selectedTab]) }

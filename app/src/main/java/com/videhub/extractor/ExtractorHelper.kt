@@ -553,16 +553,25 @@ object ExtractorHelper {
         android.util.Log.d("ChannelAboutInfo", "Result: $result"); return@withContext result
     }
 
-    suspend fun getChannelInfo(url: String): ChannelInfo = withContext(Dispatchers.IO) {
-        val info = ChannelInfo.getInfo(ServiceList.YouTube, url)
-        try {
-            info.tabs?.forEachIndexed { index, tab ->
-                android.util.Log.d("TabsDebug", "Tab $index class: ${tab.javaClass.name}")
-                if (tab is org.schabi.newpipe.extractor.linkhandler.ListLinkHandler) {
-                    android.util.Log.d("TabsDebug", "Tab $index URL: ${tab.url}")
-                }
+    private val channelInfoCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, ChannelInfo>>()
+
+    suspend fun getChannelInfo(url: String, useCache: Boolean = true): ChannelInfo = withContext(Dispatchers.IO) {
+        val normalizedUrl = when {
+            url.startsWith("http") -> url
+            url.startsWith("@") -> "https://www.youtube.com/$url"
+            else -> "https://www.youtube.com/channel/$url"
+        }
+        if (useCache) {
+            val cached = channelInfoCache[normalizedUrl]
+            if (cached != null && System.currentTimeMillis() - cached.first < 2 * 60 * 1000L) {
+                return@withContext cached.second
             }
-        } catch(e: Exception) {}
+        }
+        val info = ChannelInfo.getInfo(ServiceList.YouTube, normalizedUrl)
+        channelInfoCache[normalizedUrl] = System.currentTimeMillis() to info
+        if (info.url.isNotBlank()) {
+            channelInfoCache[info.url] = System.currentTimeMillis() to info
+        }
         info
     }
 
@@ -695,12 +704,18 @@ object ExtractorHelper {
 
     suspend fun getChannelLiveStreams(
         channelUrl: String,
-        maxPages: Int = 3
+        maxPages: Int = 1
     ): List<org.schabi.newpipe.extractor.stream.StreamInfoItem> = withContext(Dispatchers.IO) {
+        if (channelUrl.isBlank()) return@withContext emptyList()
+        val normalizedUrl = when {
+            channelUrl.startsWith("http") -> channelUrl
+            channelUrl.startsWith("@") -> "https://www.youtube.com/$channelUrl"
+            else -> "https://www.youtube.com/channel/$channelUrl"
+        }
         val svc = ServiceList.YouTube
         val items = mutableListOf<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
         try {
-            val info = ChannelInfo.getInfo(svc, channelUrl)
+            val info = getChannelInfo(normalizedUrl)
             val liveTab = info.tabs?.firstOrNull { tab ->
                 val linkHandler = tab as? org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
                 linkHandler?.url?.contains("streams", ignoreCase = true) == true ||
@@ -709,9 +724,9 @@ object ExtractorHelper {
                 linkHandler?.id?.contains("live", ignoreCase = true) == true
             } as? org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
 
+            val canonicalBaseUrl = info.url.ifBlank { normalizedUrl }.removeSuffix("/")
             val tabHandler = liveTab ?: try {
-                val cleanUrl = if (channelUrl.endsWith("/")) "${channelUrl}streams" else "$channelUrl/streams"
-                svc.channelTabLHFactory.fromUrl(cleanUrl)
+                svc.channelTabLHFactory.fromUrl("$canonicalBaseUrl/streams")
             } catch (_: Exception) { null }
 
             if (tabHandler != null) {

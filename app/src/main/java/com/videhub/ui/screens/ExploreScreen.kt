@@ -116,6 +116,14 @@ fun ExploreScreen(
         )
     }
 
+    LaunchedEffect(videoResults) {
+        if (videoResults.isNotEmpty()) {
+            videoResults.forEach { video ->
+                com.videhub.utils.ChannelLiveStatusManager.processStreamItem(video)
+            }
+        }
+    }
+
     var selectedFilterIndex by remember { mutableIntStateOf(0) } // 0: All, 1: Videos, 2: Shorts, 3: Playlists, 4: Channels
     var isPlaylistSearchLoading by remember { mutableStateOf(false) }
 
@@ -432,7 +440,7 @@ fun ExploreScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 6.dp)
+                        .padding(vertical = 4.dp)
                 ) {
                     // 1. Back Arrow (Left, outside search input box)
                     IconButton(
@@ -445,7 +453,7 @@ fun ExploreScreen(
                             }
                             onBack()
                         },
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(44.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -455,7 +463,7 @@ fun ExploreScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
 
                     // 2. Search Input Box Pill (Middle, rounded capsule container)
                     Surface(
@@ -463,14 +471,21 @@ fun ExploreScreen(
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp)
+                            .height(46.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(horizontal = 16.dp)
+                                .padding(horizontal = 14.dp)
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
                             Box(modifier = Modifier.weight(1f)) {
                                 if (query.isEmpty()) {
                                     Text(
@@ -510,7 +525,7 @@ fun ExploreScreen(
                                     onClick = {
                                         clearSearchAndResults()
                                     },
-                                    modifier = Modifier.size(32.dp)
+                                    modifier = Modifier.size(36.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Clear,
@@ -529,7 +544,7 @@ fun ExploreScreen(
                     Surface(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        modifier = Modifier.size(44.dp)
+                        modifier = Modifier.size(46.dp)
                     ) {
                         IconButton(
                             onClick = {
@@ -561,7 +576,7 @@ fun ExploreScreen(
                     LazyRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(horizontal = 2.dp)
+                        contentPadding = PaddingValues(horizontal = 4.dp)
                     ) {
                         val filters = listOf(
                             Triple("All", Icons.Default.AutoAwesome, 0),
@@ -576,8 +591,8 @@ fun ExploreScreen(
                                 label = {
                                     Text(
                                         text = title,
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = if (selectedFilterIndex == index) FontWeight.Bold else FontWeight.Medium
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (selectedFilterIndex == index) FontWeight.Bold else FontWeight.SemiBold
                                     )
                                 },
                                 leadingIcon = {
@@ -587,12 +602,13 @@ fun ExploreScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                 },
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(18.dp),
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                                     selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                     selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
+                                ),
+                                modifier = Modifier.height(36.dp)
                             )
                         }
                     }
@@ -708,7 +724,7 @@ fun ExploreScreen(
                                 }
                             }
 
-                            // Recent Search Items
+                            // Recent Search Items (Exact YouTube UI: Clock icon, query text, diagonal insert arrow)
                             items(
                                 items = filteredHistory,
                                 key = { "hist_${it.query}" }
@@ -719,48 +735,37 @@ fun ExploreScreen(
                                         .clickable {
                                             doSearch(history.query)
                                         }
-                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.History,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp)
+                                        tint = Color(0xFFAAAAAA),
+                                        modifier = Modifier.size(22.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Spacer(modifier = Modifier.width(18.dp))
                                     Text(
                                         text = history.query,
-                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontSize = 15.5.sp,
                                         modifier = Modifier.weight(1f),
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        fontWeight = FontWeight.Normal,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
-                                    // Append Arrow: Sets text into search bar without executing immediately
+                                    // Diagonal insert arrow: sets text into search bar without executing immediately
                                     IconButton(
                                         onClick = {
                                             query = history.query
                                         },
-                                        modifier = Modifier.size(32.dp)
+                                        modifier = Modifier.size(36.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                            contentDescription = "Append to search",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            scope.launch { searchHistoryDao.deleteSearch(history.query) }
-                                        },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Clear,
-                                            contentDescription = "Remove",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                            modifier = Modifier.size(16.dp)
+                                            painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_arrow_insert),
+                                            contentDescription = "Insert into search",
+                                            tint = Color(0xFFAAAAAA),
+                                            modifier = Modifier.size(19.dp)
                                         )
                                     }
                                 }
@@ -826,13 +831,13 @@ fun ExploreScreen(
                                             onClick = {
                                                 query = suggestion
                                             },
-                                            modifier = Modifier.size(32.dp)
+                                            modifier = Modifier.size(36.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                                contentDescription = "Append to search",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                                modifier = Modifier.size(16.dp)
+                                                painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_arrow_insert),
+                                                contentDescription = "Insert into search",
+                                                tint = Color(0xFFAAAAAA),
+                                                modifier = Modifier.size(19.dp)
                                             )
                                         }
                                     }
@@ -852,9 +857,8 @@ fun ExploreScreen(
                         when (selectedFilterIndex) {
                             0 -> {
                                 // ── "All" Tab ───────────────────────────────────────
-                                // Top Matching Channel Highlight Card
+                                // Top Matching Channels
                                 if (channelResults.isNotEmpty()) {
-                                    val topChannel = channelResults.first()
                                     item(key = "featured_channel_header") {
                                         Text(
                                             text = "Channel",
@@ -863,23 +867,15 @@ fun ExploreScreen(
                                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                         )
                                     }
-                                    item(key = "featured_channel_card") {
-                                        FeaturedChannelCard(
-                                            channel = topChannel,
-                                            onClick = { onChannelClick(topChannel.url ?: "") }
+                                    itemsIndexed(
+                                        channelResults.take(3),
+                                        key = { index, ch -> "ch_${ch.url}_$index" }
+                                    ) { _, channel ->
+                                        ChannelResultItem(
+                                            channel = channel,
+                                            onClick = { onChannelClick(channel.url ?: "") },
+                                            onVideoClick = onVideoClick
                                         )
-                                    }
-                                    // Other channels if any
-                                    if (channelResults.size > 1) {
-                                        itemsIndexed(
-                                            channelResults.drop(1).take(3),
-                                            key = { index, ch -> "sub_ch_${ch.url}_$index" }
-                                        ) { _, channel ->
-                                            ChannelResultItem(
-                                                channel = channel,
-                                                onClick = { onChannelClick(channel.url ?: "") }
-                                            )
-                                        }
                                     }
                                     item {
                                         HorizontalDivider(
@@ -1034,7 +1030,8 @@ fun ExploreScreen(
                                     ) { _, channel ->
                                         ChannelResultItem(
                                             channel = channel,
-                                            onClick = { onChannelClick(channel.url ?: "") }
+                                            onClick = { onChannelClick(channel.url ?: "") },
+                                            onVideoClick = onVideoClick
                                         )
                                     }
                                 }
@@ -1061,7 +1058,7 @@ fun ExploreScreen(
                     }
                 }
 
-                // Initial / Empty Query Discovery Landing Screen
+                // Initial / Empty Query Landing Screen (Recent Searches only, no Explore Topics grid)
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
@@ -1100,163 +1097,45 @@ fun ExploreScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
                             }
 
-                            item {
-                                LazyRow(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    contentPadding = PaddingValues(vertical = 4.dp)
-                                ) {
-                                    items(searchHistory.take(8)) { history ->
-                                        SuggestionChip(
-                                            onClick = { doSearch(history.query) },
-                                            label = {
-                                                Text(
-                                                    text = history.query,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            },
-                                            icon = {
-                                                Icon(
-                                                    Icons.Default.History,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(16.dp),
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            },
-                                            shape = RoundedCornerShape(16.dp),
-                                            colors = SuggestionChipDefaults.suggestionChipColors(
-                                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                                            )
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(20.dp))
-                            }
-                        }
-
-                        // Explore Topics Header
-                        item {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Explore,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Explore Topics",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
-                        }
-
-                        // Explore Topics 2-Column Grid
-                        val chunkedCategories = exploreCategories.chunked(2)
-                        items(chunkedCategories) { rowItems ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                rowItems.forEach { cat ->
-                                    Card(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(80.dp)
-                                            .clickable {
-                                                doSearch(cat.query)
-                                            },
-                                        shape = RoundedCornerShape(18.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                                        ),
-                                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(14.dp)
-                                        ) {
-                                            // Background decorative icon accent
-                                            Icon(
-                                                imageVector = cat.icon,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                                modifier = Modifier
-                                                    .size(44.dp)
-                                                    .align(Alignment.BottomEnd)
-                                            )
-                                            Column(modifier = Modifier.align(Alignment.CenterStart)) {
-                                                Icon(
-                                                    imageVector = cat.icon,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(22.dp)
-                                                )
-                                                Spacer(modifier = Modifier.height(6.dp))
-                                                Text(
-                                                    text = cat.title,
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                                if (rowItems.size == 1) {
-                                    Spacer(modifier = Modifier.weight(1f))
-                                }
-                            }
-                        }
-
-                        item {
-                            Spacer(modifier = Modifier.height(24.dp))
-                            // Helpful Search Tips Card
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                                )
-                            ) {
+                            items(searchHistory) { history ->
                                 Row(
-                                    modifier = Modifier.padding(16.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { doSearch(history.query) }
+                                        .padding(horizontal = 4.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Lightbulb,
+                                        imageVector = Icons.Default.History,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(28.dp)
+                                        tint = Color(0xFFAAAAAA),
+                                        modifier = Modifier.size(22.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(14.dp))
-                                    Column {
-                                        Text(
-                                            text = "Search Tip",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = "Search for your favorite creators, video titles, or paste channel links directly.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    Spacer(modifier = Modifier.width(18.dp))
+                                    Text(
+                                        text = history.query,
+                                        fontSize = 15.5.sp,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Normal,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            query = history.query
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_arrow_insert),
+                                            contentDescription = "Insert into search",
+                                            tint = Color(0xFFAAAAAA),
+                                            modifier = Modifier.size(19.dp)
                                         )
                                     }
                                 }
                             }
-                            Spacer(modifier = Modifier.height(80.dp))
                         }
                     }
                 }
@@ -1277,12 +1156,18 @@ fun ExploreScreen(
 }
 
 /**
- * Featured High-Priority Channel Card for top search matches
+ * Exact YouTube Search Channel Card Item as shown in user attachment:
+ * - Dark rounded container (#1E1E1E / 16.dp corners)
+ * - 64dp Avatar with red live ring and LIVE pill badge
+ * - Channel title in bold white
+ * - Subscriber count & description snippet
+ * - Pill subscribe button (white background, black text when not subscribed; dark grey when subscribed)
  */
 @Composable
-private fun FeaturedChannelCard(
+private fun ChannelResultItem(
     channel: ChannelInfoItem,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onVideoClick: ((String, String, String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
@@ -1296,57 +1181,55 @@ private fun FeaturedChannelCard(
         }
     }
 
-    Card(
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xFF1E1E1E),
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 6.dp)
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(horizontal = 14.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             val avatar = channel.thumbnails?.firstOrNull()?.url
-            if (!avatar.isNullOrBlank()) {
-                AsyncImage(
-                    model = avatar,
-                    contentDescription = channel.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(CircleShape)
-                )
-            } else {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(64.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = channel.name?.firstOrNull()?.uppercase() ?: "?",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+            val liveKeys by com.videhub.utils.ChannelLiveStatusManager.liveChannelKeys.collectAsState()
+            val isChannelBroadcastingLive = remember(liveKeys, channelId, channel.name) {
+                com.videhub.utils.ChannelLiveStatusManager.isChannelLive(channelId, channel.name)
+            }
+            LaunchedEffect(channelId, channel.name) {
+                if (channelId.isNotBlank()) {
+                    com.videhub.utils.ChannelLiveStatusManager.checkChannelLiveStatus(channelId, channel.name)
                 }
             }
+
+            com.videhub.ui.components.LiveAvatar(
+                avatarUrl = avatar,
+                channelName = channel.name ?: "?",
+                isLive = isChannelBroadcastingLive,
+                size = 64.dp,
+                onClick = {
+                    val topLive = com.videhub.utils.ChannelLiveStatusManager.getTopLiveStream(channelId, channel.name)
+                    if (isChannelBroadcastingLive && topLive != null && topLive.videoUrl.isNotBlank() && onVideoClick != null) {
+                        onVideoClick(topLive.videoUrl, topLive.title, topLive.thumbnailUrl.ifBlank { avatar ?: "" })
+                    } else {
+                        onClick()
+                    }
+                }
+            )
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = channel.name ?: "Unknown Channel",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.5.sp
+                    ),
+                    color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1355,15 +1238,16 @@ private fun FeaturedChannelCard(
                 val countText = if (subCount > 0) com.videhub.utils.FormatHelper.formatSubscriberCount(subCount) else "Channel"
                 Text(
                     text = countText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
+                    color = Color(0xFFAAAAAA),
+                    maxLines = 1
                 )
                 if (!channel.description.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = channel.description ?: "",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                        color = Color(0xFF888888),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -1371,135 +1255,47 @@ private fun FeaturedChannelCard(
             }
 
             if (channelId.isNotBlank()) {
-                AnimatedSubscribeButton(
-                    isSubscribed = isSubscribed,
-                    onClick = {
-                        scope.launch {
-                            if (isSubscribed) {
-                                db.channelDao().deleteById(channelId)
-                                isSubscribed = false
-                                Toast.makeText(context, "Unsubscribed", Toast.LENGTH_SHORT).show()
-                            } else {
-                                val validAvatar = avatar?.takeIf { !com.videhub.utils.AvatarHelper.isVideoThumbnail(it) }
-                                    ?: com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(channelId)
-                                    ?: ""
-                                db.channelDao().insert(
-                                    ChannelEntity(
-                                        channelId = channelId,
-                                        name = channel.name ?: "Unknown Channel",
-                                        thumbnailUrl = validAvatar
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = if (isSubscribed) Color(0xFF272727) else Color.White,
+                    modifier = Modifier
+                        .height(34.dp)
+                        .clickable {
+                            scope.launch {
+                                if (isSubscribed) {
+                                    db.channelDao().deleteById(channelId)
+                                    isSubscribed = false
+                                    Toast.makeText(context, "Unsubscribed", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val validAvatar = avatar?.takeIf { !com.videhub.utils.AvatarHelper.isVideoThumbnail(it) }
+                                        ?: com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(channelId)
+                                        ?: ""
+                                    db.channelDao().insert(
+                                        ChannelEntity(
+                                            channelId = channelId,
+                                            name = channel.name ?: "Unknown Channel",
+                                            thumbnailUrl = validAvatar
+                                        )
                                     )
-                                )
-                                isSubscribed = true
-                                Toast.makeText(context, "Subscribed", Toast.LENGTH_SHORT).show()
+                                    isSubscribed = true
+                                    Toast.makeText(context, "Subscribed", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
-                    }
-                )
-            }
-        }
-    }
-}
-
-/**
- * Standard Channel Row Item for Channel lists
- */
-@Composable
-private fun ChannelResultItem(
-    channel: ChannelInfoItem,
-    onClick: () -> Unit
-) {
-    val context = LocalContext.current
-    val db = remember { AppDatabase.getDatabase(context) }
-    val scope = rememberCoroutineScope()
-    var isSubscribed by remember { mutableStateOf(false) }
-    val channelId = channel.url ?: ""
-
-    LaunchedEffect(channelId) {
-        if (channelId.isNotBlank()) {
-            isSubscribed = db.channelDao().isSubscribed(channelId)
-        }
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        val avatar = channel.thumbnails?.firstOrNull()?.url
-        if (!avatar.isNullOrBlank()) {
-            AsyncImage(
-                model = avatar,
-                contentDescription = channel.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(CircleShape)
-            )
-        } else {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.size(50.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = channel.name?.firstOrNull()?.uppercase() ?: "?",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = channel.name ?: "Unknown Channel",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            channel.subscriberCount.takeIf { it > 0 }?.let {
-                Text(
-                    text = com.videhub.utils.FormatHelper.formatSubscriberCount(it),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        if (channelId.isNotBlank()) {
-            AnimatedSubscribeButton(
-                isSubscribed = isSubscribed,
-                onClick = {
-                    scope.launch {
-                        if (isSubscribed) {
-                            db.channelDao().deleteById(channelId)
-                            isSubscribed = false
-                            Toast.makeText(context, "Unsubscribed", Toast.LENGTH_SHORT).show()
-                        } else {
-                            val validAvatar = avatar?.takeIf { !com.videhub.utils.AvatarHelper.isVideoThumbnail(it) }
-                                ?: com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(channelId)
-                                ?: ""
-                            db.channelDao().insert(
-                                ChannelEntity(
-                                    channelId = channelId,
-                                    name = channel.name ?: "Unknown Channel",
-                                    thumbnailUrl = validAvatar
-                                )
-                            )
-                            isSubscribed = true
-                            Toast.makeText(context, "Subscribed", Toast.LENGTH_SHORT).show()
-                        }
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.padding(horizontal = 14.dp)
+                    ) {
+                        Text(
+                            text = if (isSubscribed) "Subscribed" else "Subscribe",
+                            color = if (isSubscribed) Color.White else Color.Black,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
-            )
+            }
         }
     }
 }

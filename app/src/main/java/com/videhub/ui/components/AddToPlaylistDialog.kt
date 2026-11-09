@@ -351,10 +351,17 @@ fun AddToPlaylistDialog(
             onDismiss = { showCreatePlaylistDialog = false },
             onCreate = { name ->
                 scope.launch(Dispatchers.IO) {
-                    val newId = db.playlistDao().insertPlaylist(PlaylistEntity(name = name)).toInt()
+                    val trimmedName = name.trim()
+                    if (trimmedName.isBlank()) return@launch
+
+                    // Create a new playlist with the requested name (even if another playlist has the same name)
+                    val playlistId = db.playlistDao().insertPlaylist(
+                        PlaylistEntity(name = trimmedName)
+                    ).toInt()
+
                     db.playlistDao().insertVideo(
                         PlaylistVideoEntity(
-                            playlistId = newId,
+                            playlistId = playlistId,
                             videoId = videoUrl,
                             title = title,
                             thumbnailUrl = thumbnailUrl,
@@ -362,7 +369,7 @@ fun AddToPlaylistDialog(
                         )
                     )
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Created & saved to '$name'", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Created & saved to '$trimmedName'", Toast.LENGTH_SHORT).show()
                         showCreatePlaylistDialog = false
                         onDismiss()
                     }
@@ -379,8 +386,11 @@ fun NewPlaylistDialog(
     onCreate: (String) -> Unit
 ) {
     var playlistName by remember { mutableStateOf("") }
+    var isSubmitting by remember { mutableStateOf(false) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(onDismissRequest = {
+        if (!isSubmitting) onDismiss()
+    }) {
         Surface(
             shape = RoundedCornerShape(28.dp),
             color = Color(0xFF212121),
@@ -409,6 +419,7 @@ fun NewPlaylistDialog(
                     onValueChange = { playlistName = it },
                     label = { Text("Title") },
                     singleLine = true,
+                    enabled = !isSubmitting,
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Color.White,
@@ -434,6 +445,7 @@ fun NewPlaylistDialog(
                     // Cancel Button (Outlined Pill)
                     OutlinedButton(
                         onClick = onDismiss,
+                        enabled = !isSubmitting,
                         shape = RoundedCornerShape(20.dp),
                         border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f)),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
@@ -448,11 +460,12 @@ fun NewPlaylistDialog(
                     Button(
                         onClick = {
                             val trimmed = playlistName.trim()
-                            if (trimmed.isNotBlank()) {
+                            if (trimmed.isNotBlank() && !isSubmitting) {
+                                isSubmitting = true
                                 onCreate(trimmed)
                             }
                         },
-                        enabled = playlistName.isNotBlank(),
+                        enabled = playlistName.isNotBlank() && !isSubmitting,
                         shape = RoundedCornerShape(20.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color(0xFFE0E0E0),
@@ -462,7 +475,15 @@ fun NewPlaylistDialog(
                         ),
                         modifier = Modifier.height(40.dp)
                     ) {
-                        Text("Create", fontWeight = FontWeight.Medium)
+                        if (isSubmitting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = Color.Black,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("Create", fontWeight = FontWeight.Medium)
+                        }
                     }
                 }
             }

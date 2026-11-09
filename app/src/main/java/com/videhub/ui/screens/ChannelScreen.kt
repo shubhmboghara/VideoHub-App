@@ -268,37 +268,91 @@ fun ChannelScreen(
         liveRetryTrigger++
     }
 
+    var verifiedActiveLiveStream by remember {
+        mutableStateOf<StreamInfoItem?>(
+            if (isSameChannel) {
+                (sharedViewModel.channelLiveStreamsCache ?: emptyList())
+                    .filter { com.videhub.utils.ChannelLiveStatusManager.isStreamCurrentlyLive(it) }
+                    .maxByOrNull { it.viewCount }
+            } else null
+        )
+    }
+    var hasVerifiedLiveStatus by remember { mutableStateOf(false) }
+
     LaunchedEffect(channelId, headerRetryTrigger) {
+        val actualUrl = when {
+            channelId.startsWith("http") -> channelId
+            channelId.startsWith("@") -> "https://www.youtube.com/$channelId"
+            else -> "https://www.youtube.com/channel/$channelId"
+        }
         if (isSameChannel && channelInfo != null && !isRefreshing) {
             isHeaderLoading = false
             withContext(Dispatchers.IO) {
                 isSubscribed = db.channelDao().isSubscribed(channelInfo!!.url)
+            }
+            // Always re-verify in background whether any live stream has ended
+            launch(Dispatchers.IO) {
+                try {
+                    val freshLiveStreams = ExtractorHelper.getChannelLiveStreams(channelInfo!!.url.ifBlank { actualUrl })
+                    val activeVerified = com.videhub.utils.ChannelLiveStatusManager.verifyAndSetChannelLiveStreams(
+                        channelUrl = actualUrl,
+                        secondaryChannelUrl = channelInfo!!.url,
+                        channelName = channelInfo!!.name,
+                        streams = freshLiveStreams
+                    )
+                    if (activeVerified == null) {
+                        com.videhub.utils.ChannelLiveStatusManager.unregisterLiveStream(
+                            channelUrl = channelId,
+                            channelName = channelInfo!!.name,
+                            secondaryChannelUrl = channelInfo!!.url
+                        )
+                    }
+                    withContext(Dispatchers.Main) {
+                        channelLiveStreams = freshLiveStreams
+                        sharedViewModel.channelLiveStreamsCache = freshLiveStreams
+                        verifiedActiveLiveStream = activeVerified
+                        hasVerifiedLiveStatus = true
+                    }
+                } catch (_: Exception) {}
             }
             return@LaunchedEffect
         }
         if (!isRefreshing) isHeaderLoading = true
         headerError = null
         try {
-            val actualUrl = when {
-                channelId.startsWith("http") -> channelId
-                channelId.startsWith("@") -> "https://www.youtube.com/$channelId"
-                else -> "https://www.youtube.com/channel/$channelId"
-            }
-            val (info, aboutInfo) = kotlinx.coroutines.coroutineScope {
-                 
-                                  
+            val (info, aboutInfo, liveStreams) = kotlinx.coroutines.coroutineScope {
                 val infoDeferred = async(Dispatchers.IO) { ExtractorHelper.getChannelInfo(actualUrl) }
                 val aboutDeferred = async(Dispatchers.IO) { ExtractorHelper.getChannelAboutInfo(actualUrl) }
-                Pair(infoDeferred.await(), aboutDeferred.await())
+                val liveDeferred = async(Dispatchers.IO) { ExtractorHelper.getChannelLiveStreams(actualUrl) }
+                Triple(infoDeferred.await(), aboutDeferred.await(), liveDeferred.await())
             }
-            withContext(Dispatchers.IO) {
+            val activeVerified = withContext(Dispatchers.IO) {
                 isSubscribed = db.channelDao().isSubscribed(info.url)
+                val verified = com.videhub.utils.ChannelLiveStatusManager.verifyAndSetChannelLiveStreams(
+                    channelUrl = actualUrl,
+                    secondaryChannelUrl = info.url,
+                    channelName = info.name,
+                    streams = liveStreams
+                )
+                if (verified == null) {
+                    com.videhub.utils.ChannelLiveStatusManager.unregisterLiveStream(
+                        channelUrl = channelId,
+                        channelName = info.name,
+                        secondaryChannelUrl = info.url
+                    )
+                }
+                verified
             }
             channelInfo = info
             channelAboutInfo = aboutInfo
+            channelLiveStreams = liveStreams
+            verifiedActiveLiveStream = activeVerified
+            hasVerifiedLiveStatus = true
+
             sharedViewModel.currentChannelId = channelId
             sharedViewModel.channelInfoCache = info
             sharedViewModel.channelAboutInfoCache = aboutInfo
+            sharedViewModel.channelLiveStreamsCache = liveStreams
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -307,6 +361,7 @@ fun ChannelScreen(
             isVideoListLoading = false
         } finally {
             isHeaderLoading = false
+            isLiveLoading = false
             if (isRefreshing && headerError != null) {
                 isRefreshing = false
             }
@@ -353,7 +408,17 @@ fun ChannelScreen(
                 val streams = withContext(Dispatchers.IO) {
                     ExtractorHelper.getChannelLiveStreams(channelInfo!!.url)
                 }
+                val activeVerified = withContext(Dispatchers.IO) {
+                    com.videhub.utils.ChannelLiveStatusManager.verifyAndSetChannelLiveStreams(
+                        channelUrl = channelId,
+                        secondaryChannelUrl = channelInfo!!.url,
+                        channelName = channelInfo!!.name,
+                        streams = streams
+                    )
+                }
                 channelLiveStreams = streams
+                verifiedActiveLiveStream = activeVerified
+                hasVerifiedLiveStatus = true
                 sharedViewModel.channelLiveStreamsCache = streams
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -396,15 +461,19 @@ fun ChannelScreen(
         }
     }
 
-    val topLiveStream = remember(channelLiveStreams) {
-        if (channelLiveStreams.isEmpty()) null
-        else {
-            val active = channelLiveStreams.filter { item ->
-                item.streamType == org.schabi.newpipe.extractor.stream.StreamType.LIVE_STREAM ||
-                item.streamType == org.schabi.newpipe.extractor.stream.StreamType.AUDIO_LIVE_STREAM ||
-                item.duration <= 0L
-            }.ifEmpty { channelLiveStreams }
-            active.maxByOrNull { it.viewCount }
+    val liveKeys by com.videhub.utils.ChannelLiveStatusManager.liveChannelKeys.collectAsState()
+    val topLiveStream = verifiedActiveLiveStream
+
+    val endedLiveUrls = remember(channelLiveStreams, topLiveStream) {
+        channelLiveStreams.mapNotNull { it.url }
+            .filter { it != topLiveStream?.url }
+            .toSet()
+    }
+    val regularHomeVideos = remember(channelVideos, endedLiveUrls, topLiveStream) {
+        channelVideos.filterNot { item ->
+            com.videhub.utils.ChannelLiveStatusManager.isEndedOrPastLiveStream(item) ||
+            (item.url != null && item.url in endedLiveUrls) ||
+            (topLiveStream != null && item.url == topLiveStream.url)
         }
     }
 
@@ -569,6 +638,14 @@ fun ChannelScreen(
                             if (clean.length > 40) clean.take(37) + "..." else clean
                         }
 
+                        val isChannelCurrentlyLive = remember(hasVerifiedLiveStatus, topLiveStream, liveKeys, channelId, info.name) {
+                            if (hasVerifiedLiveStatus) {
+                                topLiveStream != null
+                            } else {
+                                topLiveStream != null || com.videhub.utils.ChannelLiveStatusManager.isChannelLive(channelId, info.name)
+                            }
+                        }
+
                         ChannelHeaderSection(
                             bannerUrl = bannerUrl,
                             avatarUrl = avatarUrl,
@@ -578,7 +655,7 @@ fun ChannelScreen(
                             statsText = statsText,
                             descriptionSummary = descriptionSummary,
                             isSubscribed = isSubscribed,
-                            hasLiveStream = topLiveStream != null,
+                            hasLiveStream = isChannelCurrentlyLive,
                             onAvatarClick = {
                                 topLiveStream?.let { liveItem ->
                                     val liveUrl = liveItem.url ?: ""
@@ -633,7 +710,7 @@ fun ChannelScreen(
 
                 // Tab 0: Home Tab (Featured Live Stream + For You carousel + Videos section)
                 if (selectedTab == 0) {
-                    // Featured top live stream at the top of Home tab
+                    // Featured top live stream at the top of Home tab ONLY when currently live
                     topLiveStream?.let { liveStream ->
                         item(key = "channel_featured_live_stream") {
                             val liveUrl = liveStream.url ?: ""
@@ -664,7 +741,7 @@ fun ChannelScreen(
                         items(4) {
                             com.videhub.ui.components.VideoCardShimmer()
                         }
-                    } else if (channelVideos.isEmpty() && topLiveStream == null) {
+                    } else if (regularHomeVideos.isEmpty() && topLiveStream == null) {
                         item {
                             com.videhub.ui.components.EmptyState(
                                 icon = Icons.Default.PlayArrow,
@@ -672,9 +749,9 @@ fun ChannelScreen(
                                 message = "This channel hasn't uploaded any videos yet."
                             )
                         }
-                    } else {
-                        // "For you" horizontal shelf
-                        val forYouVideos = channelVideos.take(8)
+                    } else if (regularHomeVideos.isNotEmpty()) {
+                        // "For you" horizontal shelf (excludes ended live streams)
+                        val forYouVideos = regularHomeVideos.take(8)
                         if (forYouVideos.isNotEmpty()) {
                             item(key = "for_you_section") {
                                 Column(
@@ -742,7 +819,7 @@ fun ChannelScreen(
                             }
                         }
 
-                        val homeVideos = channelVideos.drop(if (channelVideos.size > 8) 4 else 0).take(10)
+                        val homeVideos = regularHomeVideos.drop(if (regularHomeVideos.size > 8) 4 else 0).take(10)
                         items(
                             count = homeVideos.size,
                             key = { idx -> "home_vid_${homeVideos[idx].url ?: idx}" }
@@ -1095,11 +1172,7 @@ fun ChannelLiveStreamItem(
             video.textualUploadDate?.contains("Premieres", ignoreCase = true) == true ||
             video.streamType?.name?.contains("UPCOMING", ignoreCase = true) == true
 
-    val isRunningLive = !isUpcoming && (
-            video.streamType?.name?.contains("LIVE", ignoreCase = true) == true && video.duration <= 0 ||
-            video.textualUploadDate?.contains("watching", ignoreCase = true) == true ||
-            (video.duration <= 0 && video.textualUploadDate.isNullOrBlank())
-    )
+    val isRunningLive = !isUpcoming && com.videhub.utils.ChannelLiveStatusManager.isStreamCurrentlyLive(video)
 
     Row(
         modifier = modifier
@@ -1272,68 +1345,13 @@ fun ChannelHeaderSection(
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .wrapContentSize()
-                    .clickable(enabled = hasLiveStream) { onAvatarClick() },
-                contentAlignment = Alignment.BottomCenter
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(78.dp)
-                        .then(
-                            if (hasLiveStream) {
-                                Modifier
-                                    .border(
-                                        width = 3.dp,
-                                        brush = Brush.horizontalGradient(
-                                            listOf(Color(0xFFE50914), Color(0xFFFF2E63))
-                                        ),
-                                        shape = CircleShape
-                                    )
-                                    .padding(3.dp)
-                            } else Modifier
-                        )
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (!avatarUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = avatarUrl,
-                            contentDescription = "Channel avatar",
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Text(
-                            text = name.firstOrNull()?.toString()?.uppercase() ?: "?",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                    }
-                }
-
-                if (hasLiveStream) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFFE50914),
-                        modifier = Modifier.offset(y = 6.dp)
-                    ) {
-                        Text(
-                            text = "LIVE",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 9.sp
-                            ),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-            }
+            com.videhub.ui.components.LiveAvatar(
+                avatarUrl = avatarUrl,
+                channelName = name,
+                isLive = hasLiveStream,
+                size = 78.dp,
+                onClick = onAvatarClick
+            )
 
             Spacer(modifier = Modifier.width(16.dp))
 

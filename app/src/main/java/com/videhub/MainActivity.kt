@@ -220,6 +220,28 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+
+                // Clean up catastrophic runaway bloated playlists (e.g. 15,000 duplicate "song" records from infinite loops)
+                // Users can still intentionally keep 2, 3, 5 playlists with the same name
+                val allPlaylists = db.playlistDao().getAllPlaylistsOnce()
+                if (allPlaylists.size > 20) {
+                    val playlistsByName = allPlaylists.groupBy { it.name.trim().lowercase() }
+                    val duplicateIdsToDelete = mutableListOf<Int>()
+                    for ((_, sameNameList) in playlistsByName) {
+                        // Only intervene if there is an extreme anomaly (more than 15 identical playlists)
+                        if (sameNameList.size > 15) {
+                            val duplicates = sameNameList.drop(1)
+                            for (dup in duplicates) {
+                                duplicateIdsToDelete.add(dup.id)
+                            }
+                        }
+                    }
+                    if (duplicateIdsToDelete.isNotEmpty()) {
+                        duplicateIdsToDelete.chunked(500).forEach { batch ->
+                            db.playlistDao().deletePlaylistsByIds(batch)
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -230,6 +252,19 @@ class MainActivity : ComponentActivity() {
         prefs.edit().remove("last_crash").apply()
         
         coil.ImageLoader.Builder(this)
+            .memoryCache {
+                coil.memory.MemoryCache.Builder(this)
+                    .maxSizePercent(0.25)
+                    .build()
+            }
+            .diskCache {
+                coil.disk.DiskCache.Builder()
+                    .directory(cacheDir.resolve("image_cache"))
+                    .maxSizeBytes(100L * 1024L * 1024L)
+                    .build()
+            }
+            .respectCacheHeaders(false)
+            .crossfade(150)
             .components {
                 add(coil.decode.VideoFrameDecoder.Factory())
             }
@@ -440,7 +475,27 @@ fun MainScreen() {
             }
         }
         
+        fun syncActiveVideoState() {
+            currentMediaItem = player.currentMediaItem
+            hasActiveVideo = currentMediaItem != null &&
+                    player.playbackState != androidx.media3.common.Player.STATE_IDLE &&
+                    player.playbackState != androidx.media3.common.Player.STATE_ENDED
+        }
+        syncActiveVideoState()
+
         val listener = object : androidx.media3.common.Player.Listener {
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                syncActiveVideoState()
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                syncActiveVideoState()
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                syncActiveVideoState()
+            }
+
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                 if (videoSize.width > 0 && videoSize.height > 0) {
                     com.videhub.PipState.videoAspectRatio = android.util.Rational(videoSize.width, videoSize.height)
@@ -456,7 +511,7 @@ fun MainScreen() {
             }
         }
         player.addListener(listener)
-        
+
         launch {
             com.videhub.QueueManager.skipToNextEvent.collect {
                 if (currentRoute?.startsWith("player") == true && com.videhub.MainActivity.isAppInForeground) {
@@ -505,12 +560,6 @@ fun MainScreen() {
                     com.videhub.service.BackgroundAutoplayHandler.handleAutoplay(context, player) { com.videhub.QueueManager.skipToPrevious() }
                 }
             }
-        }
-        
-        while(true) {
-            currentMediaItem = player.currentMediaItem
-            hasActiveVideo = currentMediaItem != null && player.playbackState != androidx.media3.common.Player.STATE_IDLE && player.playbackState != androidx.media3.common.Player.STATE_ENDED
-            kotlinx.coroutines.delay(1000)
         }
     }
 

@@ -298,6 +298,27 @@ fun PlayerScreen(
             sharedViewModel.currentPlayerUrl = videoUrl
             streamInfo = info
 
+            val isCurrentlyLiveStream = (info.streamType == org.schabi.newpipe.extractor.stream.StreamType.LIVE_STREAM ||
+                    info.streamType == org.schabi.newpipe.extractor.stream.StreamType.AUDIO_LIVE_STREAM) &&
+                    info.duration <= 0L &&
+                    (!info.hlsUrl.isNullOrBlank() || !info.dashMpdUrl.isNullOrBlank())
+            if (isCurrentlyLiveStream) {
+                com.videhub.utils.ChannelLiveStatusManager.registerLiveStream(
+                    channelUrl = info.uploaderUrl,
+                    channelName = info.uploaderName,
+                    videoUrl = videoUrl,
+                    title = actualTitle,
+                    thumbnailUrl = actualThumb,
+                    viewCount = info.viewCount
+                )
+            } else {
+                com.videhub.utils.ChannelLiveStatusManager.unregisterLiveStream(
+                    channelUrl = info.uploaderUrl,
+                    channelName = info.uploaderName,
+                    videoUrl = videoUrl
+                )
+            }
+
             // Cache for offline playback
             try {
                 val progressive = info.videoStreams ?: emptyList()

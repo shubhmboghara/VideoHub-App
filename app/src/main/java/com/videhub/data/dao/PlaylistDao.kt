@@ -52,7 +52,7 @@ interface PlaylistDao {
     @Query("SELECT EXISTS(SELECT 1 FROM playlist_videos WHERE playlistId = :playlistId AND videoId = :videoId LIMIT 1)")
     suspend fun isVideoInPlaylist(playlistId: Int, videoId: String): Boolean
 
-    @Query("SELECT * FROM playlists WHERE name = :name LIMIT 1")
+    @Query("SELECT * FROM playlists WHERE LOWER(TRIM(name)) = LOWER(TRIM(:name)) LIMIT 1")
     suspend fun getPlaylistByName(name: String): PlaylistEntity?
 
     @Query("SELECT * FROM playlists ORDER BY name ASC")
@@ -66,4 +66,10 @@ interface PlaylistDao {
 
     @Query("SELECT * FROM playlist_videos ORDER BY addedAt DESC")
     suspend fun getAllPlaylistVideosOnce(): List<PlaylistVideoEntity>
+
+    @Query("DELETE FROM playlists WHERE id IN (:ids)")
+    suspend fun deletePlaylistsByIds(ids: List<Int>)
+
+    @Query("DELETE FROM playlists WHERE id NOT IN (SELECT MIN(id) FROM playlists GROUP BY LOWER(TRIM(name)))")
+    suspend fun deduplicatePlaylistsKeepOldest()
 }
