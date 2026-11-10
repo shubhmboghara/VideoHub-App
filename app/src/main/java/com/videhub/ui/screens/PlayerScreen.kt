@@ -1253,23 +1253,34 @@ fun PlayerScreen(
             val configuration = LocalConfiguration.current
             val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             val isPip = com.videhub.PipState.isActive.value
-            val videoHeight = if (isFullscreen || isLandscape || isPip) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+            val isExpandedPlayer = isFullscreen || isLandscape || isPip
+            val videoHeight = if (isExpandedPlayer) {
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+            } else {
+                Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black)
+                    .statusBarsPadding()
+                    .aspectRatio(16f / 9f)
+            }
             
-            Box(modifier = videoHeight.background(Color.Black)) {
+            Box(modifier = videoHeight) {
                 VideoPlayerContainer(
                     modifier = Modifier.fillMaxSize(),
                     mediaPlayer = mediaPlayer,
-                    isFullscreen = isFullscreen,
+                    isFullscreen = isFullscreen || isLandscape,
                     isMusicMode = isMusicMode,
                     showCaptions = showCaptionsRef.value,
                     isScreenLocked = isScreenLocked,
-                    onToggleFullscreen = { setFullscreen(!isFullscreen) },
+                    onToggleFullscreen = { setFullscreen(!(isFullscreen || isLandscape)) },
                     onCaptionsRequested = { showCaptionSelector = true },
                     activeCaptions = activeCaptions,
                     onActiveCaptionsChanged = { activeCaptions = it },
                     offlineCaptions = offlineCaptions,
                     onBack = {
-                        if (isFullscreen) {
+                        if (isFullscreen || isLandscape) {
                             setFullscreen(false)
                         } else {
                             onBack()
@@ -1605,39 +1616,63 @@ fun VideoPlayerContainer(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(androidx.compose.ui.graphics.Brush.verticalGradient(
-                        colors = listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent)
-                    ))
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .then(
+                        if (isFullscreen) Modifier.windowInsetsPadding(WindowInsets.displayCutout)
+                        else Modifier
+                    )
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
             ) {
                 IconButton(
                     onClick = onBack,
-                    modifier = Modifier.align(Alignment.CenterStart)
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .size(40.dp)
                 ) {
                     Icon(
-                        imageVector = androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Close",
-                        tint = Color.White
+                        imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Minimize",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
                     )
                 }
                 
                 Row(
                     modifier = Modifier.align(Alignment.CenterEnd),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    IconButton(onClick = onShowSettingsSheet) {
+                    IconButton(
+                        onClick = onCaptionsRequested,
+                        modifier = Modifier.size(40.dp)
+                    ) {
                         Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Default.Settings,
+                            imageVector = if (showCaptions) androidx.compose.material.icons.Icons.Default.ClosedCaption else androidx.compose.material.icons.Icons.Outlined.ClosedCaption,
+                            contentDescription = "Captions",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = onShowSettingsSheet,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Outlined.Settings,
                             contentDescription = "Settings",
-                            tint = Color.White
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                     if (!isFullscreen) {
-                        IconButton(onClick = onToggleMusicMode) {
+                        IconButton(
+                            onClick = onToggleMusicMode,
+                            modifier = Modifier.size(40.dp)
+                        ) {
                             Icon(
                                 imageVector = androidx.compose.material.icons.Icons.Filled.Audiotrack,
                                 contentDescription = "Music Mode",
-                                tint = Color.White
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }

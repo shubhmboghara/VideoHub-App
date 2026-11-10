@@ -25,13 +25,16 @@ class VideoHubApplication : Application(), ImageLoaderFactory {
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
-                    .maxSizePercent(0.02)
+                    .maxSizePercent(0.04)
                     .build()
+            }
+            .components {
+                add(coil.decode.VideoFrameDecoder.Factory())
             }
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
-            .crossfade(true)
+            .crossfade(150)
             .respectCacheHeaders(false)
             .build()
     }

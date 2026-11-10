@@ -73,9 +73,12 @@ fun PlayerScreenActions(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 8.dp),
+            .padding(top = 2.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        Spacer(modifier = Modifier.width(4.dp))
+
         @Composable
         fun ActionChipItem(
             label: String,
@@ -84,14 +87,28 @@ fun PlayerScreenActions(
             isActive: Boolean = false,
             onClick: () -> Unit
         ) {
+            val containerColor = if (isActive) {
+                MaterialTheme.colorScheme.inverseSurface
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
+            val contentColor = if (isActive) {
+                MaterialTheme.colorScheme.inverseOnSurface
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            }
+
             Surface(
                 onClick = onClick,
                 shape = CircleShape,
-                color = if (isActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                modifier = Modifier.height(36.dp)
+                color = containerColor,
+                contentColor = contentColor,
+                modifier = Modifier.height(34.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp),
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -100,21 +117,24 @@ fun PlayerScreenActions(
                             painter = painter,
                             contentDescription = label,
                             modifier = Modifier.size(18.dp),
-                            tint = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = contentColor
                         )
                     } else if (icon != null) {
                         Icon(
                             imageVector = icon,
                             contentDescription = label,
                             modifier = Modifier.size(18.dp),
-                            tint = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = contentColor
                         )
                     }
                     Text(
                         text = label,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Medium
+                        ),
+                        color = contentColor,
                         maxLines = 1,
+                        softWrap = false,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -278,5 +298,7 @@ fun PlayerScreenActions(
                 }
             }
         )
+
+        Spacer(modifier = Modifier.width(8.dp))
     }
 }

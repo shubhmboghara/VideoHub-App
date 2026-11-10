@@ -12,8 +12,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun ExoPlayerView(
     modifier: Modifier = Modifier,
@@ -65,6 +67,8 @@ fun ExoPlayerView(
                     useController = false
                     player = mediaPlayer
                     useArtwork = false
+                    keepScreenOn = true
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     setShowSubtitleButton(false)
                     subtitleView?.visibility = android.view.View.INVISIBLE
                     layoutParams = ViewGroup.LayoutParams(
@@ -76,6 +80,9 @@ fun ExoPlayerView(
             update = { view ->
                 if (view.player != mediaPlayer) {
                     view.player = mediaPlayer
+                }
+                if (view.resizeMode != AspectRatioFrameLayout.RESIZE_MODE_FIT) {
+                    view.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 }
             },
             onRelease = { view ->

@@ -73,10 +73,10 @@ fun VideoSeekBar(
 
     val isThumbActive = isDragging || isTappedBriefly
     val thumbDiameter: Dp by animateDpAsState(
-        targetValue = if (isThumbActive) 18.dp else 14.dp,
+        targetValue = if (isThumbActive) 16.dp else 12.dp,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium
         ),
         label = "thumb_diameter_anim"
     )
@@ -91,11 +91,10 @@ fun VideoSeekBar(
                 contentDescription = "Video seek bar, position ${formatVideoDuration(displayTimeMs)} of ${formatVideoDuration(durationMs)}"
             }
     ) {
-        // Touch target container (48dp height minimum for accessibility)
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .height(24.dp)
                 .testTag("video_seek_bar_touch_area")
                 .pointerInput(safeDuration) {
                     detectTapGestures(
@@ -141,11 +140,11 @@ fun VideoSeekBar(
         ) {
             val totalWidthPx = constraints.maxWidth.toFloat()
 
-            // 1. Draw 4dp Track: Inactive, Buffered, Active
+            // 1. Draw 3dp YouTube-style Track: Inactive, Buffered, Active
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(4.dp)
+                    .height(3.dp)
                     .testTag("video_seek_bar_canvas")
             ) {
                 val trackHeight = size.height
@@ -182,7 +181,7 @@ fun VideoSeekBar(
                 }
             }
 
-            // 2. Interactive Thumb with Drop Shadow and Scale Animation
+            // 2. Interactive Thumb
             val thumbRadiusPx = with(density) { (thumbDiameter / 2).toPx() }
             val thumbOffsetXPx = (displayFraction * totalWidthPx) - thumbRadiusPx
             val clampedThumbOffsetXPx = thumbOffsetXPx.coerceIn(0f, max(0f, totalWidthPx - (thumbRadiusPx * 2f)))
@@ -192,13 +191,6 @@ fun VideoSeekBar(
                 modifier = Modifier
                     .offset(x = thumbOffsetXDp)
                     .size(thumbDiameter)
-                    .shadow(
-                        elevation = 4.dp,
-                        shape = CircleShape,
-                        clip = false,
-                        ambientColor = Color.Black.copy(alpha = 0.5f),
-                        spotColor = Color.Black.copy(alpha = 0.7f)
-                    )
                     .background(thumbColor, CircleShape)
                     .testTag("video_seek_bar_thumb")
             )

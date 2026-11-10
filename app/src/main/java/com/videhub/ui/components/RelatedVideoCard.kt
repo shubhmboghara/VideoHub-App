@@ -1,31 +1,26 @@
 package com.videhub.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import coil.request.CachePolicy
-import coil.request.ImageRequest
-import coil.size.Size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
 
 @Composable
 fun RelatedVideoCard(
@@ -46,55 +41,57 @@ fun RelatedVideoCard(
         modifier = modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .background(Color.Transparent)
     ) {
-        // Thumbnail (16:9, full bleed, no rounded corners)
+        // YouTube-style Full-Width 16:9 Thumbnail
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {
-            if (thumbnailUrl != null) {
+            if (!thumbnailUrl.isNullOrBlank()) {
                 AsyncImage(
                     model = thumbnailUrl,
                     contentDescription = title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
-            } else {
-                Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
             }
-            
+
             // Duration badge
             if (duration > 0) {
-                Box(
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color.Black.copy(alpha = 0.85f),
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(bottom = 6.dp, end = 6.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                        .padding(bottom = 8.dp, end = 8.dp)
                 ) {
                     Text(
                         text = com.videhub.utils.FormatHelper.formatDuration(duration),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.labelSmall
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            fontFeatureSettings = "tnum"
+                        ),
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                     )
                 }
             }
         }
 
-        // Metadata row
+        // Metadata row matching YouTube feed item
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 14.dp),
             verticalAlignment = Alignment.Top
         ) {
             // Channel Avatar
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(36.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .clickable(enabled = onChannelClick != null) { onChannelClick?.invoke() },
@@ -105,58 +102,85 @@ fun RelatedVideoCard(
                         model = uploaderAvatarUrl,
                         contentDescription = uploaderName,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape)
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape)
                     )
+                } else {
+                    val initial = uploaderName.trim().firstOrNull()?.uppercaseChar()?.toString()
+                    if (!initial.isNullOrBlank()) {
+                        Text(
+                            text = initial,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.width(12.dp))
 
             // Title and channel info
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 4.dp)
+            ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 14.5.sp,
+                        lineHeight = 20.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                
-                Spacer(modifier = Modifier.height(4.dp))
-                
+
+                Spacer(modifier = Modifier.height(3.dp))
+
                 val viewsText = if (viewCount > 0) "${com.videhub.utils.FormatHelper.formatCount(viewCount)} views" else ""
                 val formattedDate = com.videhub.utils.FormatHelper.formatDate(uploadDate)
                 val metaParts = listOf(uploaderName, viewsText, formattedDate).filter { it.isNotBlank() }
                 val metaText = metaParts.joinToString(" · ")
-                
-                Text(
-                    text = metaText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.clickable(enabled = onChannelClick != null) { onChannelClick?.invoke() }
-                )
+
+                if (metaText.isNotBlank()) {
+                    Text(
+                        text = metaText,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable(enabled = onChannelClick != null) { onChannelClick?.invoke() }
+                    )
+                }
             }
 
-            // Three-dot button
-            Box(
-                modifier = Modifier
-                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                    .offset(x = 12.dp, y = (-12).dp)
-                    .clickable { onMoreClick() },
-                contentAlignment = Alignment.TopCenter
+            // Three-dot options button
+            IconButton(
+                onClick = onMoreClick,
+                modifier = Modifier.size(36.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.MoreVert,
                     contentDescription = "More options",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(12.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
-        
-        Spacer(modifier = Modifier.height(8.dp))
     }
 }
+

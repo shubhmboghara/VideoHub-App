@@ -23,14 +23,14 @@ fun LazyListScope.relatedVideosSection(
 ) {
     if (relatedVideos.isNotEmpty()) {
         item {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(4.dp))
         }
         itemsIndexed(
             items = relatedVideos,
             key = { index, video -> "${video.url}_$index" }
         ) { index, video ->
             var expanded by remember { mutableStateOf(false) }
-            
+
             if (expanded && !video.url.isNullOrBlank()) {
                 com.videhub.ui.components.VideoActionBottomSheet(
                     videoUrl = video.url ?: "",
@@ -50,17 +50,17 @@ fun LazyListScope.relatedVideosSection(
                 duration = video.duration,
                 viewCount = video.viewCount ?: 0,
                 uploadDate = video.textualUploadDate ?: "",
-                uploaderAvatarUrl = try { video.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null },
-                onChannelClick = { 
+                uploaderAvatarUrl = try { com.videhub.utils.AvatarHelper.getBestAvatarUrl(video.uploaderAvatars) } catch (e: Exception) { null },
+                onChannelClick = {
                     val uploaderUrl = video.uploaderUrl
                     if (!uploaderUrl.isNullOrBlank()) {
                         onChannelClick(uploaderUrl)
                     }
                 },
-                onClick = { 
-                     val url = video.url ?: ""
+                onClick = {
+                    val url = video.url ?: ""
                     if (url.isNotBlank()) {
-                        onVideoPlay(url, video.name ?: "", video.thumbnails?.firstOrNull()?.url ?: "", isMusicMode) 
+                        onVideoPlay(url, video.name ?: "", video.thumbnails?.firstOrNull()?.url ?: "", isMusicMode)
                     }
                 },
                 onMoreClick = { expanded = true }
@@ -77,18 +77,27 @@ fun LazyListScope.queueSection(
 ) {
     if (queue.isNotEmpty()) {
         item {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    "Up Next in Queue (${queue.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+            Column(modifier = Modifier.fillMaxWidth()) {
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                    thickness = 1.dp,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
                 )
-                TextButton(onClick = onClear) {
-                    Text("Clear")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        "Up Next in Queue (${queue.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    TextButton(onClick = onClear) {
+                        Text("Clear")
+                    }
                 }
             }
         }
@@ -103,8 +112,8 @@ fun LazyListScope.queueSection(
                 thumbnailUrl = video.thumbnailUrl,
                 duration = video.duration,
                 viewCount = -1,
-                onClick = { 
-                     if (video.url.isNotBlank()) {
+                onClick = {
+                    if (video.url.isNotBlank()) {
                         onRemove(video)
                         onVideoPlay(video.url, video.title, video.thumbnailUrl, false)
                     }
@@ -118,3 +127,4 @@ fun LazyListScope.queueSection(
         }
     }
 }
+

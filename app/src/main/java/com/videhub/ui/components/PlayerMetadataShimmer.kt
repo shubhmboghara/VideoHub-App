@@ -19,52 +19,54 @@ import androidx.compose.ui.unit.dp
 fun PlayerMetadataShimmer() {
     val brush = shimmerBrush()
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth(0.8f)
-                .height(28.dp)
-                .clip(MaterialTheme.shapes.small)
+                .fillMaxWidth(0.85f)
+                .height(22.dp)
+                .clip(RoundedCornerShape(6.dp))
                 .background(brush)
         )
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.45f)
+                .height(14.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(brush)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
             Box(
                 modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(brush)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Box(
+                modifier = Modifier
                     .fillMaxWidth(0.4f)
-                    .height(20.dp)
-                    .clip(MaterialTheme.shapes.small)
+                    .height(18.dp)
+                    .clip(RoundedCornerShape(4.dp))
                     .background(brush)
             )
             Spacer(modifier = Modifier.weight(1f))
             Box(
                 modifier = Modifier
-                    .width(100.dp)
+                    .width(96.dp)
                     .height(36.dp)
-                    .clip(CircleShape)
-                    .background(brush)
-            )
-        }
-        Spacer(modifier = Modifier.height(24.dp))
-        Row(
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(brush)
-            )
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
                     .clip(CircleShape)
                     .background(brush)
             )
         }
     }
 }
+

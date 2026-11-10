@@ -138,52 +138,6 @@ fun LibraryScreen(
             scrollBehavior = scrollBehavior
         )
 
-        val db = remember { com.videhub.data.AppDatabase.getDatabase(context) }
-        val historyCount by db.historyDao().getCount().collectAsStateWithLifecycle(initialValue = null)
-        val watchLaterCount by db.watchLaterDao().getCount().collectAsStateWithLifecycle(initialValue = null)
-        val playlistsCount by db.playlistDao().getCount().collectAsStateWithLifecycle(initialValue = null)
-        val downloadsCount by db.downloadedVideoDao().getCompletedCount().collectAsStateWithLifecycle(initialValue = null)
-        val totalDownloadedBytes by db.downloadedVideoDao().getTotalDownloadedBytes().collectAsStateWithLifecycle(initialValue = null)
-        val likedCount by db.likedVideoDao().getCount().collectAsStateWithLifecycle(initialValue = null)
-
-        val watchLaterSubtitle = when {
-            watchLaterCount == null -> null
-            watchLaterCount == 1 -> "1 video"
-            watchLaterCount!! > 1 -> "$watchLaterCount videos"
-            else -> null
-        }
-
-        val downloadsSubtitle = when {
-            downloadsCount == null -> null
-            downloadsCount!! > 0 -> {
-                val countLabel = if (downloadsCount == 1) "1 video" else "$downloadsCount videos"
-                val totalBytes = totalDownloadedBytes ?: 0L
-                if (totalBytes > 0L) {
-                    val mb = totalBytes.toDouble() / (1024.0 * 1024.0)
-                    val sizeLabel = if (mb >= 1024.0) {
-                        String.format(java.util.Locale.US, "%.1f GB", mb / 1024.0)
-                    } else {
-                        String.format(java.util.Locale.US, "%.0f MB", mb)
-                    }
-                    "$countLabel · $sizeLabel"
-                } else {
-                    countLabel
-                }
-            }
-            else -> null
-        }
-
-        val playlistsSubtitle = when {
-            playlistsCount == null -> null
-            playlistsCount!! > 0 -> "$playlistsCount"
-            else -> null
-        }
-
-        val likedSubtitle = when {
-            likedCount == null -> null
-            likedCount!! > 0 -> "$likedCount"
-            else -> null
-        }
 
         Column(
             modifier = Modifier
@@ -204,14 +158,14 @@ fun LibraryScreen(
             ) {
                 LibraryProminentCard(
                     title = "Downloads",
-                    subtitle = downloadsSubtitle,
+                    subtitle = null,
                     icon = Icons.Default.Download,
                     modifier = Modifier.weight(1f),
                     onClick = { onNavigate("downloads") }
                 )
                 LibraryProminentCard(
                     title = "Watch Later",
-                    subtitle = watchLaterSubtitle,
+                    subtitle = null,
                     icon = Icons.Default.Bookmark,
                     modifier = Modifier.weight(1f),
                     onClick = onWatchLaterClick
@@ -234,7 +188,7 @@ fun LibraryScreen(
             )
             LibraryItemRow(
                 title = "Liked Videos",
-                subtitle = likedSubtitle,
+                subtitle = null,
                 icon = Icons.Default.ThumbUp,
                 onClick = { onNavigate("liked_videos") }
             )

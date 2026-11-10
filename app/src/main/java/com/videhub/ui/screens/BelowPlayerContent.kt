@@ -1,12 +1,15 @@
 package com.videhub.ui.screens
 
 import android.content.Context
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import com.videhub.PlayQueueItem
 import com.videhub.QueueManager
@@ -56,7 +59,8 @@ fun BelowPlayerContent(
 
     LazyColumn(
         state = listState,
-        modifier = modifier
+        modifier = modifier.navigationBarsPadding(),
+        contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         item {
             PlayerScreenMetadata(

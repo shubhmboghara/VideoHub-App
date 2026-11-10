@@ -211,9 +211,13 @@ fun ModernPlayerControls(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.5f))
+                    .background(Color.Black.copy(alpha = 0.42f))
+                    .then(
+                        if (isFullscreen) Modifier.windowInsetsPadding(WindowInsets.displayCutout)
+                        else Modifier
+                    )
             ) {
-                // Center Playback Controls (Previous, Play/Pause, Next) perfectly centered with balanced M3 proportions
+                // Center Playback Controls (Previous, Play/Pause, Next) matching YouTube player
                 Row(
                     modifier = Modifier
                         .align(Alignment.Center)
@@ -226,7 +230,7 @@ fun ModernPlayerControls(
                     IconButton(
                         onClick = onPreviousClick,
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(44.dp)
                             .background(Color.Black.copy(alpha = 0.45f), CircleShape)
                             .testTag("player_prev_button")
                             .semantics { contentDescription = "Previous video" }
@@ -235,11 +239,11 @@ fun ModernPlayerControls(
                             imageVector = Icons.Default.SkipPrevious,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(28.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(32.dp))
+                    Spacer(modifier = Modifier.width(40.dp))
 
                     IconButton(
                         onClick = {
@@ -258,33 +262,33 @@ fun ModernPlayerControls(
                             }
                         },
                         modifier = Modifier
-                            .size(64.dp)
+                            .size(60.dp)
                             .background(Color.Black.copy(alpha = 0.55f), CircleShape)
                             .testTag("player_play_pause_button")
                             .semantics { contentDescription = if (isPlaying) "Pause video" else "Play video" }
                     ) {
                         if (isBuffering) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(32.dp),
+                                modifier = Modifier.size(30.dp),
                                 color = Color.White,
-                                strokeWidth = 3.dp
+                                strokeWidth = 2.5.dp
                             )
                         } else {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(36.dp)
+                                modifier = Modifier.size(38.dp)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(32.dp))
+                    Spacer(modifier = Modifier.width(40.dp))
 
                     IconButton(
                         onClick = onNextClick,
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(44.dp)
                             .background(Color.Black.copy(alpha = 0.45f), CircleShape)
                             .testTag("player_next_button")
                             .semantics { contentDescription = "Next video" }
@@ -293,24 +297,75 @@ fun ModernPlayerControls(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(28.dp)
                         )
                     }
                 }
 
-                // Bottom Bar (Timeline, Seekbar, Settings, CC, Fullscreen) with smooth gradient scrim
+                // YouTube-style Bottom Bar (Timestamp on left, Fullscreen on right, SeekBar along bottom)
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .background(
-                            androidx.compose.ui.graphics.Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))
-                            )
+                        .padding(
+                            horizontal = if (isFullscreen) 16.dp else 0.dp,
+                            vertical = if (isFullscreen) 8.dp else 0.dp
                         )
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
                 ) {
-                    // Video Progress Seek Bar
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                start = if (isFullscreen) 0.dp else 12.dp,
+                                end = if (isFullscreen) 0.dp else 4.dp
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.testTag("player_time_label")
+                        ) {
+                            Text(
+                                text = formatVideoDuration(currentTime),
+                                maxLines = 1,
+                                softWrap = false,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontFeatureSettings = "tnum",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White
+                                )
+                            )
+                            Text(
+                                text = " / ${formatVideoDuration(totalTime)}",
+                                maxLines = 1,
+                                softWrap = false,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontFeatureSettings = "tnum",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    color = Color.White.copy(alpha = 0.7f)
+                                )
+                            )
+                        }
+
+                        IconButton(
+                            onClick = onToggleFullscreen,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .testTag("player_fullscreen_button")
+                                .semantics { contentDescription = if (isFullscreen) "Exit fullscreen" else "Enter fullscreen" }
+                        ) {
+                            Icon(
+                                imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+
                     VideoSeekBar(
                         positionMs = currentTime,
                         durationMs = totalTime,
@@ -319,87 +374,14 @@ fun ModernPlayerControls(
                             currentTime = seekPosition
                             mediaPlayer?.seekTo(seekPosition)
                         },
-                        activeColor = MaterialTheme.colorScheme.primary,
+                        activeColor = Color.White,
                         bufferedColor = Color.White.copy(alpha = 0.45f),
                         inactiveColor = Color.White.copy(alpha = 0.25f),
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    // Bottom Action Row (Timestamp & Functional Controls)
-                    Row(
+                        thumbColor = Color.White,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "${formatVideoDuration(currentTime)} / ${formatVideoDuration(totalTime)}",
-                            maxLines = 1,
-                            softWrap = false,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontFeatureSettings = "tnum",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White.copy(alpha = 0.92f),
-                                shadow = Shadow(
-                                    color = Color.Black.copy(alpha = 0.85f),
-                                    offset = Offset(0f, 2f),
-                                    blurRadius = 4f
-                                )
-                            ),
-                            modifier = Modifier.testTag("player_time_label")
-                        )
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            IconButton(
-                                onClick = onCaptionsClick,
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .testTag("player_captions_button")
-                                    .semantics { contentDescription = "Toggle captions" }
-                            ) {
-                                Icon(
-                                    imageVector = if (showCaptions) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionOff,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                            IconButton(
-                                onClick = onSettingsClick,
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .testTag("player_settings_button")
-                                    .semantics { contentDescription = "Video settings and audio effects" }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Settings,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                            IconButton(
-                                onClick = onToggleFullscreen,
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .testTag("player_fullscreen_button")
-                                    .semantics { contentDescription = if (isFullscreen) "Exit fullscreen" else "Enter fullscreen" }
-                            ) {
-                                Icon(
-                                    imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                    }
+                            .padding(horizontal = if (isFullscreen) 0.dp else 12.dp)
+                    )
                 }
             }
         }

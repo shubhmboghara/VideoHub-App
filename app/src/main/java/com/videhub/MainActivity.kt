@@ -250,26 +250,6 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("crash_prefs", Context.MODE_PRIVATE)
         val lastCrash = prefs.getString("last_crash", null)
         prefs.edit().remove("last_crash").apply()
-        
-        coil.ImageLoader.Builder(this)
-            .memoryCache {
-                coil.memory.MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
-                    .build()
-            }
-            .diskCache {
-                coil.disk.DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(100L * 1024L * 1024L)
-                    .build()
-            }
-            .respectCacheHeaders(false)
-            .crossfade(150)
-            .components {
-                add(coil.decode.VideoFrameDecoder.Factory())
-            }
-            .build()
-            .let { coil.Coil.setImageLoader(it) }
 
         setContent {
             AppTheme {
