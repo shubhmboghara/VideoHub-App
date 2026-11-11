@@ -296,6 +296,8 @@ fun DownloadsScreen(
     }
 
     var filesOnDisk by remember { mutableStateOf<List<File>>(emptyList()) }
+    var isInitialLoading by remember { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) }
     var fileToDelete by remember { mutableStateOf<File?>(null) }
     var itemToDelete by remember { mutableStateOf<DownloadItemData?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -376,6 +378,7 @@ fun DownloadsScreen(
             val merged = (f1 + f2 + directEntitiesFiles).distinctBy { it.absolutePath }
             withContext(Dispatchers.Main) {
                 filesOnDisk = merged
+                isInitialLoading = false
             }
         }
     }
@@ -908,81 +911,131 @@ fun DownloadsScreen(
         val hasNoItems = displayItems.isEmpty() && activeDownloads.isEmpty() && downloadedPlaylists.isEmpty()
         val hasNoSearchResults = searchQuery.isNotBlank() && filteredVideos.isEmpty() && filteredAudios.isEmpty() && filteredPlaylists.isEmpty()
 
-        if (hasNoItems || hasNoSearchResults) {
-            val infiniteTransition = rememberInfiniteTransition(label = "empty_state")
-            val scale by infiniteTransition.animateFloat(
-                initialValue = 1f,
-                targetValue = 1.08f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1500, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "scale"
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+        androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                scope.launch {
+                    isRefreshing = true
+                    loadFiles()
+                    isRefreshing = false
+                }
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            if (isInitialLoading && hasNoItems) {
+                val brush = com.videhub.ui.components.shimmerBrush()
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp)
                 ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier
-                            .size(76.dp)
-                            .scale(scale)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = if (hasNoSearchResults) Icons.Default.SearchOff else Icons.Default.Download,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(38.dp)
-                            )
+                    item(key = "downloads_chips_shimmer") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(72.dp, 88.dp, 82.dp, 96.dp).forEach { chipWidth ->
+                                Box(
+                                    modifier = Modifier
+                                        .width(chipWidth)
+                                        .height(32.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(brush)
+                                )
+                            }
                         }
                     }
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        text = if (hasNoSearchResults) "No Results Found" else "No Downloads Yet",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = if (hasNoSearchResults)
-                            "No downloads matched \"$searchQuery\". Try checking spelling or searching for a different title."
-                        else
-                            "Videos and music you download will appear here for offline playback.",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 24.dp)
-                    )
-
-                    if (hasNoSearchResults) {
-                        Spacer(Modifier.height(20.dp))
-                        OutlinedButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Clear Search")
+                    when (selectedCategoryIndex) {
+                        2 -> {
+                            items(6, key = { "downloads_audio_shimmer_$it" }) {
+                                com.videhub.ui.components.AudioRowShimmer()
+                            }
+                        }
+                        else -> {
+                            items(3, key = { "downloads_audio_mix_shimmer_$it" }) {
+                                com.videhub.ui.components.AudioRowShimmer()
+                            }
+                            items(4, key = { "downloads_video_shimmer_$it" }) {
+                                com.videhub.ui.components.VideoRowShimmer()
+                            }
                         }
                     }
                 }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(bottom = 80.dp)
-            ) {
+            } else if (hasNoItems || hasNoSearchResults) {
+                val infiniteTransition = rememberInfiniteTransition(label = "empty_state")
+                val scale by infiniteTransition.animateFloat(
+                    initialValue = 1f,
+                    targetValue = 1.08f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1500, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "scale"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier
+                                .size(76.dp)
+                                .scale(scale)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (hasNoSearchResults) Icons.Default.SearchOff else Icons.Default.Download,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(38.dp)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = if (hasNoSearchResults) "No Results Found" else "No Downloads Yet",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = if (hasNoSearchResults)
+                                "No downloads matched \"$searchQuery\". Try checking spelling or searching for a different title."
+                            else
+                                "Videos and music you download will appear here for offline playback.",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
+
+                        if (hasNoSearchResults) {
+                            Spacer(Modifier.height(20.dp))
+                            OutlinedButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Clear Search")
+                            }
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
                 // Category Filter Chips (Hidden when search is active)
                 if (!isSearchActive) {
                     item(key = "category_filter_chips") {
@@ -1280,6 +1333,7 @@ fun DownloadsScreen(
                     }
                 }
             }
+        }
         }
     }
 

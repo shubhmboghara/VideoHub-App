@@ -183,7 +183,8 @@ fun MusicModeUI(
                     onCaptionsRequested = onCaptionsRequested,
                     showCaptions = showCaptions,
                     isAudioOnly = isAudioOnly,
-                    videoId = videoUrl
+                    videoId = videoUrl,
+                    isStreamLoading = streamInfo == null && !isLocalFile
                 )
                     }
                 

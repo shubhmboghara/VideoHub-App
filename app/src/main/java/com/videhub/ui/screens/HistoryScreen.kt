@@ -30,12 +30,14 @@ fun HistoryScreen(onVideoClick: (String, String, String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var history by remember { mutableStateOf<List<HistoryEntity>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
     val onBackPressedDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
 
     LaunchedEffect(Unit) {
         val db = AppDatabase.getDatabase(context)
         db.historyDao().getAllHistory().collectLatest { list ->
             history = list
+            isLoading = false
         }
     }
 
@@ -104,7 +106,16 @@ fun HistoryScreen(onVideoClick: (String, String, String) -> Unit) {
             )
         }
     ) { padding ->
-        if (history.isEmpty()) {
+        if (isLoading && history.isEmpty()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(vertical = 8.dp)
+            ) {
+                items(6, key = { "history_shimmer_$it" }) {
+                    com.videhub.ui.components.VideoRowShimmer()
+                }
+            }
+        } else if (history.isEmpty()) {
             com.videhub.ui.components.EmptyState(
                 icon = androidx.compose.material.icons.Icons.Default.History,
                 title = "No History",

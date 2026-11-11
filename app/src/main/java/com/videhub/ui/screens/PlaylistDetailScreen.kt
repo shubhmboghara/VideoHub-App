@@ -241,7 +241,8 @@ fun PlaylistDetailScreen(
     if (showRenameDialog) {
         com.videhub.ui.components.EditPlaylistSheet(
             initialTitle = uiState.playlistName,
-            initialCoverUrl = uiState.videos.firstOrNull()?.thumbnailUrl,
+            initialCoverUrl = uiState.customCoverUrl?.takeIf { it.isNotBlank() }
+                ?: uiState.videos.firstOrNull()?.thumbnailUrl,
             onDismiss = { showRenameDialog = false },
             onSave = { newTitle, newCoverUrl ->
                 viewModel.renamePlaylistAndCover(context, newTitle, newCoverUrl)
@@ -596,94 +597,86 @@ fun PlaylistDetailContent(
     val coverThumbs = remember(uiState.videos) {
         uiState.videos.mapNotNull { it.thumbnailUrl?.takeIf { t -> t.isNotBlank() } }
     }
-    val primaryCoverUrl = coverThumbs.firstOrNull()
-    var extractedColor by remember { mutableStateOf(Color(0xFF272727)) }
-
-    LaunchedEffect(primaryCoverUrl) {
-        if (!primaryCoverUrl.isNullOrBlank()) {
-            try {
-                val loader = coil.Coil.imageLoader(context)
-                val request = ImageRequest.Builder(context)
-                    .data(primaryCoverUrl)
-                    .allowHardware(false)
-                    .size(300)
-                    .build()
-                val result = loader.execute(request)
-                if (result is SuccessResult) {
-                    val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
-                    if (bitmap != null) {
-                        val palette = Palette.from(bitmap).generate()
-                        val swatch = palette.dominantSwatch
-                            ?: palette.vibrantSwatch
-                            ?: palette.darkMutedSwatch
-                            ?: palette.mutedSwatch
-                        if (swatch != null) {
-                            extractedColor = Color(swatch.rgb)
-                        }
-                    }
-                }
-            } catch (_: Exception) { }
-        }
+    val primaryCoverUrl = remember(uiState.customCoverUrl, coverThumbs) {
+        uiState.customCoverUrl?.takeIf { it.isNotBlank() } ?: coverThumbs.firstOrNull()
     }
+    val resolvedPrimaryCoverModel = remember(primaryCoverUrl) {
+        com.videhub.ui.components.resolveCoverImageModel(primaryCoverUrl)
+    }
+    val (ambientLeft, ambientRight) = com.videhub.ui.components.rememberPlaylistAmbientColors(primaryCoverUrl)
+    val bgColor = MaterialTheme.colorScheme.background
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = extractedColor,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                    actionIconContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                title = {
-                    if (showTopBarTitle) {
-                        Text(
-                            text = uiState.playlistName,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(ambientLeft, ambientRight)
                         )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onBackClick,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    // Search Button (redirects to main app search)
-                    IconButton(
-                        onClick = onSearchClick,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
+                    )
+            ) {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        titleContentColor = Color.White,
+                        navigationIconContentColor = Color.White,
+                        actionIconContentColor = Color.White
+                    ),
+                    title = {
+                        if (showTopBarTitle) {
+                            Text(
+                                text = uiState.playlistName,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = onBackClick,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = onSearchClick,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = Color.White
+                            )
+                        }
 
-                    // Delete Playlist Button
-                    IconButton(
-                        onClick = onDeletePlaylistClick,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete playlist",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
+                        IconButton(
+                            onClick = onDeletePlaylistClick,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete playlist",
+                                tint = Color.White
+                            )
+                        }
                     }
-                }
-            )
+                )
+            }
         },
         modifier = modifier
     ) { padding ->
+        if (uiState.isLoading) {
+            com.videhub.ui.components.OnlinePlaylistShimmer(
+                modifier = Modifier.padding(padding)
+            )
+        } else {
         LazyColumn(
             state = lazyListState,
             modifier = Modifier
@@ -693,195 +686,236 @@ fun PlaylistDetailContent(
         ) {
             // Header Item matching YouTube playlist structure
             item(key = "playlist_header") {
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    extractedColor,
-                                    extractedColor.copy(alpha = 0.65f),
-                                    MaterialTheme.colorScheme.background
-                                )
+                            Brush.horizontalGradient(
+                                colors = listOf(ambientLeft, ambientRight)
                             )
                         )
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Cover: ~200dp tall, 2x2 collage when >= 2 videos, with overlay badge
-                    PlaylistCollageCover(
-                        thumbnails = coverThumbs,
-                        modifier = Modifier.fillMaxWidth()
+                    // Vertical fade overlay into background color
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colorStops = arrayOf(
+                                        0.0f to Color.Transparent,
+                                        0.55f to bgColor.copy(alpha = 0.45f),
+                                        0.85f to bgColor.copy(alpha = 0.88f),
+                                        1.0f to bgColor
+                                    )
+                                )
+                            )
                     )
 
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Title centered under cover (matching screenshot)
-                    Text(
-                        text = uiState.playlistName,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        textAlign = TextAlign.Center,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Subtitle centered under title (matching screenshot: "Local Playlist • X videos")
-                    val subtitleText = "Local Playlist • $summaryText"
-                    Text(
-                        text = subtitleText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    // Progress bar while downloading
-                    if (isDownloading) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        LinearProgressIndicator(
-                            progress = { overallProgress },
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalAlignment = Alignment.Start
+                    ) {
+                        // Single 16:9 Rounded Cover Image (displays custom uploaded image or first video thumbnail)
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(4.dp)
-                                .clip(RoundedCornerShape(2.dp)),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Action Row (Play All + Circular Icon Buttons matching screenshot)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // Play All: Solid white pill button with black text & play icon (matching screenshot)
-                        Button(
-                            onClick = onPlayAllClick,
-                            enabled = totalCount > 0,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(44.dp),
-                            shape = RoundedCornerShape(22.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White,
-                                contentColor = Color.Black,
-                                disabledContainerColor = Color.White.copy(alpha = 0.4f),
-                                disabledContentColor = Color.Black.copy(alpha = 0.4f)
-                            ),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF1F1F1F))
+                                .clickable { onRenameClick() },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                tint = Color.Black,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Play all",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = Color.Black
+                            if (resolvedPrimaryCoverModel != null) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(resolvedPrimaryCoverModel)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = "Playlist cover",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
+                                    contentDescription = "Empty cover",
+                                    tint = Color.White.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(56.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Left-aligned Playlist Title
+                        Text(
+                            text = uiState.playlistName,
+                            fontSize = 26.sp,
+                            lineHeight = 32.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            textAlign = TextAlign.Start,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Left-aligned Subtitle ("Playlist • X videos")
+                        val subtitleText = "Playlist • $summaryText"
+                        Text(
+                            text = subtitleText,
+                            fontSize = 13.sp,
+                            color = Color.White.copy(alpha = 0.72f),
+                            textAlign = TextAlign.Start,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        // Progress bar while downloading
+                        if (isDownloading) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            LinearProgressIndicator(
+                                progress = { overallProgress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp)),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = Color.White.copy(alpha = 0.2f)
                             )
                         }
 
-                        // Circular Icon Button: Add videos (+)
-                        Surface(
-                            onClick = onSearchClick,
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(44.dp)
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Action Row (Play All + Circular Icon Buttons matching screenshot)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
+                            // Play All: Solid white pill button with black text & play icon
+                            Button(
+                                onClick = onPlayAllClick,
+                                enabled = totalCount > 0,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp),
+                                shape = CircleShape,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color.White,
+                                    contentColor = Color.Black,
+                                    disabledContainerColor = Color.White.copy(alpha = 0.4f),
+                                    disabledContentColor = Color.Black.copy(alpha = 0.4f)
+                                ),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = "Add videos",
-                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color.Black,
                                     modifier = Modifier.size(22.dp)
                                 )
-                            }
-                        }
-
-                        // Circular Icon Button: Edit / Rename Playlist (✏️)
-                        Surface(
-                            onClick = onRenameClick,
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "Rename playlist",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(20.dp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Play all",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = Color.Black
                                 )
                             }
-                        }
 
-                        // Circular Icon Button: Download Playlist (↓)
-                        Surface(
-                            onClick = onDownloadPillClick,
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Download,
-                                    contentDescription = "Download playlist",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Sort selector dropdown matching screenshot ("Manual ∨")
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Start
-                    ) {
-                        Box {
+                            // Circular Icon Button: Add videos (+)
                             Surface(
-                                onClick = { showSortMenu = true },
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                onClick = onSearchClick,
+                                shape = CircleShape,
+                                color = Color.White.copy(alpha = 0.14f),
+                                modifier = Modifier.size(42.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        text = currentSortLabel,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
+                                Box(contentAlignment = Alignment.Center) {
                                     Icon(
-                                        imageVector = Icons.Default.ArrowDropDown,
-                                        contentDescription = "Sort dropdown",
-                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Add videos",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+
+                            // Circular Icon Button: Edit / Rename & Cover Image
+                            Surface(
+                                onClick = onRenameClick,
+                                shape = CircleShape,
+                                color = Color.White.copy(alpha = 0.14f),
+                                modifier = Modifier.size(42.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Edit playlist",
+                                        tint = Color.White,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
 
-                            DropdownMenu(
-                                expanded = showSortMenu,
-                                onDismissRequest = { showSortMenu = false }
+                            // Circular Icon Button: Download Playlist (↓)
+                            Surface(
+                                onClick = onDownloadPillClick,
+                                shape = CircleShape,
+                                color = Color.White.copy(alpha = 0.14f),
+                                modifier = Modifier.size(42.dp)
                             ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = "Download playlist",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Sort selector dropdown matching screenshot ("Manual ∨")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Start
+                        ) {
+                            Box {
+                                Surface(
+                                    onClick = { showSortMenu = true },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.White.copy(alpha = 0.12f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = currentSortLabel,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color.White
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "Sort dropdown",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+
+                                DropdownMenu(
+                                    expanded = showSortMenu,
+                                    onDismissRequest = { showSortMenu = false }
+                                ) {
                                 DropdownMenuItem(
                                     text = { Text("Manual") },
                                     onClick = {
@@ -916,6 +950,7 @@ fun PlaylistDetailContent(
                                 )
                             }
                         }
+                    }
                     }
                 }
 
@@ -1173,6 +1208,7 @@ fun PlaylistDetailContent(
                     }
                 }
             }
+        }
         }
     }
 }

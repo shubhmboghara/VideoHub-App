@@ -625,14 +625,31 @@ fun ExploreScreen(
             modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
             when {
-                // Loading Shimmer
-                (isLoading || isSearching) && !isRefreshing -> {
+                // Loading Shimmer matching selected search tab
+                isLoading || isSearching || isRefreshing -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp)
                     ) {
-                        items(5) {
-                            VideoCardShimmer()
+                        when (selectedFilterIndex) {
+                            3 -> {
+                                items(6, key = { "explore_channel_shimmer_$it" }) {
+                                    com.videhub.ui.components.ChannelResultCardShimmer()
+                                }
+                            }
+                            0 -> {
+                                item(key = "explore_top_channel_shimmer") {
+                                    com.videhub.ui.components.ChannelResultCardShimmer()
+                                }
+                                items(4, key = { "explore_all_video_shimmer_$it" }) {
+                                    VideoCardShimmer()
+                                }
+                            }
+                            else -> {
+                                items(5, key = { "explore_video_shimmer_$it" }) {
+                                    VideoCardShimmer()
+                                }
+                            }
                         }
                     }
                 }

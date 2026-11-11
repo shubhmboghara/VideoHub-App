@@ -40,7 +40,7 @@ fun LibraryScreen(
     sharedViewModel: com.videhub.viewmodel.MainViewModel,
     onNavigate: (String) -> Unit,
     onWatchLaterClick: () -> Unit,
-    onSearchClick: () -> Unit = { onNavigate("explore") },
+    onSearchClick: () -> Unit = { onNavigate(com.videhub.navigation.Screen.Explore.route) },
     onAboutClick: () -> Unit = { onNavigate("about") }
 ) {
     val context = LocalContext.current
@@ -161,7 +161,7 @@ fun LibraryScreen(
                     subtitle = null,
                     icon = Icons.Default.Download,
                     modifier = Modifier.weight(1f),
-                    onClick = { onNavigate("downloads") }
+                    onClick = { onNavigate(com.videhub.navigation.Screen.Downloads.route) }
                 )
                 LibraryProminentCard(
                     title = "Watch Later",

@@ -125,13 +125,13 @@ fun NavGraph(
                 onPlaylistClick = { playlistUrl -> navController.navigate(Screen.OnlinePlaylist.createRoute(playlistUrl)) },
                 onAboutClick = {
                     val encodedId = try { java.net.URLEncoder.encode(channelId, "UTF-8") } catch (e: Exception) { channelId }
-                    navController.navigate("channel_about?channelId=$encodedId")
+                    navController.navigate("channel_bio?channelId=$encodedId")
                 },
                 onSearchClick = { navController.navigate(Screen.Explore.route) }
             )
         }
         composable(
-            route = "channel_about?channelId={channelId}",
+            route = "channel_bio?channelId={channelId}",
             arguments = listOf(navArgument("channelId") {
                 type = NavType.StringType
                 defaultValue = ""
@@ -159,13 +159,13 @@ fun NavGraph(
         }
         composable("playlists") {
             PlaylistsScreen(
-                onPlaylistClick = { id -> navController.navigate("playlist_detail/$id") },
+                onPlaylistClick = { id -> navController.navigate("custom_playlist/$id") },
                 onNavigate = { route -> navController.navigate(route) },
                 onVideoClick = { videoUrl, t, thumb -> onNavigateToPlayer(videoUrl, t, thumb, false, false) }
             )
         }
         composable(
-            route = "playlist_detail/{playlistId}",
+            route = "custom_playlist/{playlistId}",
             arguments = listOf(navArgument("playlistId") { type = NavType.IntType })
         ) { backStackEntry ->
             val id = backStackEntry.arguments?.getInt("playlistId") ?: 0

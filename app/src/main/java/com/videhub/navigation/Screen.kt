@@ -1,17 +1,17 @@
 package com.videhub.navigation
 
 sealed class Screen(val route: String) {
-    object Home : Screen("home")
-    object Explore : Screen("explore")
-    object Subscriptions : Screen("subscriptions")
+    object Home : Screen("home_feed")
+    object Explore : Screen("explore_feed")
+    object Subscriptions : Screen("subscriptions_feed")
     object Library : Screen("library")
-    object Downloads : Screen("downloads")
+    object Downloads : Screen("downloads_tab")
 
-    data class Player(val videoUrl: String) : Screen("player?videoUrl={videoUrl}&title={title}&thumbnailUrl={thumbnailUrl}&isMusicMode={isMusicMode}&isFullscreen={isFullscreen}") {
+    data class Player(val videoUrl: String) : Screen("player_view?videoUrl={videoUrl}&title={title}&thumbnailUrl={thumbnailUrl}&isMusicMode={isMusicMode}&isFullscreen={isFullscreen}") {
         companion object {
-            const val ROUTE = "player?videoUrl={videoUrl}&title={title}&thumbnailUrl={thumbnailUrl}&isMusicMode={isMusicMode}&isFullscreen={isFullscreen}"
+            const val ROUTE = "player_view?videoUrl={videoUrl}&title={title}&thumbnailUrl={thumbnailUrl}&isMusicMode={isMusicMode}&isFullscreen={isFullscreen}"
             fun createRoute(videoUrl: String, title: String = "", thumbnailUrl: String = "", isMusicMode: Boolean = false, isFullscreen: Boolean = false) = 
-                "player?videoUrl=$videoUrl&title=$title&thumbnailUrl=$thumbnailUrl&isMusicMode=$isMusicMode&isFullscreen=$isFullscreen"
+                "player_view?videoUrl=$videoUrl&title=$title&thumbnailUrl=$thumbnailUrl&isMusicMode=$isMusicMode&isFullscreen=$isFullscreen"
         }
     }
 
@@ -21,10 +21,10 @@ sealed class Screen(val route: String) {
             fun createRoute(url: String) = "online_playlist?url=${android.net.Uri.encode(url)}"
         }
     }
-    data class DownloadedPlaylistDetail(val id: String) : Screen("downloaded_playlist?id={id}") {
+    data class DownloadedPlaylistDetail(val id: String) : Screen("downloaded_playlist_detail?id={id}") {
         companion object {
-            const val ROUTE = "downloaded_playlist?id={id}"
-            fun createRoute(id: String) = "downloaded_playlist?id=${android.net.Uri.encode(id)}"
+            const val ROUTE = "downloaded_playlist_detail?id={id}"
+            fun createRoute(id: String) = "downloaded_playlist_detail?id=${android.net.Uri.encode(id)}"
         }
     }
 

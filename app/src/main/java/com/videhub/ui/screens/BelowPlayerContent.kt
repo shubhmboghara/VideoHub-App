@@ -50,63 +50,71 @@ fun BelowPlayerContent(
     mediaPlayer: Player?,
     sharedViewModel: MainViewModel,
     isMusicMode: Boolean,
+    isRelatedLoading: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val isCurrentLocal = com.videhub.QueueManager.isLocal(videoUrl)
     val visibleQueue = remember(queue, isCurrentLocal) {
         if (!isCurrentLocal) queue.filter { !com.videhub.QueueManager.isLocal(it.url) } else queue
     }
+    val isInitialStreamLoading = streamInfo == null && !isLocalFile && !isOfflineFallback && errorMessage == null
 
     LazyColumn(
         state = listState,
         modifier = modifier.navigationBarsPadding(),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
-        item {
-            PlayerScreenMetadata(
-                streamInfo = streamInfo,
-                isLocalFile = isLocalFile,
-                isOfflineFallback = isOfflineFallback,
-                errorMessage = errorMessage,
-                title = title,
-                channelName = channelName,
-                channelId = channelId,
-                thumbnailUrl = thumbnailUrl,
-                onChannelClick = onChannelClick,
-                context = context,
-                scope = scope,
-                db = db,
-                isSubscribedInitial = isSubscribedInitial,
-                onSeekToSeconds = { sec ->
-                    mediaPlayer?.seekTo(sec * 1000L)
-                }
-            )
-        }
+        if (isInitialStreamLoading) {
+            item(key = "player_metadata_shimmer") {
+                com.videhub.ui.components.PlayerMetadataShimmer()
+            }
+        } else {
+            item(key = "player_metadata") {
+                PlayerScreenMetadata(
+                    streamInfo = streamInfo,
+                    isLocalFile = isLocalFile,
+                    isOfflineFallback = isOfflineFallback,
+                    errorMessage = errorMessage,
+                    title = title,
+                    channelName = channelName,
+                    channelId = channelId,
+                    thumbnailUrl = thumbnailUrl,
+                    onChannelClick = onChannelClick,
+                    context = context,
+                    scope = scope,
+                    db = db,
+                    isSubscribedInitial = isSubscribedInitial,
+                    onSeekToSeconds = { sec ->
+                        mediaPlayer?.seekTo(sec * 1000L)
+                    }
+                )
+            }
 
-        item {
-            PlayerScreenActions(
-                streamInfo = streamInfo,
-                isLocalFile = isLocalFile,
-                isLikedInitial = isLikedInitial,
-                isInWatchLaterInitial = isInWatchLaterInitial,
-                autoplayEnabledInitial = autoplayEnabledInitial,
-                queue = queue,
-                relatedVideos = relatedVideos,
-                videoUrl = videoUrl,
-                title = title,
-                thumbnailUrl = thumbnailUrl,
-                channelName = channelName,
-                onShowDownloadDialog = onShowDownloadDialog,
-                onShowAddToPlaylistDialog = onShowAddToPlaylistDialog,
-                onShowSettingsSheet = onShowSettingsSheet,
-                onShowEqualizerSheet = onShowEqualizerSheet,
-                onShowSleepTimerSheet = onShowSleepTimerSheet,
-                context = context,
-                scope = scope,
-                db = db,
-                mediaPlayer = mediaPlayer,
-                sharedViewModel = sharedViewModel
-            )
+            item(key = "player_actions") {
+                PlayerScreenActions(
+                    streamInfo = streamInfo,
+                    isLocalFile = isLocalFile,
+                    isLikedInitial = isLikedInitial,
+                    isInWatchLaterInitial = isInWatchLaterInitial,
+                    autoplayEnabledInitial = autoplayEnabledInitial,
+                    queue = queue,
+                    relatedVideos = relatedVideos,
+                    videoUrl = videoUrl,
+                    title = title,
+                    thumbnailUrl = thumbnailUrl,
+                    channelName = channelName,
+                    onShowDownloadDialog = onShowDownloadDialog,
+                    onShowAddToPlaylistDialog = onShowAddToPlaylistDialog,
+                    onShowSettingsSheet = onShowSettingsSheet,
+                    onShowEqualizerSheet = onShowEqualizerSheet,
+                    onShowSleepTimerSheet = onShowSleepTimerSheet,
+                    context = context,
+                    scope = scope,
+                    db = db,
+                    mediaPlayer = mediaPlayer,
+                    sharedViewModel = sharedViewModel
+                )
+            }
         }
 
         queueSection(
@@ -120,6 +128,7 @@ fun BelowPlayerContent(
 
         relatedVideosSection(
             relatedVideos = relatedVideos,
+            isLoading = (isInitialStreamLoading || isRelatedLoading) && !isLocalFile && !isOfflineFallback,
             isMusicMode = isMusicMode,
             onVideoPlay = { url, thumbTitle, thumb, _ -> 
                 onVideoPlay(url, thumbTitle, thumb, isMusicMode)

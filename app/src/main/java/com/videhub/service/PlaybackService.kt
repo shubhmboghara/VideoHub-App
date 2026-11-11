@@ -48,20 +48,23 @@ class PlaybackService : MediaSessionService() {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
                     val ctx = applicationContext
+                    val currentRepeatMode = player.repeatMode
                     val tempLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VideoHub:ServiceEndedWakeLock")
                     try {
                         tempLock.acquire(30000)
                     } catch (e: Exception) {}
 
-                    CoroutineScope(Dispatchers.IO).launch {
+                    CoroutineScope(Dispatchers.Main).launch {
                         try {
-                            val isAutoplayEnabled = com.videhub.data.SettingsManager.getAutoplay(ctx).firstOrNull() ?: true
-                            val isLoopEnabled = com.videhub.data.SettingsManager.getLoopVideo(ctx).firstOrNull() ?: false
-                            if (isLoopEnabled) {
-                                kotlinx.coroutines.withContext(Dispatchers.Main) {
-                                    player.seekTo(0)
-                                    player.play()
-                                }
+                            val (isAutoplayEnabled, isLoopEnabled) = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                                val autoplay = com.videhub.data.SettingsManager.getAutoplay(ctx).firstOrNull() ?: true
+                                val loop = com.videhub.data.SettingsManager.getLoopVideo(ctx).firstOrNull() ?: false
+                                autoplay to loop
+                            }
+                            val isRepeatActive = isLoopEnabled || (currentRepeatMode == Player.REPEAT_MODE_ONE)
+                            if (isRepeatActive) {
+                                player.seekTo(0)
+                                player.play()
                             } else {
                                 BackgroundAutoplayHandler.handleAutoplay(ctx, player, isAutoplayEnabled) {
                                     com.videhub.QueueManager.getNextVideo()

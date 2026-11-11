@@ -1,5 +1,6 @@
 package com.videhub.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -41,11 +42,13 @@ fun LikedVideosScreen(
     val scope = rememberCoroutineScope()
     val db = remember { AppDatabase.getDatabase(context) }
     var likedVideos by remember { mutableStateOf<List<LikedVideoEntity>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
     val onBackPressedDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
 
     LaunchedEffect(Unit) {
         db.likedVideoDao().getAll().collectLatest { list ->
             likedVideos = list
+            isLoading = false
         }
     }
 
@@ -90,29 +93,53 @@ fun LikedVideosScreen(
         }
     }
 
+    val primaryCoverUrl = likedVideos.firstOrNull()?.thumbnailUrl
+    val (ambientLeft, ambientRight) = com.videhub.ui.components.rememberPlaylistAmbientColors(primaryCoverUrl)
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Liked Videos") },
-                navigationIcon = {
-                    IconButton(onClick = { onBackPressedDispatcher?.onBackPressed() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    if (likedVideos.isNotEmpty()) {
-                        IconButton(onClick = { saveAsPlaylist() }) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.PlaylistAdd,
-                                contentDescription = "Save as Playlist"
-                            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            colors = listOf(ambientLeft, ambientRight)
+                        )
+                    )
+            ) {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        titleContentColor = androidx.compose.ui.graphics.Color.White,
+                        navigationIconContentColor = androidx.compose.ui.graphics.Color.White,
+                        actionIconContentColor = androidx.compose.ui.graphics.Color.White
+                    ),
+                    title = { Text("Liked Videos") },
+                    navigationIcon = {
+                        IconButton(onClick = { onBackPressedDispatcher?.onBackPressed() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        if (likedVideos.isNotEmpty()) {
+                            IconButton(onClick = { saveAsPlaylist() }) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.PlaylistAdd,
+                                    contentDescription = "Save as Playlist"
+                                )
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
         }
     ) { paddingValues ->
-        if (likedVideos.isEmpty()) {
+        if (isLoading && likedVideos.isEmpty()) {
+            com.videhub.ui.components.OnlinePlaylistShimmer(
+                modifier = Modifier.padding(paddingValues),
+                showSortChip = false
+            )
+        } else if (likedVideos.isEmpty()) {
             com.videhub.ui.components.EmptyState(
                 icon = Icons.Default.ThumbUp,
                 title = "No Liked Videos Yet",
@@ -122,44 +149,18 @@ fun LikedVideosScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(paddingValues),
-                contentPadding = PaddingValues(vertical = 8.dp)
+                contentPadding = PaddingValues(bottom = 24.dp)
             ) {
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            "${com.videhub.utils.FormatHelper.formatCount(likedVideos.size.toLong())} liked videos",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Button(
-                                onClick = { playAll(shuffle = false) },
-                                modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
-                            ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Play All", maxLines = 1)
-                            }
-                            FilledTonalButton(
-                                onClick = { playAll(shuffle = true) },
-                                modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
-                            ) {
-                                Icon(Icons.Default.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Shuffle", maxLines = 1)
-                            }
-                        }
-                    }
+                item(key = "liked_videos_header") {
+                    val countText = if (likedVideos.size == 1) "1 video" else "${com.videhub.utils.FormatHelper.formatCount(likedVideos.size.toLong())} videos"
+                    com.videhub.ui.components.PlaylistHeader(
+                        title = "Liked Videos",
+                        subtitle = "Playlist • $countText",
+                        thumbnailUrl = primaryCoverUrl,
+                        onPlayAllClick = { playAll(shuffle = false) },
+                        onShuffleClick = { playAll(shuffle = true) }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
                 itemsIndexed(likedVideos, key = { index, video -> "${video.videoId}_$index" }) { index, video ->
                 com.videhub.ui.components.VideoRowItem(

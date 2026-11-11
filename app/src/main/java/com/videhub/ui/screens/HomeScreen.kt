@@ -93,7 +93,7 @@ fun HomeScreen(
             }
         }
     }
-    var isLoading by remember { mutableStateOf(!isTabLoaded) }
+    var isLoading by remember(selectedTab) { mutableStateOf(!isTabLoaded) }
     var isPaginating by remember { mutableStateOf(false) }
     var pagingSource by remember { mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(sharedViewModel.homePagingSourceMap[selectedTab]) }
     
@@ -349,6 +349,8 @@ fun HomeScreen(
                         val freshVideos = feedRepository.getHomeFeed(isRefresh = false)
                         if (freshVideos.isNotEmpty()) {
                             sharedViewModel.homeVideosCacheMap[0] = freshVideos
+                        } else if (sharedViewModel.homeVideosCacheMap[0] == null) {
+                            sharedViewModel.homeVideosCacheMap[0] = emptyList()
                         }
                     } catch (e: Exception) {
                         if (e !is kotlinx.coroutines.CancellationException) {
@@ -367,6 +369,7 @@ fun HomeScreen(
                         pagingSource = source
                         newVideos.addAll(customFeed)
                     }
+                    sharedViewModel.homeVideosCacheMap[selectedTab] = newVideos
                     isLoading = false
                 }
             }
@@ -379,6 +382,8 @@ fun HomeScreen(
         } catch (e: Exception) {
             android.util.Log.e("HomeScreen", "Error loading tab", e)
             onError("Error: ${e.message}")
+        } finally {
+            isLoading = false
         }
     }
 
@@ -627,7 +632,7 @@ fun HomeScreen(
             onRefresh = { refresh() },
             modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
-            val showShimmer = (isLoading || !isTabLoaded) && !isRefreshing && errorText == null
+            val showShimmer = (isLoading || isRefreshing || !isTabLoaded) && errorText == null
             androidx.compose.animation.AnimatedContent(
                 targetState = Triple(selectedTab, showShimmer, errorText != null),
                 transitionSpec = {
@@ -636,8 +641,8 @@ fun HomeScreen(
                 label = "HomeScreenStateTransition"
             ) { (tab, shimmerActive, hasError) ->
                 when {
-                    shimmerActive -> LazyColumn {
-                        items(5) { VideoCardShimmer() }
+                    shimmerActive -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(5, key = { "home_shimmer_$it" }) { VideoCardShimmer() }
                     }
                     hasError -> Column(
                         modifier = Modifier.fillMaxWidth().padding(32.dp),

@@ -46,11 +46,13 @@ data class PlaylistVideoUiItem(
 data class PlaylistDetailUiState(
     val playlistId: String = "",
     val playlistName: String = "Playlist",
+    val customCoverUrl: String? = null,
     val videos: List<PlaylistVideoUiItem> = emptyList(),
     val downloadState: PlaylistDownloadState = PlaylistDownloadState.NONE,
     val totalDurationSeconds: Long = 0L,
     val totalEstimatedBytes: Long = 0L,
-    val downloadedBytes: Long = 0L
+    val downloadedBytes: Long = 0L,
+    val isLoading: Boolean = true
 )
 
 fun derivePlaylistDownloadState(videos: List<PlaylistVideoUiItem>): PlaylistDownloadState {
@@ -95,13 +97,18 @@ class PlaylistDetailViewModel : ViewModel() {
         val db = AppDatabase.getDatabase(context)
 
         viewModelScope.launch(Dispatchers.IO) {
-            val playlistTitle = if (intId != null) {
-                db.playlistDao().getAllPlaylistsOnce().find { it.id == intId }?.name ?: "Playlist"
+            val playlistMetaFlow: Flow<Pair<String, String?>> = if (intId != null) {
+                db.playlistDao().getAllPlaylists().map { list ->
+                    val found = list.find { it.id == intId }
+                    (found?.name ?: "Playlist") to found?.customCoverUrl
+                }
             } else {
-                db.downloadedPlaylistDao().getPlaylistById(rawPlaylistId)?.title ?: "Playlist"
+                db.downloadedPlaylistDao().getPlaylistByIdFlow(rawPlaylistId).map { found ->
+                    (found?.title ?: "Playlist") to found?.thumbnailUrl
+                }
             }
 
-            // Combine playlist items Flow with downloads Flow
+            // Combine playlist metadata Flow, playlist items Flow, and downloads Flow
             val downloadsFlow = db.downloadedVideoDao().getAllDownloads()
             val videosFlow: Flow<List<Any>> = if (intId != null) {
                 db.playlistDao().getVideos(intId).map { it as List<Any> }
@@ -109,7 +116,7 @@ class PlaylistDetailViewModel : ViewModel() {
                 db.downloadedPlaylistDao().getVideosForPlaylist(rawPlaylistId).map { it as List<Any> }
             }
 
-            combine(videosFlow, downloadsFlow) { rawVideos, downloads ->
+            combine(playlistMetaFlow, videosFlow, downloadsFlow) { (playlistTitle, customCover), rawVideos, downloads ->
                 val downloadsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
                 val mappedItems = rawVideos.mapIndexed { index, rawItem ->
                     when (rawItem) {
@@ -174,11 +181,13 @@ class PlaylistDetailViewModel : ViewModel() {
                 PlaylistDetailUiState(
                     playlistId = rawPlaylistId,
                     playlistName = playlistTitle,
+                    customCoverUrl = customCover,
                     videos = mappedItems,
                     downloadState = state,
                     totalDurationSeconds = totalDuration,
                     totalEstimatedBytes = totalBytes,
-                    downloadedBytes = downloadedBytes
+                    downloadedBytes = downloadedBytes,
+                    isLoading = false
                 )
             }.collectLatest { state ->
                 _uiState.value = state
@@ -352,8 +361,16 @@ class PlaylistDetailViewModel : ViewModel() {
                 db.playlistDao().updatePlaylistDetails(intId, newName.trim(), newCoverUrl)
             } else {
                 db.downloadedPlaylistDao().renamePlaylist(rawId, newName.trim())
+                if (!newCoverUrl.isNullOrBlank()) {
+                    db.downloadedPlaylistDao().updatePlaylistThumbnail(rawId, newCoverUrl)
+                }
             }
-            _uiState.update { it.copy(playlistName = newName.trim()) }
+            _uiState.update {
+                it.copy(
+                    playlistName = newName.trim(),
+                    customCoverUrl = newCoverUrl ?: it.customCoverUrl
+                )
+            }
             withContext(Dispatchers.Main) {
                 onSuccess()
             }

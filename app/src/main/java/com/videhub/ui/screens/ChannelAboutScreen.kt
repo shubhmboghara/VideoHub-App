@@ -54,13 +54,19 @@ fun ChannelAboutScreen(
     var aboutInfo by remember { mutableStateOf(sharedViewModel.channelAboutInfoCache) }
     val effectiveChannelId = channelId?.ifBlank { null } ?: sharedViewModel.currentChannelId
     var isLoading by remember { mutableStateOf(info == null && !effectiveChannelId.isNullOrBlank()) }
+    var isRefreshing by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var retryTrigger by remember { mutableIntStateOf(0) }
     val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(effectiveChannelId, retryTrigger) {
-        if (info == null && !effectiveChannelId.isNullOrBlank()) {
-            isLoading = true
+        val forceRefresh = retryTrigger > 0
+        if ((info == null || forceRefresh) && !effectiveChannelId.isNullOrBlank()) {
+            if (info == null) {
+                isLoading = true
+            } else {
+                isRefreshing = true
+            }
             errorMessage = null
             try {
                 val actualUrl = when {
@@ -79,9 +85,12 @@ fun ChannelAboutScreen(
                 sharedViewModel.channelAboutInfoCache = fetchedAbout
                 sharedViewModel.currentChannelId = effectiveChannelId
             } catch (e: Exception) {
-                errorMessage = e.message ?: "Failed to load channel info"
+                if (info == null) {
+                    errorMessage = e.message ?: "Failed to load channel info"
+                }
             } finally {
                 isLoading = false
+                isRefreshing = false
             }
         }
     }
@@ -161,57 +170,51 @@ fun ChannelAboutScreen(
             )
         }
     ) { paddingValues ->
-        if (isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-            }
-            return@Scaffold
-        }
-
-        if (info == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(24.dp)
-                ) {
-                    Text(
-                        text = errorMessage ?: "Channel info not available.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                    if (!effectiveChannelId.isNullOrBlank()) {
-                        Spacer(Modifier.height(12.dp))
-                        Button(onClick = { retryTrigger++ }) {
-                            Text("Retry")
-                        }
-                    }
-                }
-            }
-            return@Scaffold
-        }
-
-        val nonNullInfo = info!!
-        val currentAbout = aboutInfo
-
-        Column(
+        androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { retryTrigger++ },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
+            if (isLoading) {
+                com.videhub.ui.components.ChannelAboutShimmer()
+            } else if (info == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(24.dp)
+                    ) {
+                        Text(
+                            text = errorMessage ?: "Channel info not available.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        if (!effectiveChannelId.isNullOrBlank()) {
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = { retryTrigger++ }) {
+                                Text("Retry")
+                            }
+                        }
+                    }
+                }
+            } else {
+                val nonNullInfo = info!!
+                val currentAbout = aboutInfo
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
 
             // ── Description ──────────────────────────────────────────
             val rawDescription = nonNullInfo.description?.trim() ?: ""
@@ -368,6 +371,8 @@ fun ChannelAboutScreen(
                         )
                     }
                 }
+            }
+        }
             }
         }
     }

@@ -738,8 +738,8 @@ fun ChannelScreen(
                     }
 
                     if (videoLoading && topLiveStream == null) {
-                        items(4) {
-                            com.videhub.ui.components.VideoCardShimmer()
+                        item(key = "channel_home_shimmer") {
+                            com.videhub.ui.components.ChannelHomeTabShimmer()
                         }
                     } else if (regularHomeVideos.isEmpty() && topLiveStream == null) {
                         item {
@@ -850,8 +850,8 @@ fun ChannelScreen(
                 // Tab 1: Videos Tab (Vertical list, no sorting chips)
                 else if (selectedTab == 1) {
                     if (videoLoading) {
-                        items(5) {
-                            com.videhub.ui.components.VideoCardShimmer()
+                        items(6, key = { "channel_videos_shimmer_$it" }) {
+                            com.videhub.ui.components.VideoRowShimmer()
                         }
                     } else if (videoListError != null) {
                         item {
@@ -945,8 +945,8 @@ fun ChannelScreen(
                 // Tab 2: Live Tab (Live streams, running, upcoming, and past completed)
                 else if (selectedTab == 2) {
                     if (isLiveLoading) {
-                        items(4) {
-                            com.videhub.ui.components.VideoCardShimmer()
+                        items(5, key = { "channel_live_shimmer_$it" }) {
+                            com.videhub.ui.components.VideoRowShimmer()
                         }
                     } else if (liveError != null) {
                         item {
@@ -998,8 +998,8 @@ fun ChannelScreen(
                 // Tab 3: Playlists Tab (Compact playlist rows matching Image 4)
                 else if (selectedTab == 3) {
                     if (isPlaylistsLoading) {
-                        items(4) {
-                            com.videhub.ui.components.VideoCardShimmer()
+                        items(5, key = { "channel_playlists_shimmer_$it" }) {
+                            com.videhub.ui.components.CompactPlaylistRowShimmer()
                         }
                     } else if (playlistsError != null) {
                         item {

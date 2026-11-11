@@ -22,7 +22,11 @@ class WatchLaterViewModel(application: Application) : AndroidViewModel(applicati
     private val videoDao = db.downloadedVideoDao()
     private val watchLaterDao = db.watchLaterDao()
 
+    private val _isLoading = MutableStateFlow(true)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
     val savedVideos: StateFlow<List<WatchLaterEntity>> = watchLaterDao.getAll()
+        .onEach { _isLoading.value = false }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val downloadedPlaylist: StateFlow<DownloadedPlaylistEntity?> = playlistDao

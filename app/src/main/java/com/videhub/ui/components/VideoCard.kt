@@ -211,47 +211,69 @@ fun LiveAvatar(
 fun VideoCardShimmer() {
     val brush = shimmerBrush()
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 16.dp),
     ) {
-        Column {
+        // 16:9 full-width thumbnail
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .background(brush)
+        )
+
+        // Metadata row matching VideoCard & RelatedVideoCard (36dp avatar + 2 title lines + meta line + 3-dot icon)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.Top
+        ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
+                    .size(36.dp)
+                    .clip(CircleShape)
                     .background(brush)
             )
-            
-            Row(modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp)) {
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
+                        .fillMaxWidth(0.92f)
+                        .height(16.dp)
+                        .clip(RoundedCornerShape(4.dp))
                         .background(brush)
                 )
-                
-                Spacer(modifier = Modifier.width(12.dp))
-                
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(0.85f)
-                            .height(18.dp)
-                            .clip(MaterialTheme.shapes.small)
-                            .background(brush)
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(0.5f)
-                            .height(14.dp)
-                            .clip(MaterialTheme.shapes.small)
-                            .background(brush)
-                    )
-                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.65f)
+                        .height(16.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(brush)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.55f)
+                        .height(12.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(brush)
+                )
             }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Box(
+                modifier = Modifier
+                    .padding(top = 2.dp)
+                    .size(width = 6.dp, height = 18.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(brush)
+            )
         }
     }
 }
@@ -938,38 +960,66 @@ fun VideoRowShimmer() {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top
     ) {
+        // Left Column: 140dp 16:9 thumbnail with 12dp corners
         Box(
             modifier = Modifier
-                .width(150.dp)
+                .width(140.dp)
                 .aspectRatio(16f / 9f)
-                .clip(MaterialTheme.shapes.medium)
+                .clip(RoundedCornerShape(12.dp))
                 .background(brush)
         )
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+
+        // Middle Column: Title lines + avatar & metadata line matching VideoRowItem
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(16.dp)
-                    .clip(MaterialTheme.shapes.small)
+                    .fillMaxWidth(0.92f)
+                    .height(15.dp)
+                    .clip(RoundedCornerShape(4.dp))
                     .background(brush)
             )
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.6f)
-                    .height(12.dp)
-                    .clip(MaterialTheme.shapes.small)
+                    .fillMaxWidth(0.68f)
+                    .height(15.dp)
+                    .clip(RoundedCornerShape(4.dp))
                     .background(brush)
             )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.4f)
-                    .height(8.dp)
-                    .clip(MaterialTheme.shapes.small)
-                    .background(brush)
-            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(brush)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.6f)
+                        .height(12.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(brush)
+                )
+            }
         }
+
+        // Right Column: 3-dot icon placeholder
+        Box(
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .size(width = 6.dp, height = 16.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(brush)
+        )
     }
 }
 

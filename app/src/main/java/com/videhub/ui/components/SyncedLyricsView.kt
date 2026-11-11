@@ -145,24 +145,7 @@ fun SyncedLyricsView(
             .background(Color.Transparent)
     ) {
         if (isLoading) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(36.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "Searching synchronized lyrics...",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            SyncedLyricsShimmer(modifier = Modifier.fillMaxSize())
         } else if (lyricsData == null || lyricsData?.lines.isNullOrEmpty()) {
             Column(
                 modifier = Modifier

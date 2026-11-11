@@ -310,10 +310,66 @@ fun SubscriptionsScreen(
             scrollBehavior = scrollBehavior
         )
 
+        val isChannelVideosLoading = isLoadingVideos || isRefreshing || (activeChannelId.isNotBlank() && sharedViewModel.subscriptionsVideosCacheMap[activeChannelId] == null)
+        val showFullSubscriptionsSkeleton = isInitialLoadingChannels || isRefreshing || (isChannelVideosLoading && sharedViewModel.subscriptionsVideosCacheMap.isEmpty())
+
         Box(modifier = Modifier.weight(1f)) {
-            if (isInitialLoadingChannels) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (showFullSubscriptionsSkeleton) {
+                val brush = com.videhub.ui.components.shimmerBrush()
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    item(key = "sub_channels_shimmer") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            repeat(5) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.width(72.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(60.dp)
+                                            .clip(CircleShape)
+                                            .background(brush)
+                                    )
+                                    Spacer(Modifier.height(7.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .width(54.dp)
+                                            .height(11.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(brush)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item(key = "sub_visit_pill_shimmer") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(end = 12.dp, top = 8.dp, bottom = 14.dp),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(136.dp)
+                                    .height(38.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(brush)
+                            )
+                        }
+                    }
+                    items(3, key = { "sub_init_video_shimmer_$it" }) {
+                        VideoCardShimmer()
+                    }
                 }
             } else {
                 androidx.compose.material3.pulltorefresh.PullToRefreshBox(
@@ -403,7 +459,7 @@ fun SubscriptionsScreen(
                         }
 
                         // ── 3. Full-Width Edge-to-Edge 16:9 Video Cards ────────────────
-                        if (isLoadingVideos) {
+                        if (isChannelVideosLoading) {
                             items(4, key = { "sub_shimmer_$it" }) {
                                 VideoCardShimmer()
                             }
@@ -543,35 +599,37 @@ private fun YouTubeChannelAvatarItem(
             channel.thumbnailUrl != "none" &&
             !com.videhub.utils.AvatarHelper.isVideoThumbnail(channel.thumbnailUrl)
 
-    var resolvedAvatarUrl by remember(channel.thumbnailUrl) {
+    var resolvedAvatarUrl by remember(channel.channelId, channel.thumbnailUrl) {
         mutableStateOf(if (hasValidAvatar) channel.thumbnailUrl else null)
+    }
+    var isResolvingAvatar by remember(channel.channelId, hasValidAvatar) {
+        mutableStateOf(!hasValidAvatar)
     }
 
     // If avatar URL is missing or fails to load, resolve authentic channel avatar in background
     LaunchedEffect(channel.channelId, resolvedAvatarUrl) {
         if (resolvedAvatarUrl.isNullOrBlank()) {
-            val realAvatar = withContext(Dispatchers.IO) {
-                com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(channel.channelId)
-            }
-            if (!realAvatar.isNullOrBlank() && !com.videhub.utils.AvatarHelper.isVideoThumbnail(realAvatar)) {
-                resolvedAvatarUrl = realAvatar
-                withContext(Dispatchers.IO) {
-                    AppDatabase.getDatabase(context).channelDao().insert(channel.copy(thumbnailUrl = realAvatar))
+            isResolvingAvatar = true
+            try {
+                val realAvatar = withContext(Dispatchers.IO) {
+                    com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(channel.channelId)
                 }
+                if (!realAvatar.isNullOrBlank() && !com.videhub.utils.AvatarHelper.isVideoThumbnail(realAvatar)) {
+                    resolvedAvatarUrl = realAvatar
+                    withContext(Dispatchers.IO) {
+                        AppDatabase.getDatabase(context).channelDao().insert(channel.copy(thumbnailUrl = realAvatar))
+                    }
+                }
+            } finally {
+                isResolvingAvatar = false
             }
+        } else {
+            isResolvingAvatar = false
         }
     }
 
     val cleanName = remember(channel.name) {
         channel.name.trim()
-    }
-
-    val dynamicFontSize = remember(cleanName) {
-        when {
-            cleanName.length <= 9 -> 12.sp
-            cleanName.length <= 12 -> 11.sp
-            else -> 11.sp
-        }
     }
 
     Column(
@@ -610,19 +668,13 @@ private fun YouTubeChannelAvatarItem(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                         loading = {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = channel.name.firstOrNull()?.uppercase() ?: "?",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp
-                                )
-                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(com.videhub.ui.components.shimmerBrush())
+                            )
                         },
                         error = {
-                            LaunchedEffect(Unit) {
-                                resolvedAvatarUrl = null
-                            }
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
                                     text = channel.name.firstOrNull()?.uppercase() ?: "?",
@@ -632,6 +684,12 @@ private fun YouTubeChannelAvatarItem(
                                 )
                             }
                         }
+                    )
+                } else if (isResolvingAvatar) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(com.videhub.ui.components.shimmerBrush())
                     )
                 } else {
                     Text(

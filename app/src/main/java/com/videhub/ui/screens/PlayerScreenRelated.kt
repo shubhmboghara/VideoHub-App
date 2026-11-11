@@ -17,11 +17,19 @@ import org.schabi.newpipe.extractor.stream.StreamInfoItem
 
 fun LazyListScope.relatedVideosSection(
     relatedVideos: List<StreamInfoItem>,
+    isLoading: Boolean = false,
     isMusicMode: Boolean,
     onVideoPlay: (String, String, String, Boolean) -> Unit,
     onChannelClick: (String) -> Unit
 ) {
-    if (relatedVideos.isNotEmpty()) {
+    if (isLoading && relatedVideos.isEmpty()) {
+        item(key = "related_shimmer_spacer") {
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+        items(4, key = { "related_shimmer_$it" }) {
+            com.videhub.ui.components.VideoCardShimmer()
+        }
+    } else if (relatedVideos.isNotEmpty()) {
         item {
             Spacer(modifier = Modifier.height(4.dp))
         }

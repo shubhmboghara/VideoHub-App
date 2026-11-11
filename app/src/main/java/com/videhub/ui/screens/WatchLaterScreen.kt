@@ -153,6 +153,7 @@ fun WatchLaterScreen(
     val downloadedPlaylist by viewModel.downloadedPlaylist.collectAsStateWithLifecycle()
     val downloadedVideos by viewModel.downloadedVideos.collectAsStateWithLifecycle()
     val isSessionValid by viewModel.isSessionValid.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -261,6 +262,7 @@ fun WatchLaterScreen(
         savedVideosCount = savedVideos.size.coerceAtLeast(displayVideos.size),
         isSessionValid = isSessionValid,
         readyVideosCount = readyVideos.size,
+        isLoading = isLoading,
         onBackClick = { onBackPressedDispatcher?.onBackPressed() },
         onSearchClick = onSearchClick,
         onPlayAllClick = { playAll(shuffle = false) },
@@ -356,6 +358,7 @@ fun WatchLaterDetailContent(
     savedVideosCount: Int,
     isSessionValid: Boolean = true,
     readyVideosCount: Int = 0,
+    isLoading: Boolean = false,
     onBackClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     onPlayAllClick: () -> Unit = {},
@@ -390,37 +393,12 @@ fun WatchLaterDetailContent(
         videos.mapNotNull { it.thumbnailUrl.takeIf { t -> t.isNotBlank() } }
     }
     val primaryCoverUrl = coverThumbs.firstOrNull()
-
-    // Palette Color Extraction
-    var extractedColor by remember { mutableStateOf(Color(0xFF272727)) }
-
-    LaunchedEffect(primaryCoverUrl) {
-        if (!primaryCoverUrl.isNullOrBlank()) {
-            try {
-                val loader = coil.Coil.imageLoader(context)
-                val request = ImageRequest.Builder(context)
-                    .data(primaryCoverUrl)
-                    .allowHardware(false)
-                    .size(300)
-                    .build()
-                val result = loader.execute(request)
-                if (result is SuccessResult) {
-                    val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
-                    if (bitmap != null) {
-                        val palette = Palette.from(bitmap).generate()
-                        val swatch = palette.dominantSwatch
-                            ?: palette.darkVibrantSwatch
-                            ?: palette.darkMutedSwatch
-                            ?: palette.vibrantSwatch
-                            ?: palette.mutedSwatch
-                        if (swatch != null) {
-                            extractedColor = Color(swatch.rgb)
-                        }
-                    }
-                }
-            } catch (_: Exception) { }
-        }
+    val resolvedPrimaryCoverModel = remember(primaryCoverUrl) {
+        com.videhub.ui.components.resolveCoverImageModel(primaryCoverUrl)
     }
+
+    val (ambientLeft, ambientRight) = com.videhub.ui.components.rememberPlaylistAmbientColors(primaryCoverUrl)
+    val bgColor = MaterialTheme.colorScheme.background
 
     val pillInfo = remember(savedVideosCount, playlist, videos) {
         getDownloadPillInfo(savedVideosCount, playlist, videos)
@@ -431,49 +409,62 @@ fun WatchLaterDetailContent(
             snackbarHostState?.let { SnackbarHost(hostState = it) }
         },
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = extractedColor,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                    actionIconContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                title = {
-                    if (showTopBarTitle) {
-                        Text(
-                            text = "Watch Later",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(ambientLeft, ambientRight)
                         )
+                    )
+            ) {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        titleContentColor = Color.White,
+                        navigationIconContentColor = Color.White,
+                        actionIconContentColor = Color.White
+                    ),
+                    title = {
+                        if (showTopBarTitle) {
+                            Text(
+                                text = "Watch Later",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = onBackClick,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = onSearchClick,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = Color.White
+                            )
+                        }
                     }
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onBackClick,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    // Search Button (redirects to search screen)
-                    IconButton(
-                        onClick = onSearchClick,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    // NOTE: NO 3-dots overflow menu in TopAppBar as explicitly requested
-                }
-            )
+                )
+            }
         }
     ) { paddingValues ->
+        if (isLoading && videos.isEmpty()) {
+            com.videhub.ui.components.OnlinePlaylistShimmer(
+                modifier = Modifier.padding(paddingValues)
+            )
+        } else {
         LazyColumn(
             state = lazyListState,
             modifier = Modifier
@@ -483,237 +474,254 @@ fun WatchLaterDetailContent(
         ) {
             // Header Item matching YouTube Watch Later layout
             item(key = "watch_later_header") {
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    extractedColor.copy(alpha = 0.85f),
-                                    MaterialTheme.colorScheme.background
-                                )
+                            Brush.horizontalGradient(
+                                colors = listOf(ambientLeft, ambientRight)
                             )
                         )
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Cover Image (~200dp tall, 16dp rounded corners)
                     Box(
                         modifier = Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colorStops = arrayOf(
+                                        0.0f to Color.Transparent,
+                                        0.55f to bgColor.copy(alpha = 0.45f),
+                                        0.85f to bgColor.copy(alpha = 0.88f),
+                                        1.0f to bgColor
+                                    )
+                                )
+                            )
+                    )
+
+                    Column(
+                        modifier = Modifier
                             .fillMaxWidth()
-                            .height(200.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalAlignment = Alignment.Start
                     ) {
-                        if (!primaryCoverUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current)
-                                    .data(primaryCoverUrl)
-                                    .crossfade(true)
-                                    .size(480)
-                                    .build(),
-                                contentDescription = "Watch Later cover",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Bookmark,
-                                contentDescription = "Watch Later cover",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(56.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Title: "Watch Later" (headlineMedium, bold)
-                    Text(
-                        text = "Watch Later",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Subtitle: "X videos" (NO "by username", NO "Private", NO "No views")
-                    val videoCountLabel = if (savedVideosCount == 1) "1 video" else "${com.videhub.utils.FormatHelper.formatCount(savedVideosCount.toLong())} videos"
-                    Text(
-                        text = videoCountLabel,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    // Progress bar while downloading
-                    if (isDownloading || isPreparing) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        val prog = if (isPreparing) 0f else {
-                            if (savedVideosCount > 0) readyVideosCount.toFloat() / savedVideosCount.toFloat() else 0f
-                        }
-                        LinearProgressIndicator(
-                            progress = { prog.coerceIn(0f, 1f) },
+                        // Single 16:9 Rounded Cover Image
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(4.dp)
-                                .clip(RoundedCornerShape(2.dp)),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Action Row (Play All + Circular Icon Buttons)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // Play All: Solid white pill button
-                        Button(
-                            onClick = onPlayAllClick,
-                            enabled = videos.isNotEmpty(),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(44.dp),
-                            shape = RoundedCornerShape(22.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White,
-                                contentColor = Color.Black,
-                                disabledContainerColor = Color.White.copy(alpha = 0.4f),
-                                disabledContentColor = Color.Black.copy(alpha = 0.4f)
-                            ),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF1F1F1F)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                tint = Color.Black,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Play all",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = Color.Black
+                            if (resolvedPrimaryCoverModel != null) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(resolvedPrimaryCoverModel)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = "Watch Later cover",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Bookmark,
+                                    contentDescription = "Watch Later cover",
+                                    tint = Color.White.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(56.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Left-aligned Title: "Watch Later"
+                        Text(
+                            text = "Watch Later",
+                            fontSize = 26.sp,
+                            lineHeight = 32.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            textAlign = TextAlign.Start,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Left-aligned Subtitle: "Playlist • X videos"
+                        val videoCountLabel = if (savedVideosCount == 1) "1 video" else "${com.videhub.utils.FormatHelper.formatCount(savedVideosCount.toLong())} videos"
+                        Text(
+                            text = "Playlist • $videoCountLabel",
+                            fontSize = 13.sp,
+                            color = Color.White.copy(alpha = 0.72f),
+                            textAlign = TextAlign.Start,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        // Progress bar while downloading
+                        if (isDownloading || isPreparing) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            val prog = if (isPreparing) 0f else {
+                                if (savedVideosCount > 0) readyVideosCount.toFloat() / savedVideosCount.toFloat() else 0f
+                            }
+                            LinearProgressIndicator(
+                                progress = { prog.coerceIn(0f, 1f) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp)),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = Color.White.copy(alpha = 0.2f)
                             )
                         }
 
-                        // Circular Icon Button: Add videos (+)
-                        Surface(
-                            onClick = onSearchClick,
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(44.dp)
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Action Row (Play All + Circular Icon Buttons)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
+                            // Play All: Solid white pill button
+                            Button(
+                                onClick = onPlayAllClick,
+                                enabled = videos.isNotEmpty(),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp),
+                                shape = CircleShape,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color.White,
+                                    contentColor = Color.Black,
+                                    disabledContainerColor = Color.White.copy(alpha = 0.4f),
+                                    disabledContentColor = Color.Black.copy(alpha = 0.4f)
+                                ),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = "Add videos",
-                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color.Black,
                                     modifier = Modifier.size(22.dp)
                                 )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Play all",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = Color.Black
+                                )
                             }
-                        }
 
-                        // Circular Icon Button: Download (↓)
-                        Surface(
-                            onClick = { onPillAction(pillInfo.action) },
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                if (pillInfo.showProgressIndicator) {
-                                    CircularProgressIndicator(
-                                        progress = { pillInfo.progress },
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = pillInfo.icon,
-                                        contentDescription = pillInfo.label,
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Sort selector dropdown ("Manual ∨")
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Start
-                    ) {
-                        Box {
+                            // Circular Icon Button: Add videos (+)
                             Surface(
-                                onClick = { showSortMenu = true },
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                onClick = onSearchClick,
+                                shape = CircleShape,
+                                color = Color.White.copy(alpha = 0.14f),
+                                modifier = Modifier.size(42.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        text = currentSortLabel,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
+                                Box(contentAlignment = Alignment.Center) {
                                     Icon(
-                                        imageVector = Icons.Default.ArrowDropDown,
-                                        contentDescription = "Sort dropdown",
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(20.dp)
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Add videos",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
                                     )
                                 }
                             }
 
-                            DropdownMenu(
-                                expanded = showSortMenu,
-                                onDismissRequest = { showSortMenu = false }
+                            // Circular Icon Button: Download (↓)
+                            Surface(
+                                onClick = { onPillAction(pillInfo.action) },
+                                shape = CircleShape,
+                                color = Color.White.copy(alpha = 0.14f),
+                                modifier = Modifier.size(42.dp)
                             ) {
-                                DropdownMenuItem(
-                                    text = { Text("Manual") },
-                                    onClick = {
-                                        currentSortLabel = "Manual"
-                                        onSortClick(0)
-                                        showSortMenu = false
+                                Box(contentAlignment = Alignment.Center) {
+                                    if (pillInfo.showProgressIndicator) {
+                                        CircularProgressIndicator(
+                                            progress = { pillInfo.progress },
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = pillInfo.icon,
+                                            contentDescription = pillInfo.label,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
                                     }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Title A-Z") },
-                                    onClick = {
-                                        currentSortLabel = "Title A-Z"
-                                        onSortClick(1)
-                                        showSortMenu = false
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Sort selector dropdown ("Manual ∨")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Start
+                        ) {
+                            Box {
+                                Surface(
+                                    onClick = { showSortMenu = true },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.White.copy(alpha = 0.12f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = currentSortLabel,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color.White
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "Sort dropdown",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
                                     }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Channel name") },
-                                    onClick = {
-                                        currentSortLabel = "Channel name"
-                                        onSortClick(2)
-                                        showSortMenu = false
-                                    }
-                                )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showSortMenu,
+                                    onDismissRequest = { showSortMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Manual") },
+                                        onClick = {
+                                            currentSortLabel = "Manual"
+                                            onSortClick(0)
+                                            showSortMenu = false
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Title (A–Z)") },
+                                        onClick = {
+                                            currentSortLabel = "Title (A–Z)"
+                                            onSortClick(1)
+                                            showSortMenu = false
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Channel") },
+                                        onClick = {
+                                            currentSortLabel = "Channel"
+                                            onSortClick(2)
+                                            showSortMenu = false
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -975,6 +983,7 @@ fun WatchLaterDetailContent(
                     }
                 }
             }
+        }
         }
     }
 }

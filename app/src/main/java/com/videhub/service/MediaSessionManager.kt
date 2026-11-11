@@ -185,27 +185,33 @@ object MediaSessionManager {
                         val p = player ?: return
                         val dur = p.duration
                         val pos = p.currentPosition
+                        val currentRepeatMode = p.repeatMode
                         // Only trigger autoplay when video actually reached the end
                         if (dur > 0 && pos >= (dur - 3000L).coerceAtLeast(0L)) {
                             val pm = ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
                             val wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "VideHub:AutoplayCheckWakeLock")
                             wakeLock.acquire(30000)
                             
-                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
                                 try {
-                                    val isAutoplayEnabled = com.videhub.data.SettingsManager.getAutoplay(ctx).firstOrNull() ?: true
-                                    val isLoopEnabled = com.videhub.data.SettingsManager.getLoopVideo(ctx).firstOrNull() ?: false
-                                    val isRepeatActive = isLoopEnabled || (player?.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE)
+                                    val (isAutoplayEnabled, isLoopEnabled) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        val autoplay = com.videhub.data.SettingsManager.getAutoplay(ctx).firstOrNull() ?: true
+                                        val loop = com.videhub.data.SettingsManager.getLoopVideo(ctx).firstOrNull() ?: false
+                                        autoplay to loop
+                                    }
+                                    val activeRepeatMode = player?.repeatMode ?: currentRepeatMode
+                                    val isRepeatActive = isLoopEnabled || (activeRepeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE)
                                     
                                     if (isRepeatActive) {
-                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                            player?.seekTo(0)
-                                            player?.play()
-                                        }
+                                        player?.seekTo(0)
+                                        player?.play()
                                         kotlinx.coroutines.delay(1500)
                                     } else {
-                                        android.util.Log.d("MediaSessionManager", "Autoplay/Queue triggered on normal video completion!")
-                                        BackgroundAutoplayHandler.handleAutoplay(ctx, player!!, isAutoplayEnabled) { com.videhub.QueueManager.getNextVideo() }
+                                        val activePlayer = player
+                                        if (activePlayer != null) {
+                                            android.util.Log.d("MediaSessionManager", "Autoplay/Queue triggered on normal video completion!")
+                                            BackgroundAutoplayHandler.handleAutoplay(ctx, activePlayer, isAutoplayEnabled) { com.videhub.QueueManager.getNextVideo() }
+                                        }
                                     }
                                 } finally {
                                     if (wakeLock.isHeld) wakeLock.release()
@@ -228,15 +234,33 @@ object MediaSessionManager {
             }
             
             override fun seekToNext() {
-                if (player!!.hasNextMediaItem()) { player!!.seekToNextMediaItem() } else { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { android.util.Log.d("MediaSessionManager", "Autoplay triggered!")
-                                val isAutoplayEnabled = com.videhub.data.SettingsManager.getAutoplay(ctx).firstOrNull() ?: true
-                                BackgroundAutoplayHandler.handleAutoplay(ctx, player!!, isAutoplayEnabled) { com.videhub.QueueManager.getNextVideo() } } }
+                val p = player ?: return
+                if (p.hasNextMediaItem()) {
+                    p.seekToNextMediaItem()
+                } else {
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                        android.util.Log.d("MediaSessionManager", "Autoplay triggered!")
+                        val isAutoplayEnabled = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            com.videhub.data.SettingsManager.getAutoplay(ctx).firstOrNull() ?: true
+                        }
+                        BackgroundAutoplayHandler.handleAutoplay(ctx, p, isAutoplayEnabled) { com.videhub.QueueManager.getNextVideo() }
+                    }
+                }
             }
             
             override fun seekToNextMediaItem() {
-                if (player!!.hasNextMediaItem()) { player!!.seekToNextMediaItem() } else { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { android.util.Log.d("MediaSessionManager", "Autoplay triggered!")
-                                val isAutoplayEnabled = com.videhub.data.SettingsManager.getAutoplay(ctx).firstOrNull() ?: true
-                                BackgroundAutoplayHandler.handleAutoplay(ctx, player!!, isAutoplayEnabled) { com.videhub.QueueManager.getNextVideo() } } }
+                val p = player ?: return
+                if (p.hasNextMediaItem()) {
+                    p.seekToNextMediaItem()
+                } else {
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                        android.util.Log.d("MediaSessionManager", "Autoplay triggered!")
+                        val isAutoplayEnabled = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            com.videhub.data.SettingsManager.getAutoplay(ctx).firstOrNull() ?: true
+                        }
+                        BackgroundAutoplayHandler.handleAutoplay(ctx, p, isAutoplayEnabled) { com.videhub.QueueManager.getNextVideo() }
+                    }
+                }
             }
             
             override fun seekToPrevious() {

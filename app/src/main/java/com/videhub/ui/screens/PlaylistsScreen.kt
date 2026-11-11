@@ -62,6 +62,7 @@ fun PlaylistsScreen(
     val db = remember { AppDatabase.getDatabase(context) }
     
     var playlists by remember { mutableStateOf<List<PlaylistWithThumbnail>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
     val likedVideos by db.likedVideoDao().getAll().collectAsStateWithLifecycle(initialValue = emptyList())
     val watchLaterVideos by db.watchLaterDao().getAll().collectAsStateWithLifecycle(initialValue = emptyList())
     val historyVideos by db.historyDao().getAllHistory().collectAsStateWithLifecycle(initialValue = emptyList())
@@ -83,6 +84,7 @@ fun PlaylistsScreen(
     LaunchedEffect(Unit) {
         db.playlistDao().getAllPlaylistsWithDetails().collectLatest {
             playlists = it
+            isLoading = false
         }
     }
 
@@ -271,7 +273,7 @@ fun PlaylistsScreen(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
-                    if (playlists.isEmpty()) {
+                    if (!isLoading && playlists.isEmpty()) {
                         Text(
                             text = "No custom playlists yet. Create one or import from link.",
                             style = MaterialTheme.typography.bodySmall,
@@ -281,7 +283,48 @@ fun PlaylistsScreen(
                 }
             }
 
-            if (playlists.isNotEmpty()) {
+            if (isLoading || isGeneratingMix || isImporting) {
+                items(4, key = { "playlist_grid_shimmer_$it" }) {
+                    val brush = com.videhub.ui.components.shimmerBrush()
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(16f / 9f)
+                                    .background(brush)
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.75f)
+                                        .height(15.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(brush)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.45f)
+                                        .height(12.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(brush)
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if (playlists.isNotEmpty()) {
                 items(playlists, key = { it.playlist.id }) { playlist ->
                     PlaylistListItem(
                         playlist = playlist,

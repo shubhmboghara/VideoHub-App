@@ -397,7 +397,8 @@ fun MainScreen() {
             sharedViewModel.currentPlayerTitle = t
             sharedViewModel.currentPlayerThumbnailUrl = thumb
             
-            val isCurrentlyOnPlayer = navController.currentDestination?.route?.startsWith("player") == true
+            val currentDestRoute = navController.currentDestination?.route
+            val isCurrentlyOnPlayer = currentDestRoute?.startsWith("player") == true
             navController.navigate(
                 Screen.Player.createRoute(
                     android.net.Uri.encode(safeUrl),
@@ -407,8 +408,8 @@ fun MainScreen() {
                     isFullscreen
                 )
             ) {
-                if (isCurrentlyOnPlayer) {
-                    popUpTo(navController.currentDestination!!.id) {
+                if (isCurrentlyOnPlayer && currentDestRoute != null) {
+                    popUpTo(currentDestRoute) {
                         inclusive = true
                     }
                 }

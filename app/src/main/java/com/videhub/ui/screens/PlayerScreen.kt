@@ -159,24 +159,30 @@ fun PlayerScreen(
         )
     }
 
+    var channelId by remember(videoUrl) { mutableStateOf<String?>(if (isSameVideo) streamInfo?.uploaderUrl else null) }
+    var channelName by remember(videoUrl) {
+        val queueUploader = com.videhub.QueueManager.queue.value.find { it.url == videoUrl }?.uploaderName.orEmpty()
+        mutableStateOf(if (isSameVideo) (streamInfo?.uploaderName ?: queueUploader) else queueUploader)
+    }
+
     LaunchedEffect(videoUrl) {
         if (isLocalFile) {
             val fileName = java.io.File(videoUrl).name
-            withContext(Dispatchers.IO) {
-                val entity = db.downloadedVideoDao().getAllDownloadsSync().find {
+            val entity = withContext(Dispatchers.IO) {
+                db.downloadedVideoDao().getAllDownloadsSync().find {
                     it.fileName == fileName || it.videoId == videoUrl || videoUrl.endsWith(it.fileName)
                 }
-                if (entity != null) {
-                    isAudioOnlyDownload = entity.isAudioOnly || com.videhub.utils.FileUtils.isAudio(entity, videoUrl)
+            }
+            if (entity != null) {
+                isAudioOnlyDownload = entity.isAudioOnly || com.videhub.utils.FileUtils.isAudio(entity, videoUrl)
+                if (channelName.isBlank() && entity.channelName.isNotBlank()) {
+                    channelName = entity.channelName
                 }
             }
         } else {
             isAudioOnlyDownload = false
         }
     }
-
-    var channelId by remember(videoUrl) { mutableStateOf<String?>(if (isSameVideo) streamInfo?.uploaderUrl else null) }
-    var channelName by remember(videoUrl) { mutableStateOf(if (isSameVideo) streamInfo?.uploaderName ?: "" else "") }
     
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var sleepTimerMinutes by remember { mutableStateOf<Int?>(null) }
@@ -234,10 +240,30 @@ fun PlayerScreen(
         }
     }
 
+    var relatedVideos by remember(videoUrl) {
+        val initialRelated = if (isSameVideo) {
+            sharedViewModel.playerRelatedItemsCache?.filterIsInstance<StreamInfoItem>()
+                ?: streamInfo?.relatedItems?.filterIsInstance<StreamInfoItem>()
+                ?: emptyList()
+        } else {
+            streamInfo?.relatedItems?.filterIsInstance<StreamInfoItem>() ?: emptyList()
+        }
+        mutableStateOf<List<StreamInfoItem>>(initialRelated)
+    }
+    var isRelatedLoading by remember(videoUrl) {
+        val isLocal = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
+        mutableStateOf(!isLocal && relatedVideos.isEmpty())
+    }
+
     LaunchedEffect(videoUrl, retryTrigger) {
         val cachedInfo = sharedViewModel.playerStreamInfoCache
         val isCachedForThisVideo = cachedInfo != null && (cachedInfo.url == videoUrl || cachedInfo.originalUrl == videoUrl)
         if (retryTrigger == 0 && isCachedForThisVideo) {
+            val cachedRelated = cachedInfo?.relatedItems?.filterIsInstance<StreamInfoItem>()?.filter { it.url != videoUrl } ?: emptyList()
+            if (cachedRelated.isNotEmpty()) {
+                relatedVideos = cachedRelated
+                isRelatedLoading = false
+            }
             streamInfo = cachedInfo
             channelId = cachedInfo?.uploaderUrl
             channelName = cachedInfo?.uploaderName ?: channelName
@@ -245,12 +271,17 @@ fun PlayerScreen(
         }
         val bgInfo = com.videhub.service.BackgroundAutoplayHandler.currentStreamInfo
         if (retryTrigger == 0 && bgInfo != null && (bgInfo.url == videoUrl || bgInfo.originalUrl == videoUrl)) {
+            val bgRelated = bgInfo.relatedItems?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()?.filter { it.url != videoUrl } ?: emptyList()
+            if (bgRelated.isNotEmpty()) {
+                relatedVideos = bgRelated
+                isRelatedLoading = false
+            }
             streamInfo = bgInfo
             channelId = bgInfo.uploaderUrl
             channelName = bgInfo.uploaderName ?: channelName
             sharedViewModel.playerStreamInfoCache = bgInfo
             sharedViewModel.currentPlayerUrl = videoUrl
-            sharedViewModel.playerRelatedItemsCache = bgInfo.relatedItems?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>() ?: emptyList()
+            sharedViewModel.playerRelatedItemsCache = bgRelated
             return@LaunchedEffect
         }
         val isLocal = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
@@ -290,7 +321,15 @@ fun PlayerScreen(
                 )
             )
 
-            sharedViewModel.playerRelatedItemsCache = info.relatedItems?.filterIsInstance<StreamInfoItem>() ?: emptyList()
+            val directRelated = info.relatedItems
+                ?.filterIsInstance<StreamInfoItem>()
+                ?.filter { it.url != videoUrl }
+                ?: emptyList()
+            if (directRelated.isNotEmpty()) {
+                relatedVideos = directRelated
+                isRelatedLoading = false
+            }
+            sharedViewModel.playerRelatedItemsCache = directRelated
             com.videhub.service.BackgroundAutoplayHandler.relatedItemsCache = info.relatedItems ?: emptyList()
             com.videhub.service.BackgroundAutoplayHandler.currentStreamInfo = info
             com.videhub.service.BackgroundAutoplayHandler.markAsRecentlyPlayed(videoUrl)
@@ -560,12 +599,18 @@ fun PlayerScreen(
         }
     }
 
-    var relatedVideos by remember(videoUrl) { mutableStateOf<List<StreamInfoItem>>(if (isSameVideo) sharedViewModel.playerRelatedItemsCache?.filterIsInstance<StreamInfoItem>() ?: emptyList() else emptyList()) }
-    LaunchedEffect(streamInfo) {
-        if (streamInfo != null) {
-            val direct = streamInfo!!.relatedItems?.filterIsInstance<StreamInfoItem>() ?: emptyList()
-            relatedVideos = direct
+    LaunchedEffect(streamInfo, errorMessage) {
+        val isLocal = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
+        if (isLocal || errorMessage != null) {
+            isRelatedLoading = false
+        } else if (streamInfo != null) {
+            val direct = streamInfo!!.relatedItems?.filterIsInstance<StreamInfoItem>()?.filter { it.url != videoUrl } ?: emptyList()
+            if (direct.isNotEmpty()) {
+                relatedVideos = direct
+                isRelatedLoading = false
+            }
             if (direct.size < 5) {
+                if (direct.isEmpty()) isRelatedLoading = true
                 withContext(Dispatchers.IO) {
                     try {
                         val uploaderUrl = streamInfo?.uploaderUrl
@@ -586,8 +631,15 @@ fun PlayerScreen(
                                 relatedVideos = combined
                             }
                         }
-                    } catch (_: Exception) {}
+                    } catch (_: Exception) {
+                    } finally {
+                        withContext(Dispatchers.Main) {
+                            isRelatedLoading = false
+                        }
+                    }
                 }
+            } else {
+                isRelatedLoading = false
             }
         }
     }
@@ -1266,6 +1318,9 @@ fun PlayerScreen(
                     .aspectRatio(16f / 9f)
             }
             
+            val isLocalFile = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
+            val isStreamLoading = streamInfo == null && !isLocalFile && offlineStreamUri == null && errorMessage == null
+
             Box(modifier = videoHeight) {
                 VideoPlayerContainer(
                     modifier = Modifier.fillMaxSize(),
@@ -1274,6 +1329,7 @@ fun PlayerScreen(
                     isMusicMode = isMusicMode,
                     showCaptions = showCaptionsRef.value,
                     isScreenLocked = isScreenLocked,
+                    isStreamLoading = isStreamLoading,
                     onToggleFullscreen = { setFullscreen(!(isFullscreen || isLandscape)) },
                     onCaptionsRequested = { showCaptionSelector = true },
                     activeCaptions = activeCaptions,
@@ -1291,8 +1347,6 @@ fun PlayerScreen(
                     currentSpeed = currentSpeed,
                     onToggleMusicMode = { isMusicMode = true }
                 )
-                
-                val isLocalFile = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
 
                 if (isScreenLocked) {
                     androidx.compose.foundation.layout.Box(
@@ -1381,6 +1435,7 @@ fun PlayerScreen(
                     mediaPlayer = mediaPlayer,
                     sharedViewModel = sharedViewModel,
                     isMusicMode = isMusicMode,
+                    isRelatedLoading = isRelatedLoading,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -1504,6 +1559,7 @@ fun VideoPlayerContainer(
     isMusicMode: Boolean,
     showCaptions: Boolean,
     isScreenLocked: Boolean,
+    isStreamLoading: Boolean = false,
     onToggleFullscreen: () -> Unit,
     onCaptionsRequested: () -> Unit,
     activeCaptions: List<CharSequence>,
@@ -1515,7 +1571,7 @@ fun VideoPlayerContainer(
     currentSpeed: Float,
     onToggleMusicMode: () -> Unit
 ) {
-    var controllerVisible by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
+    var controllerVisible by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var videoScale by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
     var videoPanOffsetX by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     var videoPanOffsetY by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
@@ -1562,7 +1618,14 @@ fun VideoPlayerContainer(
             onActiveCaptionsChanged = onActiveCaptionsChanged
         )
 
-        if (!com.videhub.PipState.isActive.value && !isScreenLocked) {
+        if (isStreamLoading && !com.videhub.PipState.isActive.value) {
+            com.videhub.ui.components.VideoPlayerBoxShimmer(
+                modifier = Modifier.fillMaxSize(),
+                onBack = onBack
+            )
+        }
+
+        if (!isStreamLoading && !com.videhub.PipState.isActive.value && !isScreenLocked) {
             ModernPlayerControls(
                 modifier = Modifier.fillMaxSize(),
                 mediaPlayer = mediaPlayer,
@@ -1608,7 +1671,7 @@ fun VideoPlayerContainer(
         )
         
         androidx.compose.animation.AnimatedVisibility(
-            visible = controllerVisible && !com.videhub.PipState.isActive.value && !isScreenLocked,
+            visible = !isStreamLoading && controllerVisible && !com.videhub.PipState.isActive.value && !isScreenLocked,
             enter = androidx.compose.animation.fadeIn(),
             exit = androidx.compose.animation.fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter)

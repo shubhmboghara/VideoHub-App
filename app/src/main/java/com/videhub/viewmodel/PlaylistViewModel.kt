@@ -19,6 +19,7 @@ import org.schabi.newpipe.extractor.stream.StreamInfoItem
 
 data class PlaylistUiState(
     val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val playlistInfo: PlaylistInfo? = null,
     val playlistUrl: String = "",
     val error: String? = null
@@ -37,12 +38,25 @@ class PlaylistViewModel : ViewModel() {
     private val _playlistItems = MutableStateFlow<List<PlaylistItemUiState>>(emptyList())
     val playlistItems: StateFlow<List<PlaylistItemUiState>> = _playlistItems.asStateFlow()
 
-    fun loadOnlinePlaylist(context: Context, url: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _uiState.value = PlaylistUiState(isLoading = true)
+    private var loadJob: kotlinx.coroutines.Job? = null
+
+    fun loadOnlinePlaylist(context: Context, url: String, isRefresh: Boolean = false) {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch(Dispatchers.IO) {
+            val currentInfo = _uiState.value.playlistInfo
+            if (isRefresh && currentInfo != null) {
+                _uiState.value = _uiState.value.copy(isRefreshing = true, error = null)
+            } else {
+                _uiState.value = PlaylistUiState(isLoading = true, playlistUrl = url)
+            }
             try {
                 val info = ExtractorHelper.getPlaylistInfo(url)
-                _uiState.value = PlaylistUiState(playlistInfo = info, playlistUrl = url)
+                _uiState.value = PlaylistUiState(
+                    isLoading = false,
+                    isRefreshing = false,
+                    playlistInfo = info,
+                    playlistUrl = url
+                )
                 
                 val db = AppDatabase.getDatabase(context)
                 val downloadedVideosFlow = db.downloadedVideoDao().getAllDownloads()
@@ -56,8 +70,14 @@ class PlaylistViewModel : ViewModel() {
                     }
                     _playlistItems.value = combinedList
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _uiState.value = PlaylistUiState(error = e.message)
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    isRefreshing = false,
+                    error = if (_uiState.value.playlistInfo == null) (e.message ?: "Failed to load playlist") else null
+                )
             }
         }
     }

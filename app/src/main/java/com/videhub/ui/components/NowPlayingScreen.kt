@@ -87,25 +87,43 @@ fun NowPlayingScreen(
     onVideoPlay: (String, String, String) -> Unit = { _, _, _ -> },
     isAudioOnly: Boolean = false,
     description: String? = null,
-    videoId: String? = null
+    videoId: String? = null,
+    isStreamLoading: Boolean = false
 ) {
     val context = LocalContext.current
     val resolvedPlayer = exoPlayer
         ?: MediaSessionManager.player
         ?: MediaSessionManager.getOrCreatePlayer(context)
 
-    var uiState by remember {
+    var uiState by remember(videoId) {
         mutableStateOf(
             PlayerUiState(
-                title = resolvedPlayer?.currentMediaItem?.mediaMetadata?.title?.toString().takeUnless { it.isNullOrBlank() } ?: title,
-                artist = resolvedPlayer?.currentMediaItem?.mediaMetadata?.artist?.toString().takeUnless { it.isNullOrBlank() } ?: artist,
-                artworkUri = resolvedPlayer?.currentMediaItem?.mediaMetadata?.artworkUri?.toString() ?: thumbnailUrl,
+                title = title.takeUnless { it.isBlank() || it == "Video" || it == "Loading..." }
+                    ?: resolvedPlayer?.currentMediaItem?.mediaMetadata?.title?.toString()?.takeUnless { it.isBlank() || it == "Video" || it == "Loading..." }
+                    ?: title,
+                artist = artist.takeUnless { it.isBlank() }
+                    ?: resolvedPlayer?.currentMediaItem?.mediaMetadata?.artist?.toString()?.takeUnless { it.isBlank() }
+                    ?: artist,
+                artworkUri = thumbnailUrl.takeUnless { it.isBlank() || it == "none" }
+                    ?: resolvedPlayer?.currentMediaItem?.mediaMetadata?.artworkUri?.toString().orEmpty(),
                 artworkData = resolvedPlayer?.currentMediaItem?.mediaMetadata?.artworkData,
                 isPlaying = resolvedPlayer?.isPlaying ?: false,
                 playWhenReady = resolvedPlayer?.playWhenReady ?: false,
                 playbackState = resolvedPlayer?.playbackState ?: Player.STATE_IDLE,
                 isLoading = resolvedPlayer?.playbackState == Player.STATE_BUFFERING
             )
+        )
+    }
+
+    LaunchedEffect(title, artist, thumbnailUrl, videoId) {
+        val validPropTitle = title.takeUnless { it.isBlank() || it == "Video" || it == "Loading..." }
+        val validPropArtist = artist.takeUnless { it.isBlank() }
+        val validPropArt = thumbnailUrl.takeUnless { it.isBlank() || it == "none" }
+
+        uiState = uiState.copy(
+            title = validPropTitle ?: uiState.title.takeUnless { it.isBlank() || it == "Video" || it == "Loading..." } ?: title,
+            artist = validPropArtist ?: uiState.artist.takeUnless { it.isBlank() } ?: artist,
+            artworkUri = validPropArt ?: uiState.artworkUri.takeUnless { it.isBlank() || it == "none" } ?: thumbnailUrl
         )
     }
 
@@ -565,6 +583,11 @@ fun NowPlayingScreen(
                                             )
                                         }
                                 ) {
+                                    var isArtworkLoading by remember(displayArt) {
+                                        mutableStateOf(displayArt != null && displayArt != "" && displayArt != "none")
+                                    }
+                                    val showArtShimmer = (isStreamLoading && displayArt == null) || isArtworkLoading
+
                                     // Layer 1: Blurred background fill inside the card for remaining letterbox space
                                     AsyncImage(
                                         model = artModel,
@@ -598,11 +621,22 @@ fun NowPlayingScreen(
                                         model = artModel,
                                         contentDescription = "Full Album Art",
                                         contentScale = ContentScale.Fit,
+                                        onSuccess = { isArtworkLoading = false },
+                                        onError = { isArtworkLoading = false },
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .wrapContentHeight()
                                             .align(Alignment.Center)
                                     )
+
+                                    // Layer 4: Shimmer Skeleton inside Artwork Card while loading
+                                    if (showArtShimmer) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(shimmerBrush())
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -620,43 +654,80 @@ fun NowPlayingScreen(
                     .padding(horizontal = 20.dp)
                     .padding(bottom = 8.dp)
             ) {
-                // Track title & channel name block with signboard marquee
+                val displayTitle = remember(uiState.title, title) {
+                    val raw = uiState.title.takeUnless { it.isBlank() || it == "Video" || it == "Loading..." }
+                        ?: title.takeUnless { it.isBlank() || it == "Video" || it == "Loading..." }
+                        ?: ""
+                    com.videhub.utils.FormatHelper.cleanDisplayTitle(raw)
+                }
+                val displayArtist = remember(uiState.artist, artist) {
+                    uiState.artist.takeUnless { it.isBlank() }
+                        ?: artist.takeUnless { it.isBlank() }
+                        ?: ""
+                }
+
+                // Track title & channel name block with signboard marquee (or Shimmer only while still unknown)
+                val isTitleShimmer = isStreamLoading && displayTitle.isBlank()
+                val isArtistShimmer = isStreamLoading && displayArtist.isBlank()
+
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.Start
                 ) {
-                    Text(
-                        text = uiState.title,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp,
-                            lineHeight = 26.sp
-                        ),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        softWrap = false,
-                        modifier = Modifier.basicMarquee(
-                            iterations = Int.MAX_VALUE,
-                            initialDelayMillis = 1200
+                    if (isTitleShimmer) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.76f)
+                                .height(22.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(shimmerBrush())
                         )
-                    )
+                    } else {
+                        Text(
+                            text = displayTitle.ifBlank { title.ifBlank { "Unknown Track" } },
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp,
+                                lineHeight = 26.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.basicMarquee(
+                                iterations = Int.MAX_VALUE,
+                                initialDelayMillis = 1200
+                            )
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = uiState.artist.ifBlank { artist }.ifBlank { "VideoHub Channel" },
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable(
-                                role = androidx.compose.ui.semantics.Role.Button,
-                                onClickLabel = "Open channel"
-                            ) {
-                                onChannelClick()
-                            }
-                            .padding(vertical = 2.dp)
-                    )
+
+                    if (isArtistShimmer) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.45f)
+                                .height(16.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(shimmerBrush())
+                        )
+                    } else {
+                        Text(
+                            text = displayArtist.ifBlank { "VideoHub" },
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable(
+                                    role = androidx.compose.ui.semantics.Role.Button,
+                                    onClickLabel = "Open channel"
+                                ) {
+                                    onChannelClick()
+                                }
+                                .padding(vertical = 2.dp)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))

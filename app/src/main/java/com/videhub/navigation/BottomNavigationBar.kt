@@ -27,13 +27,17 @@ fun isLibrarySubsection(route: String?): Boolean {
         "watch_later",
         "playlists",
         "playlist_detail",
+        "custom_playlist",
         "downloads",
+        "downloads_tab",
         "downloaded_playlist",
+        "downloaded_playlist_detail",
         "liked_videos",
         "proxy_settings",
         "settings",
         "about",
-        "channel_about" -> true
+        "channel_about",
+        "channel_bio" -> true
         else -> false
     }
 }
@@ -87,8 +91,9 @@ fun BottomNavigationBar(navController: NavController, currentRoute: String?) {
                                 false
                             }
                             if (!popped) {
+                                val startRoute = navController.graph.findStartDestination().route ?: Screen.Home.route
                                 navController.navigate(Screen.Library.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
+                                    popUpTo(startRoute) {
                                         saveState = true
                                     }
                                     launchSingleTop = true
@@ -98,8 +103,9 @@ fun BottomNavigationBar(navController: NavController, currentRoute: String?) {
                         }
                     } else {
                         if (currentRoute != item.route) {
+                            val startRoute = navController.graph.findStartDestination().route ?: Screen.Home.route
                             navController.navigate(item.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
+                                popUpTo(startRoute) {
                                     saveState = (item.route != Screen.Home.route)
                                 }
                                 launchSingleTop = true

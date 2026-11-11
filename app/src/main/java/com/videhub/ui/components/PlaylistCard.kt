@@ -92,9 +92,12 @@ fun PlaylistCard(
                         .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    if (!thumbnailUrl.isNullOrBlank()) {
+                    val coverModel = androidx.compose.runtime.remember(thumbnailUrl) {
+                        resolveCoverImageModel(thumbnailUrl)
+                    }
+                    if (coverModel != null) {
                         AsyncImage(
-                            model = thumbnailUrl,
+                            model = coverModel,
                             contentDescription = "Playlist Cover",
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop

@@ -102,139 +102,154 @@ fun OnlinePlaylistScreen(
             )
         }
 
-        if (uiState.isLoading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else if (uiState.error != null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Error: ${uiState.error}", color = MaterialTheme.colorScheme.error)
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.padding(padding),
-                contentPadding = PaddingValues(bottom = 32.dp)
-            ) {
-                if (playlistItems.isNotEmpty()) {
-                    val firstVideoThumb = playlistItems.first().item.thumbnails.firstOrNull()?.url ?: ""
-                    item {
-                        com.videhub.ui.components.PlaylistHeader(
-                            title = uiState.playlistInfo?.name ?: "Playlist",
-                            subtitle = "Online Playlist • ${com.videhub.utils.FormatHelper.formatCount(playlistItems.size.toLong())} videos",
-                            thumbnailUrl = firstVideoThumb,
-                            isPlayAllEnabled = playlistItems.isNotEmpty(),
-                            isShuffleEnabled = playlistItems.isNotEmpty(),
-                            onPlayAllClick = {
-                                if (playlistItems.isNotEmpty()) {
-                                    com.videhub.QueueManager.clear()
-                                    for (i in 1 until playlistItems.size) {
-                                        val qItem = playlistItems[i].item
-                                        com.videhub.QueueManager.enqueue(
-                                            com.videhub.PlayQueueItem(
-                                                url = qItem.url,
-                                                title = qItem.name,
-                                                uploaderName = qItem.uploaderName ?: "",
-                                                thumbnailUrl = qItem.thumbnails.firstOrNull()?.url ?: ""
-                                            )
-                                        )
-                                    }
-                                    val first = playlistItems.first().item
-                                    onVideoClick(first.url, first.name, first.thumbnails.firstOrNull()?.url ?: "")
-                                }
-                            },
-                            onShuffleClick = {
-                                if (playlistItems.isNotEmpty()) {
-                                    com.videhub.QueueManager.clear()
-                                    val shuffled = playlistItems.shuffled()
-                                    for (i in 1 until shuffled.size) {
-                                        val qItem = shuffled[i].item
-                                        com.videhub.QueueManager.enqueue(
-                                            com.videhub.PlayQueueItem(
-                                                url = qItem.url,
-                                                title = qItem.name,
-                                                uploaderName = qItem.uploaderName ?: "",
-                                                thumbnailUrl = qItem.thumbnails.firstOrNull()?.url ?: ""
-                                            )
-                                        )
-                                    }
-                                    val first = shuffled.first().item
-                                    onVideoClick(first.url, first.name, first.thumbnails.firstOrNull()?.url ?: "")
-                                }
-                            }
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-                        Spacer(modifier = Modifier.height(8.dp))
+        androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing,
+            onRefresh = { viewModel.loadOnlinePlaylist(context, playlistUrl, isRefresh = true) },
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            if (uiState.isLoading && playlistItems.isEmpty()) {
+                com.videhub.ui.components.OnlinePlaylistShimmer()
+            } else if (uiState.error != null && playlistItems.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(24.dp)
+                    ) {
+                        Text("Error: ${uiState.error}", color = MaterialTheme.colorScheme.error)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(onClick = { viewModel.loadOnlinePlaylist(context, playlistUrl, isRefresh = true) }) {
+                            Text("Retry")
+                        }
                     }
                 }
-
-                itemsIndexed(playlistItems, key = { index, state -> "${state.item.url}_$index" }) { index, state ->
-                    val video = state.item
-                    val thumbUrl = video.thumbnails.firstOrNull()?.url ?: ""
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "${index + 1}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.width(32.dp).padding(start = 8.dp)
-                        )
-                        com.videhub.ui.components.VideoRowItem(
-                            modifier = Modifier.weight(1f),
-                            videoUrl = video.url,
-                            title = video.name,
-                            uploaderName = video.uploaderName ?: "",
-                            thumbnailUrl = thumbUrl,
-                            duration = video.duration,
-                            viewCount = video.viewCount,
-                            onClick = {
-                                com.videhub.QueueManager.clear()
-                                if (index in 0 until playlistItems.lastIndex) {
-                                    for (i in (index + 1)..playlistItems.lastIndex) {
-                                        val qItem = playlistItems[i].item
-                                        com.videhub.QueueManager.enqueue(
-                                            com.videhub.PlayQueueItem(
-                                                url = qItem.url,
-                                                title = qItem.name,
-                                                uploaderName = qItem.uploaderName ?: "",
-                                                thumbnailUrl = qItem.thumbnails.firstOrNull()?.url ?: ""
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 32.dp)
+                ) {
+                    if (playlistItems.isNotEmpty()) {
+                        val firstVideoThumb = playlistItems.first().item.thumbnails.firstOrNull()?.url ?: ""
+                        item {
+                            com.videhub.ui.components.PlaylistHeader(
+                                title = uiState.playlistInfo?.name ?: "Playlist",
+                                subtitle = "Online Playlist • ${com.videhub.utils.FormatHelper.formatCount(playlistItems.size.toLong())} videos",
+                                thumbnailUrl = firstVideoThumb,
+                                isPlayAllEnabled = playlistItems.isNotEmpty(),
+                                isShuffleEnabled = playlistItems.isNotEmpty(),
+                                onPlayAllClick = {
+                                    if (playlistItems.isNotEmpty()) {
+                                        com.videhub.QueueManager.clear()
+                                        for (i in 1 until playlistItems.size) {
+                                            val qItem = playlistItems[i].item
+                                            com.videhub.QueueManager.enqueue(
+                                                com.videhub.PlayQueueItem(
+                                                    url = qItem.url,
+                                                    title = qItem.name,
+                                                    uploaderName = qItem.uploaderName ?: "",
+                                                    thumbnailUrl = qItem.thumbnails.firstOrNull()?.url ?: ""
+                                                )
                                             )
-                                        )
-                                    }
-                                }
-                                onVideoClick(video.url, video.name, thumbUrl)
-                            },
-                            trailingIcon = {
-                                if (state.isDownloaded) {
-                                    Icon(
-                                        imageVector = Icons.Default.DownloadDone,
-                                        contentDescription = "Downloaded",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                } else if (state.isDownloading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                } else {
-                                    IconButton(
-                                        onClick = {
-                                            selectedVideoForDownload = video
                                         }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Download,
-                                            contentDescription = "Download",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                        val first = playlistItems.first().item
+                                        onVideoClick(first.url, first.name, first.thumbnails.firstOrNull()?.url ?: "")
+                                    }
+                                },
+                                onShuffleClick = {
+                                    if (playlistItems.isNotEmpty()) {
+                                        com.videhub.QueueManager.clear()
+                                        val shuffled = playlistItems.shuffled()
+                                        for (i in 1 until shuffled.size) {
+                                            val qItem = shuffled[i].item
+                                            com.videhub.QueueManager.enqueue(
+                                                com.videhub.PlayQueueItem(
+                                                    url = qItem.url,
+                                                    title = qItem.name,
+                                                    uploaderName = qItem.uploaderName ?: "",
+                                                    thumbnailUrl = qItem.thumbnails.firstOrNull()?.url ?: ""
+                                                )
+                                            )
+                                        }
+                                        val first = shuffled.first().item
+                                        onVideoClick(first.url, first.name, first.thumbnails.firstOrNull()?.url ?: "")
                                     }
                                 }
-                            }
-                        )
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                    }
+
+                    itemsIndexed(playlistItems, key = { index, state -> "${state.item.url}_$index" }) { index, state ->
+                        val video = state.item
+                        val thumbUrl = video.thumbnails.firstOrNull()?.url ?: ""
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${index + 1}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(32.dp).padding(start = 8.dp)
+                            )
+                            com.videhub.ui.components.VideoRowItem(
+                                modifier = Modifier.weight(1f),
+                                videoUrl = video.url,
+                                title = video.name,
+                                uploaderName = video.uploaderName ?: "",
+                                thumbnailUrl = thumbUrl,
+                                duration = video.duration,
+                                viewCount = video.viewCount,
+                                onClick = {
+                                    com.videhub.QueueManager.clear()
+                                    if (index in 0 until playlistItems.lastIndex) {
+                                        for (i in (index + 1)..playlistItems.lastIndex) {
+                                            val qItem = playlistItems[i].item
+                                            com.videhub.QueueManager.enqueue(
+                                                com.videhub.PlayQueueItem(
+                                                    url = qItem.url,
+                                                    title = qItem.name,
+                                                    uploaderName = qItem.uploaderName ?: "",
+                                                    thumbnailUrl = qItem.thumbnails.firstOrNull()?.url ?: ""
+                                                )
+                                            )
+                                        }
+                                    }
+                                    onVideoClick(video.url, video.name, thumbUrl)
+                                },
+                                trailingIcon = {
+                                    if (state.isDownloaded) {
+                                        Icon(
+                                            imageVector = Icons.Default.DownloadDone,
+                                            contentDescription = "Downloaded",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    } else if (state.isDownloading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        IconButton(
+                                            onClick = {
+                                                selectedVideoForDownload = video
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Download,
+                                                contentDescription = "Download",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
