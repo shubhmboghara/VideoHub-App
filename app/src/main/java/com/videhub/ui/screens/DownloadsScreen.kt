@@ -25,9 +25,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import com.videhub.ui.components.safeBottomSheetPadding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -1340,6 +1343,8 @@ fun DownloadsScreen(
     if (showWatchLaterMenu) {
         ModalBottomSheet(
             onDismissRequest = { showWatchLaterMenu = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
             containerColor = Color(0xFF222222),
             contentColor = Color.White,
             shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
@@ -1347,8 +1352,8 @@ fun DownloadsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp, horizontal = 16.dp)
-                    .padding(bottom = 24.dp)
+                    .padding(top = 12.dp, start = 16.dp, end = 16.dp)
+                    .safeBottomSheetPadding(extraBottom = 12.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -1951,6 +1956,7 @@ fun DownloadItemDetailsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
@@ -1958,7 +1964,8 @@ fun DownloadItemDetailsSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp)
+                .safeBottomSheetPadding(extraBottom = 16.dp)
+                .verticalScroll(rememberScrollState())
         ) {
             // Header: Artwork + Full Title + Metadata
             Row(

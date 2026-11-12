@@ -60,6 +60,7 @@ fun InterestsBottomSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var selectedInterests by remember { mutableStateOf<List<String>>(emptyList()) }
     var customInput by remember { mutableStateOf("") }
@@ -87,17 +88,20 @@ fun InterestsBottomSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
-                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .safeBottomSheetPadding(extraBottom = 16.dp)
         ) {
+            // Fixed Top Header
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -108,7 +112,7 @@ fun InterestsBottomSheet(
                     imageVector = Icons.Default.AutoAwesome,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(26.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -124,11 +128,21 @@ fun InterestsBottomSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Add Custom Interest Text Field
+            // Add Custom Interest Text Field (Fixed near top)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
@@ -177,114 +191,129 @@ fun InterestsBottomSheet(
                 }
             }
 
-            // Currently Selected Chips
-            if (selectedInterests.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Active Interests (${selectedInterests.size})",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    TextButton(
-                        onClick = { selectedInterests = emptyList() },
-                        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Scrollable Middle Content (Chips)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .heightIn(max = 320.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                // Currently Selected Chips
+                if (selectedInterests.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Clear All",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.error
+                            text = "Active Interests (${selectedInterests.size})",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
                         )
+                        TextButton(
+                            onClick = { selectedInterests = emptyList() },
+                            modifier = Modifier.defaultMinSize(minHeight = 40.dp)
+                        ) {
+                            Text(
+                                text = "Clear All",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
+
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        selectedInterests.forEach { interest ->
+                            InputChip(
+                                selected = true,
+                                onClick = { removeInterest(interest) },
+                                label = {
+                                    Text(
+                                        text = interest,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                },
+                                trailingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove $interest",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
+                                colors = InputChipDefaults.inputChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTrailingIconColor = MaterialTheme.colorScheme.onPrimary
+                                ),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.defaultMinSize(minHeight = 40.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
+
+                // Suggestions List
+                Text(
+                    text = "Popular Topics & Categories",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
 
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    selectedInterests.forEach { interest ->
-                        InputChip(
-                            selected = true,
-                            onClick = { removeInterest(interest) },
+                    POPULAR_INTEREST_SUGGESTIONS.forEach { suggestion ->
+                        val isSelected = selectedInterests.any { it.equals(suggestion, ignoreCase = true) }
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = {
+                                if (isSelected) removeInterest(suggestion) else addInterest(suggestion)
+                            },
                             label = {
                                 Text(
-                                    text = interest,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Medium
+                                    text = suggestion,
+                                    style = MaterialTheme.typography.labelMedium
                                 )
                             },
-                            trailingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Remove $interest",
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            },
-                            colors = InputChipDefaults.inputChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                selectedTrailingIconColor = MaterialTheme.colorScheme.onPrimary
-                            ),
+                            leadingIcon = if (isSelected) {
+                                {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            } else null,
                             shape = RoundedCornerShape(16.dp),
                             modifier = Modifier.defaultMinSize(minHeight = 40.dp)
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Suggestions List
-            Text(
-                text = "Popular Topics & Categories",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 12.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
             )
-            Spacer(modifier = Modifier.height(8.dp))
 
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                POPULAR_INTEREST_SUGGESTIONS.forEach { suggestion ->
-                    val isSelected = selectedInterests.any { it.equals(suggestion, ignoreCase = true) }
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = {
-                            if (isSelected) removeInterest(suggestion) else addInterest(suggestion)
-                        },
-                        label = {
-                            Text(
-                                text = suggestion,
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        },
-                        leadingIcon = if (isSelected) {
-                            {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        } else null,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.defaultMinSize(minHeight = 40.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Action Buttons
+            // Pinned Bottom Action Buttons (Always visible above system navigation bar)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)

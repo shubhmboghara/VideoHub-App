@@ -11,7 +11,10 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import com.videhub.ui.components.safeBottomSheetPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
@@ -454,6 +457,8 @@ fun PlaylistsScreen(
         val targetPlaylist = activeMenuPlaylist!!
         ModalBottomSheet(
             onDismissRequest = { activeMenuPlaylist = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
             containerColor = Color(0xFF222222),
             contentColor = Color.White,
             shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
@@ -461,8 +466,9 @@ fun PlaylistsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp, horizontal = 16.dp)
-                    .padding(bottom = 24.dp)
+                    .padding(top = 12.dp, start = 16.dp, end = 16.dp)
+                    .safeBottomSheetPadding(extraBottom = 12.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
                 // Title header
                 Text(
@@ -641,6 +647,8 @@ fun PlaylistsScreen(
     if (showWatchLaterMenu) {
         ModalBottomSheet(
             onDismissRequest = { showWatchLaterMenu = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
             containerColor = Color(0xFF222222),
             contentColor = Color.White,
             shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
@@ -648,8 +656,8 @@ fun PlaylistsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp, horizontal = 16.dp)
-                    .padding(bottom = 24.dp)
+                    .padding(top = 12.dp, start = 16.dp, end = 16.dp)
+                    .safeBottomSheetPadding(extraBottom = 12.dp)
             ) {
                 Row(
                     modifier = Modifier

@@ -6,6 +6,8 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -55,11 +57,12 @@ fun VideoActionBottomSheet(
             title = title,
             thumbnailUrl = thumbnailUrl,
             streamInfo = streamInfo,
-            onDismiss = { showDownloadDialog = false }
+            onDismiss = {
+                showDownloadDialog = false
+                onDismiss()
+            }
         )
-    }
-
-    if (showAddToPlaylist) {
+    } else if (showAddToPlaylist) {
         AddToPlaylistDialog(
             videoUrl = videoUrl,
             title = title,
@@ -73,13 +76,16 @@ fun VideoActionBottomSheet(
     } else {
         ModalBottomSheet(
             onDismissRequest = onDismiss,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
             containerColor = MaterialTheme.colorScheme.surface,
             tonalElevation = 0.dp
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 24.dp)
+                    .safeBottomSheetPadding(extraBottom = 12.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
                 ListItem(
                     headlineContent = { Text("Start Song Radio (Endless Mix)") },

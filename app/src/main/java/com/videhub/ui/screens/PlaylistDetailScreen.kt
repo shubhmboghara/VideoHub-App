@@ -139,20 +139,10 @@ fun PlaylistDetailScreen(
                 )
             },
             confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Neutral option: Keep files
-                    TextButton(
-                        onClick = {
-                            showDeletePlaylistDialog = false
-                            viewModel.deletePlaylist(context, deleteFilesToo = false) {
-                                onBackPressedDispatcher?.onBackPressed()
-                                Toast.makeText(context, "Playlist deleted", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    ) {
-                        Text("Keep files")
-                    }
-
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     // Destructive option: Delete files too
                     Button(
                         onClick = {
@@ -165,17 +155,35 @@ fun PlaylistDetailScreen(
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error,
                             contentColor = MaterialTheme.colorScheme.onError
-                        )
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Delete files too")
+                        Text("Delete playlist & downloaded files")
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { showDeletePlaylistDialog = false }) {
+                            Text("Cancel")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        FilledTonalButton(
+                            onClick = {
+                                showDeletePlaylistDialog = false
+                                viewModel.deletePlaylist(context, deleteFilesToo = false) {
+                                    onBackPressedDispatcher?.onBackPressed()
+                                    Toast.makeText(context, "Playlist deleted", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        ) {
+                            Text("Keep files")
+                        }
                     }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showDeletePlaylistDialog = false }) {
-                    Text("Cancel")
-                }
-            }
+            dismissButton = null
         )
     }
 

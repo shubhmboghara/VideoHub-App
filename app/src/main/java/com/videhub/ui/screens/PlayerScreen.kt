@@ -28,6 +28,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import com.videhub.ui.components.safeBottomSheetPadding
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -780,7 +782,9 @@ fun PlayerScreen(
             onDismissRequest = { showQualitySelector = false },
             title = { androidx.compose.material3.Text("Video Quality") },
             text = {
-                androidx.compose.foundation.lazy.LazyColumn {
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.heightIn(max = 320.dp)
+                ) {
                     items(count = availableQualities.size, key = { index -> "${availableQualities[index]}_$index" }) { index ->
                         val quality = availableQualities[index]
                         androidx.compose.foundation.layout.Row(
@@ -816,7 +820,9 @@ fun PlayerScreen(
             onDismissRequest = { showSleepTimerDialog = false },
             title = { androidx.compose.material3.Text("Sleep Timer") },
             text = {
-                androidx.compose.foundation.lazy.LazyColumn {
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.heightIn(max = 320.dp)
+                ) {
                     item {
                         androidx.compose.foundation.layout.Row(
                             modifier = Modifier.fillMaxWidth().clickable {
@@ -863,13 +869,15 @@ fun PlayerScreen(
     if (showSettingsSheet) {
         androidx.compose.material3.ModalBottomSheet(
             onDismissRequest = { showSettingsSheet = false },
+            sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            contentWindowInsets = { androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0) },
             containerColor = MaterialTheme.colorScheme.surface,
             tonalElevation = 0.dp
         ) {
             androidx.compose.foundation.lazy.LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 32.dp)
+                    .safeBottomSheetPadding(extraBottom = 16.dp)
             ) {
                 item {
                     androidx.compose.material3.ListItem(
@@ -905,7 +913,7 @@ fun PlayerScreen(
                             .height(48.dp)
                             .clickable {
                                 showSettingsSheet = false
-                                showSleepTimerDialog = true
+                                showSleepTimerSheet = true
                             }
                     )
                 }
@@ -976,6 +984,8 @@ fun PlayerScreen(
     if (showPlaybackSpeedMenu) {
         androidx.compose.material3.ModalBottomSheet(
             onDismissRequest = { showPlaybackSpeedMenu = false },
+            sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            contentWindowInsets = { androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0) },
             containerColor = MaterialTheme.colorScheme.surface,
             tonalElevation = 0.dp,
             dragHandle = { androidx.compose.material3.BottomSheetDefaults.DragHandle() }
@@ -983,7 +993,9 @@ fun PlayerScreen(
             androidx.compose.foundation.layout.Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 32.dp, top = 8.dp)
+                    .padding(top = 8.dp)
+                    .safeBottomSheetPadding(extraBottom = 20.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
                 androidx.compose.material3.Text(
                     text = "${currentSpeed}x",

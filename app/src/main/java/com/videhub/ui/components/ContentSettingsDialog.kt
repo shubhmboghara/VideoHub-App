@@ -119,7 +119,7 @@ fun ContentSettingsDialog(onDismiss: () -> Unit) {
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                LazyColumn(modifier = Modifier.weight(1f)) {
+                LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
                     if (selectedTab == 0) {
                         items(languages) { (code, name) ->
                             LanguageRegionItem(

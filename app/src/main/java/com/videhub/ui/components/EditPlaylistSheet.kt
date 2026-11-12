@@ -13,8 +13,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.CameraAlt
@@ -247,6 +249,8 @@ fun EditPlaylistSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         containerColor = Color(0xFF1E1E1E),
         contentColor = Color.White,
@@ -258,7 +262,8 @@ fun EditPlaylistSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
+                .safeBottomSheetPadding(extraBottom = 16.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Header Row: "Edit" Title + Close Button (X)
@@ -292,6 +297,7 @@ fun EditPlaylistSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(max = 180.dp)
                     .aspectRatio(16f / 9f)
                     .clip(RoundedCornerShape(14.dp))
                     .background(Color(0xFF2C2C2C))

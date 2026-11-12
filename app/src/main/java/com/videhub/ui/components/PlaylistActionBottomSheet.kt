@@ -46,6 +46,8 @@ fun PlaylistActionBottomSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         tonalElevation = 4.dp
@@ -53,7 +55,8 @@ fun PlaylistActionBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 4.dp, bottom = 28.dp)
+                .padding(top = 4.dp)
+                .safeBottomSheetPadding(extraBottom = 12.dp)
         ) {
             // 1. Play next in queue (Matching Image 1)
             ListItem(
