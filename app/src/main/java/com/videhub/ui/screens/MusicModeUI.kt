@@ -65,7 +65,7 @@ fun MusicModeUI(
     isAudioOnly: Boolean = false
 ) {
     AnimatedVisibility(
-        visible = isMusicMode && !isFullscreen,
+        visible = isMusicMode,
         enter = fadeIn(animationSpec = tween(300)),
         exit = fadeOut(animationSpec = tween(300)),
         modifier = Modifier.zIndex(2f)

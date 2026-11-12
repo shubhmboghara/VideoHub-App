@@ -22,11 +22,13 @@ fun VideoHubTopBar(
     onSearch: () -> Unit,
     onFilter: () -> Unit = {},
     scrollBehavior: TopAppBarScrollBehavior? = null,
+    windowInsets: WindowInsets = TopAppBarDefaults.windowInsets,
     modifier: Modifier = Modifier
 ) {
     TopAppBar(
         modifier = modifier.fillMaxWidth(),
         scrollBehavior = scrollBehavior,
+        windowInsets = windowInsets,
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = MaterialTheme.colorScheme.background,
             scrolledContainerColor = MaterialTheme.colorScheme.background,
@@ -40,12 +42,12 @@ fun VideoHubTopBar(
                 Image(
                     painter = painterResource(id = R.drawable.ic_logo),
                     contentDescription = "VideoHub logo",
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(32.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "VideoHub",
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
@@ -60,18 +62,16 @@ fun VideoHubTopBar(
                 if (showFilter) {
                     Surface(
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                         onClick = onFilter,
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .size(48.dp)
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Filled.Tune,
                                 contentDescription = "Personalize interests and topics",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(22.dp)
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
@@ -79,18 +79,16 @@ fun VideoHubTopBar(
 
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                     onClick = onSearch,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .size(48.dp)
+                    modifier = Modifier.size(40.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Filled.Search,
                             contentDescription = "Search videos, channels, and playlists",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp)
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }

@@ -558,8 +558,11 @@ fun MainScreen() {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        val showBottomBar = (currentRoute == null || !currentRoute.startsWith("player")) && !com.videhub.PipState.isActive.value
+        val isPlayerRoute = currentRoute?.startsWith("player") == true
+        val showBottomBar = !isPlayerRoute && !com.videhub.PipState.isActive.value
+        val useZeroPadding = isPlayerRoute || com.videhub.PipState.isActive.value
         androidx.compose.material3.Scaffold(
+            contentWindowInsets = if (useZeroPadding) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets,
             bottomBar = {
                 if (showBottomBar) {
                     com.videhub.navigation.BottomNavigationBar(
@@ -569,11 +572,12 @@ fun MainScreen() {
                 }
             }
         ) { innerPadding ->
+            val appliedPadding = if (useZeroPadding) androidx.compose.foundation.layout.PaddingValues(0.dp) else innerPadding
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(if (com.videhub.PipState.isActive.value) androidx.compose.foundation.layout.PaddingValues(0.dp) else innerPadding)
-                    .consumeWindowInsets(if (com.videhub.PipState.isActive.value) androidx.compose.foundation.layout.PaddingValues(0.dp) else innerPadding)
+                    .padding(appliedPadding)
+                    .consumeWindowInsets(appliedPadding)
             ) {
                 com.videhub.navigation.NavGraph(
                     navController = navController,

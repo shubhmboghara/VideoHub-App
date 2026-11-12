@@ -17,13 +17,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import kotlin.math.roundToInt
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.unit.sp
@@ -430,35 +433,64 @@ fun HomeScreen(
     }
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
+    val chipListState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    LaunchedEffect(selectedTab) {
+        scrollBehavior.state.heightOffset = 0f
+        if (selectedTab in 0 until tabs.size) {
+            runCatching {
+                chipListState.animateScrollToItem((selectedTab - 1).coerceAtLeast(0))
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
             .nestedScroll(scrollBehavior.nestedScrollConnection)
     ) {
-        com.videhub.ui.components.VideoHubTopBar(
-            showFilter = true,
-            onSearch = onSearchClick,
-            onFilter = { showInterestsSheet = true },
-            scrollBehavior = scrollBehavior
-        )
-        
-        Row(
+        // Unified YouTube-style Collapsible Header (Top Bar + Category Chips)
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(tabBg)
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .background(MaterialTheme.colorScheme.background)
+                .clipToBounds()
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    val totalHeight = placeable.height.toFloat()
+                    if (scrollBehavior.state.heightOffsetLimit != -totalHeight) {
+                        scrollBehavior.state.heightOffsetLimit = -totalHeight
+                    }
+                    val offset = scrollBehavior.state.heightOffset
+                        .roundToInt()
+                        .coerceIn(-placeable.height, 0)
+                    val visibleHeight = (placeable.height + offset).coerceAtLeast(0)
+                    layout(placeable.width, visibleHeight) {
+                        placeable.placeRelative(0, offset)
+                    }
+                }
         ) {
+            com.videhub.ui.components.VideoHubTopBar(
+                showFilter = true,
+                onSearch = onSearchClick,
+                onFilter = { showInterestsSheet = true },
+                windowInsets = WindowInsets(0, 0, 0, 0)
+            )
+
             val safeSelectedTab = if (tabs.isNotEmpty()) selectedTab.coerceIn(0, tabs.size - 1) else 0
             val selectedChipBg = MaterialTheme.colorScheme.onSurface
-            val unselectedChipBg = MaterialTheme.colorScheme.surfaceVariant
+            val unselectedChipBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             val selectedText = MaterialTheme.colorScheme.surface
             val unselectedText = MaterialTheme.colorScheme.onSurface
-            
+
             androidx.compose.foundation.lazy.LazyRow(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                state = chipListState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -466,66 +498,64 @@ fun HomeScreen(
                     val tab = tabs[index]
                     val isSelected = safeSelectedTab == index
                     val isCustom = tab != "All"
-                    
-                    Surface(
+
+                    Box(
                         modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .height(36.dp)
+                            .height(32.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) selectedChipBg else unselectedChipBg)
                             .semantics {
                                 contentDescription = if (isSelected) "$tab tab, selected" else "$tab tab"
-                            },
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (isSelected) selectedChipBg else unselectedChipBg.copy(alpha = 0.5f),
-                        onClick = { selectedTab = index }
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .combinedClickable(
-                                    role = androidx.compose.ui.semantics.Role.Tab,
-                                    onClick = { selectedTab = index },
-                                    onLongClick = {
-                                        if (isCustom) {
-                                            tabToDelete = index
-                                            showDeleteDialog = true
-                                        }
+                            }
+                            .combinedClickable(
+                                role = androidx.compose.ui.semantics.Role.Tab,
+                                onClick = { selectedTab = index },
+                                onLongClick = {
+                                    if (isCustom) {
+                                        tabToDelete = index
+                                        showDeleteDialog = true
                                     }
-                                )
-                                .padding(horizontal = 16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = tab,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                color = if (isSelected) selectedText else unselectedText
+                                }
                             )
-                        }
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = tab,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            color = if (isSelected) selectedText else unselectedText
+                        )
                     }
                 }
-                item {
-                    Surface(
+                item(key = "add_custom_category_chip") {
+                    Box(
                         modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .size(48.dp)
+                            .height(32.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(unselectedChipBg)
                             .semantics {
                                 contentDescription = "Add custom category"
-                            },
-                        shape = CircleShape,
-                        color = unselectedChipBg,
-                        onClick = { showAddDialog = true }
+                            }
+                            .clickable { showAddDialog = true }
+                            .padding(horizontal = 10.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.Add,
-                                contentDescription = "Add custom category",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = "Add custom category",
+                            tint = unselectedText,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
             }
+
+            HorizontalDivider(
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+            )
         }
 
         if (showAddDialog) {

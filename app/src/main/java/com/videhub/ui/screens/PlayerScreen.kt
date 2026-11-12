@@ -655,22 +655,71 @@ fun PlayerScreen(
     var showSleepTimerSheet by remember { mutableStateOf(false) }
     var playlists by remember { mutableStateOf<List<PlaylistEntity>>(emptyList()) }
 
+    val initialIsMusic = remember(videoUrl, title, forceMusicMode, isAudioOnlyDownload) {
+        forceMusicMode || isAudioOnlyDownload || (isLocalFile && (com.videhub.utils.FileUtils.isAudioFile(videoUrl) || title.contains("kbps", ignoreCase = true)))
+    }
+    var isMusicMode by remember(videoUrl, initialIsMusic) { mutableStateOf(initialIsMusic) }
+
     var isFullscreen by remember { mutableStateOf(initialFullscreen) }
-    fun setFullscreen(enable: Boolean) {
-        isFullscreen = enable
+    fun syncSystemBarsForFullscreen(fullscreenActive: Boolean) {
         activity?.let {
-            it.requestedOrientation = if (enable)
-                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else
-                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             val ctrl = WindowInsetsControllerCompat(it.window, it.window.decorView)
-            if (enable) {
+            if (fullscreenActive && !isMusicMode) {
                 ctrl.hide(WindowInsetsCompat.Type.systemBars())
                 ctrl.systemBarsBehavior =
                     WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             } else {
                 ctrl.show(WindowInsetsCompat.Type.systemBars())
             }
+        }
+    }
+
+    fun setFullscreen(enable: Boolean) {
+        isFullscreen = enable
+        activity?.let {
+            it.requestedOrientation = if (enable)
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else if (isMusicMode)
+                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            else
+                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        syncSystemBarsForFullscreen(enable)
+    }
+
+    fun switchToMusicMode() {
+        if (isFullscreen) {
+            setFullscreen(false)
+        }
+        isMusicMode = true
+        activity?.let {
+            it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            WindowInsetsControllerCompat(it.window, it.window.decorView)
+                .show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    val currentConfig = LocalConfiguration.current
+    val isCurrentlyLandscape = currentConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
+    LaunchedEffect(
+        isFullscreen,
+        isCurrentlyLandscape,
+        isMusicMode,
+        showSettingsSheet,
+        showPlaybackSpeedMenu,
+        showQualitySelector,
+        showSleepTimerDialog,
+        showSleepTimerSheet,
+        showEqualizerSheet,
+        showVideoActionBottomSheet,
+        showDownloadDialog,
+        showAddToPlaylistDialog
+    ) {
+        val anySheetOpen = showSettingsSheet || showPlaybackSpeedMenu || showQualitySelector ||
+            showSleepTimerDialog || showSleepTimerSheet || showEqualizerSheet ||
+            showVideoActionBottomSheet || showDownloadDialog || showAddToPlaylistDialog
+        if (!anySheetOpen) {
+            syncSystemBarsForFullscreen(isFullscreen || isCurrentlyLandscape)
         }
     }
 
@@ -687,7 +736,7 @@ fun PlayerScreen(
                     lastPhysicalState = currentState
                     try {
                         val autoRotateEnabled = android.provider.Settings.System.getInt(context.contentResolver, android.provider.Settings.System.ACCELEROMETER_ROTATION, 0) == 1
-                        if (autoRotateEnabled) {
+                        if (autoRotateEnabled && !isMusicMode) {
                             if (currentState == "LANDSCAPE" && !isFullscreen) {
                                 setFullscreen(true)
                             } else if (currentState == "PORTRAIT" && isFullscreen) {
@@ -730,9 +779,6 @@ fun PlayerScreen(
     }
     val isHandlingAutoplay = remember { com.videhub.utils.MutableRef(false) }
 
-    val initialIsMusic = remember(videoUrl, title, forceMusicMode, isAudioOnlyDownload) {
-        forceMusicMode || isAudioOnlyDownload || (isLocalFile && (com.videhub.utils.FileUtils.isAudioFile(videoUrl) || title.contains("kbps", ignoreCase = true)))
-    }
     val showCaptionsRef = remember { mutableStateOf(initialIsMusic) }
     var showUpNext by remember { mutableStateOf(false) }
     var countdownSeconds by remember { mutableIntStateOf(0) }
@@ -867,8 +913,13 @@ fun PlayerScreen(
     }
 
     if (showSettingsSheet) {
+        val isSheetLandscape = isCurrentlyLandscape || isFullscreen
         androidx.compose.material3.ModalBottomSheet(
-            onDismissRequest = { showSettingsSheet = false },
+            onDismissRequest = {
+                showSettingsSheet = false
+                syncSystemBarsForFullscreen(isFullscreen || isCurrentlyLandscape)
+            },
+            sheetMaxWidth = if (isSheetLandscape) 460.dp else BottomSheetDefaults.SheetMaxWidth,
             sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
             contentWindowInsets = { androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0) },
             containerColor = MaterialTheme.colorScheme.surface,
@@ -877,8 +928,21 @@ fun PlayerScreen(
             androidx.compose.foundation.lazy.LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .safeBottomSheetPadding(extraBottom = 16.dp)
+                    .heightIn(max = if (isSheetLandscape) 260.dp else 520.dp)
+                    .safeBottomSheetPadding(extraBottom = if (isSheetLandscape) 12.dp else 16.dp)
             ) {
+                item {
+                    androidx.compose.material3.ListItem(
+                        headlineContent = { androidx.compose.material3.Text("Switch to Music Mode", style = MaterialTheme.typography.bodyLarge) },
+                        leadingContent = { Icon(androidx.compose.material.icons.Icons.Default.Audiotrack, contentDescription = null) },
+                        modifier = Modifier
+                            .height(48.dp)
+                            .clickable {
+                                showSettingsSheet = false
+                                switchToMusicMode()
+                            }
+                    )
+                }
                 item {
                     androidx.compose.material3.ListItem(
                         headlineContent = { androidx.compose.material3.Text("Video Quality", style = MaterialTheme.typography.bodyLarge) },
@@ -1125,13 +1189,26 @@ fun PlayerScreen(
     }
 
     // Fix #10
-    var isMusicMode by remember(videoUrl, initialIsMusic) { mutableStateOf(initialIsMusic) }
     LaunchedEffect(isAudioOnlyDownload) {
         if (isAudioOnlyDownload) {
-            isMusicMode = true
+            switchToMusicMode()
         }
     }
-    androidx.compose.runtime.LaunchedEffect(isMusicMode) { showCaptionsRef.value = isMusicMode }
+    androidx.compose.runtime.LaunchedEffect(isMusicMode) {
+        showCaptionsRef.value = isMusicMode
+        if (isMusicMode) {
+            if (isFullscreen) {
+                isFullscreen = false
+            }
+            activity?.let {
+                it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                WindowInsetsControllerCompat(it.window, it.window.decorView)
+                    .show(WindowInsetsCompat.Type.systemBars())
+            }
+        } else if (!isFullscreen) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
 
     LaunchedEffect(isMusicMode, title, channelName, thumbnailUrl) {
         com.videhub.ui.components.LiveCaptionsManager.setMusicMode(isMusicMode)
@@ -1357,7 +1434,7 @@ fun PlayerScreen(
                     onShowSettingsSheet = { showSettingsSheet = true },
                     onShowSpeedMenu = { showPlaybackSpeedMenu = true },
                     currentSpeed = currentSpeed,
-                    onToggleMusicMode = { isMusicMode = true }
+                    onToggleMusicMode = { switchToMusicMode() }
                 )
 
                 if (isScreenLocked) {
@@ -1443,6 +1520,7 @@ fun PlayerScreen(
                     onShowSettingsSheet = { showSettingsSheet = true },
                     onShowEqualizerSheet = { showEqualizerSheet = true },
                     onShowSleepTimerSheet = { showSleepTimerSheet = true },
+                    onToggleMusicMode = { switchToMusicMode() },
                     onVideoPlay = { url, t, th, musicMode -> onVideoPlay(url, t, th, musicMode, false) },
                     mediaPlayer = mediaPlayer,
                     sharedViewModel = sharedViewModel,
@@ -1644,11 +1722,13 @@ fun VideoPlayerContainer(
                 isVisible = controllerVisible,
                 isFullscreen = isFullscreen,
                 showCaptions = showCaptions,
+                currentSpeed = currentSpeed,
                 videoScale = videoScale,
                 onScaleChange = { zoomChange, panChange ->
-                    val newScale = (videoScale * zoomChange).coerceIn(1f, 3.5f)
+                    val rawScale = (videoScale * zoomChange).coerceIn(1f, 3.5f)
+                    val newScale = if (rawScale < 1.05f && zoomChange < 1f) 1f else rawScale
                     videoScale = newScale
-                    if (newScale <= 1f) {
+                    if (newScale <= 1.01f) {
                         videoPanOffsetX = 0f
                         videoPanOffsetY = 0f
                     } else {
@@ -1664,6 +1744,13 @@ fun VideoPlayerContainer(
                     videoPanOffsetY = 0f
                 },
                 onToggleFullscreen = onToggleFullscreen,
+                onEnterFullscreen = {
+                    if (!isFullscreen) onToggleFullscreen()
+                },
+                onExitFullscreen = {
+                    if (isFullscreen) onToggleFullscreen()
+                },
+                onMinimize = onBack,
                 onSettingsClick = onShowSettingsSheet,
                 onCaptionsClick = onCaptionsRequested,
                 onPreviousClick = { mediaPlayer?.seekToPrevious() },
@@ -1692,10 +1779,18 @@ fun VideoPlayerContainer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(
-                        if (isFullscreen) Modifier.windowInsetsPadding(WindowInsets.displayCutout)
-                        else Modifier
+                        if (isFullscreen) {
+                            Modifier
+                                .windowInsetsPadding(WindowInsets.displayCutout)
+                                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
+                        } else {
+                            Modifier
+                        }
                     )
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .padding(
+                        horizontal = if (isFullscreen) 16.dp else 8.dp,
+                        vertical = if (isFullscreen) 10.dp else 6.dp
+                    )
             ) {
                 IconButton(
                     onClick = onBack,
@@ -1714,8 +1809,19 @@ fun VideoPlayerContainer(
                 Row(
                     modifier = Modifier.align(Alignment.CenterEnd),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    IconButton(
+                        onClick = onToggleMusicMode,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Filled.Audiotrack,
+                            contentDescription = "Music Mode",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                     IconButton(
                         onClick = onCaptionsRequested,
                         modifier = Modifier.size(40.dp)
@@ -1737,19 +1843,6 @@ fun VideoPlayerContainer(
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)
                         )
-                    }
-                    if (!isFullscreen) {
-                        IconButton(
-                            onClick = onToggleMusicMode,
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Filled.Audiotrack,
-                                contentDescription = "Music Mode",
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
                     }
                 }
             }

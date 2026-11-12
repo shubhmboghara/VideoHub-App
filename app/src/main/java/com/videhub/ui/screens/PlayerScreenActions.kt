@@ -53,6 +53,7 @@ fun PlayerScreenActions(
     onShowSettingsSheet: () -> Unit,
     onShowEqualizerSheet: () -> Unit = {},
     onShowSleepTimerSheet: () -> Unit = {},
+    onToggleMusicMode: () -> Unit = {},
     context: Context,
     scope: CoroutineScope,
     db: AppDatabase,
@@ -169,6 +170,12 @@ fun PlayerScreenActions(
                     }
                 }
             }
+        )
+
+        ActionChipItem(
+            label = "Music Mode",
+            icon = Icons.Default.Audiotrack,
+            onClick = onToggleMusicMode
         )
 
         ActionChipItem(
