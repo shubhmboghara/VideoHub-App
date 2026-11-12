@@ -1434,7 +1434,9 @@ fun PlayerScreen(
                     onShowSettingsSheet = { showSettingsSheet = true },
                     onShowSpeedMenu = { showPlaybackSpeedMenu = true },
                     currentSpeed = currentSpeed,
-                    onToggleMusicMode = { switchToMusicMode() }
+                    onToggleMusicMode = { switchToMusicMode() },
+                    relatedVideos = relatedVideos,
+                    onVideoSelect = { url, t, thumb -> onVideoPlay(url, t, thumb, false, false) }
                 )
 
                 if (isScreenLocked) {
@@ -1659,7 +1661,9 @@ fun VideoPlayerContainer(
     onShowSettingsSheet: () -> Unit,
     onShowSpeedMenu: () -> Unit,
     currentSpeed: Float,
-    onToggleMusicMode: () -> Unit
+    onToggleMusicMode: () -> Unit,
+    relatedVideos: List<org.schabi.newpipe.extractor.stream.StreamInfoItem> = emptyList(),
+    onVideoSelect: (String, String, String) -> Unit = { _, _, _ -> }
 ) {
     var controllerVisible by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var videoScale by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
@@ -1755,7 +1759,9 @@ fun VideoPlayerContainer(
                 onCaptionsClick = onCaptionsRequested,
                 onPreviousClick = { mediaPlayer?.seekToPrevious() },
                 onNextClick = { mediaPlayer?.seekToNext() },
-                onSingleTap = { controllerVisible = !controllerVisible }
+                onSingleTap = { controllerVisible = !controllerVisible },
+                relatedVideos = relatedVideos,
+                onVideoSelect = onVideoSelect
             )
         }
 
@@ -1778,18 +1784,9 @@ fun VideoPlayerContainer(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(
-                        if (isFullscreen) {
-                            Modifier
-                                .windowInsetsPadding(WindowInsets.displayCutout)
-                                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
-                        } else {
-                            Modifier
-                        }
-                    )
                     .padding(
-                        horizontal = if (isFullscreen) 16.dp else 8.dp,
-                        vertical = if (isFullscreen) 10.dp else 6.dp
+                        horizontal = if (isFullscreen) 20.dp else 8.dp,
+                        vertical = if (isFullscreen) 12.dp else 6.dp
                     )
             ) {
                 IconButton(
@@ -1812,12 +1809,12 @@ fun VideoPlayerContainer(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     IconButton(
-                        onClick = onToggleMusicMode,
+                        onClick = onShowSettingsSheet,
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Filled.Audiotrack,
-                            contentDescription = "Music Mode",
+                            imageVector = androidx.compose.material.icons.Icons.Outlined.Settings,
+                            contentDescription = "Settings",
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)
                         )
@@ -1834,12 +1831,12 @@ fun VideoPlayerContainer(
                         )
                     }
                     IconButton(
-                        onClick = onShowSettingsSheet,
+                        onClick = onToggleMusicMode,
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Outlined.Settings,
-                            contentDescription = "Settings",
+                            imageVector = androidx.compose.material.icons.Icons.Filled.Audiotrack,
+                            contentDescription = "Music Mode",
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)
                         )

@@ -271,21 +271,17 @@ fun ChannelAboutScreen(
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
 
-                // Channel URL link
+                // Channel URL info row (YouTube style, non-external)
                 val channelUrl = nonNullInfo.url ?: ""
                 if (channelUrl.isNotBlank()) {
                     val displayUrl = channelUrl.removePrefix("https://").removePrefix("http://")
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                try { uriHandler.openUri(channelUrl) } catch (_: Exception) {}
-                            }
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Public,
-                            contentDescription = "Channel link",
+                            imageVector = Icons.Default.Link,
+                            contentDescription = "Channel URL",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(24.dp)
                         )
@@ -293,7 +289,7 @@ fun ChannelAboutScreen(
                         Text(
                             text = displayUrl,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )

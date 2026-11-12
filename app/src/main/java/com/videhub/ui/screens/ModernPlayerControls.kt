@@ -1,11 +1,16 @@
 package com.videhub.ui.screens
 
+import android.content.Context
+import android.media.AudioManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -13,12 +18,19 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
@@ -28,21 +40,26 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import coil.compose.AsyncImage
 import com.videhub.ui.components.DoubleTapSeekOverlay
 import com.videhub.ui.components.SeekDirection
 import com.videhub.ui.components.VideoSeekBar
@@ -50,8 +67,11 @@ import com.videhub.ui.components.formatVideoDuration
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 @Composable
 fun ModernPlayerControls(
@@ -62,6 +82,8 @@ fun ModernPlayerControls(
     showCaptions: Boolean,
     currentSpeed: Float = 1f,
     videoScale: Float = 1f,
+    relatedVideos: List<StreamInfoItem> = emptyList(),
+    onVideoSelect: (String, String, String) -> Unit = { _, _, _ -> },
     onScaleChange: (Float, Offset) -> Unit = { _, _ -> },
     onResetZoom: () -> Unit = {},
     onToggleFullscreen: () -> Unit,
@@ -74,6 +96,9 @@ fun ModernPlayerControls(
     onNextClick: () -> Unit,
     onSingleTap: () -> Unit
 ) {
+    val context = LocalContext.current
+    val activity = remember(context) { context.getActivity() }
+    val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
@@ -86,6 +111,9 @@ fun ModernPlayerControls(
     val currentOnScaleChange by rememberUpdatedState(onScaleChange)
     val currentOnResetZoom by rememberUpdatedState(onResetZoom)
     val currentOnSingleTap by rememberUpdatedState(onSingleTap)
+    val currentOnPreviousClick by rememberUpdatedState(onPreviousClick)
+    val currentOnNextClick by rememberUpdatedState(onNextClick)
+    val currentRelatedVideos by rememberUpdatedState(relatedVideos)
 
     var isPlaying by remember { mutableStateOf(mediaPlayer?.isPlaying ?: false) }
     var isBuffering by remember { mutableStateOf(mediaPlayer?.playbackState == Player.STATE_BUFFERING) }
@@ -93,25 +121,61 @@ fun ModernPlayerControls(
     var totalTime by remember { mutableLongStateOf(mediaPlayer?.duration?.coerceAtLeast(0L) ?: 0L) }
     var bufferedTime by remember { mutableLongStateOf(mediaPlayer?.bufferedPosition?.coerceAtLeast(0L) ?: 0L) }
 
-    // Double-Tap Quick Seek State
+    // 1. Double-Tap Quick Seek State
     var seekDirection by remember { mutableStateOf<SeekDirection?>(null) }
     var seekSeconds by remember { mutableIntStateOf(0) }
     var isSeekOverlayVisible by remember { mutableStateOf(false) }
     var hideSeekJob by remember { mutableStateOf<Job?>(null) }
 
-    // Hold-for-2x Speed State (YouTube signature gesture)
+    // 2. Hold-for-2x Speed State
     var isHold2xActive by remember { mutableStateOf(false) }
 
-    // Zoom Pill Toast State
+    // 3. Zoom Pill Toast State
     var showZoomToast by remember { mutableStateOf(false) }
     var hideZoomToastJob by remember { mutableStateOf<Job?>(null) }
+
+    // 4. Horizontal Drag-to-Seek State
+    var isHorizontalScrubbing by remember { mutableStateOf(false) }
+    var scrubStartPosMs by remember { mutableLongStateOf(0L) }
+    var scrubTargetPosMs by remember { mutableLongStateOf(0L) }
+
+    // 5. Fullscreen Brightness & Volume Vertical Swipe State
+    var isAdjustingBrightness by remember { mutableStateOf(false) }
+    var brightnessFraction by remember {
+        val currentWinBrightness = activity?.window?.attributes?.screenBrightness ?: -1f
+        mutableFloatStateOf(if (currentWinBrightness in 0f..1f) currentWinBrightness else 0.55f)
+    }
+    var hideBrightnessJob by remember { mutableStateOf<Job?>(null) }
+
+    var isAdjustingVolume by remember { mutableStateOf(false) }
+    var volumeFraction by remember {
+        val maxVol = (audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15).coerceAtLeast(1)
+        val curVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: (maxVol / 2)
+        mutableFloatStateOf((curVol.toFloat() / maxVol.toFloat()).coerceIn(0f, 1f))
+    }
+    var hideVolumeJob by remember { mutableStateOf<Job?>(null) }
+
+    // 6. Fullscreen Swipe-Up "Up Next / Related Videos" Drawer State
+    var showFullscreenRelatedDrawer by remember { mutableStateOf(false) }
+    LaunchedEffect(isFullscreen) {
+        if (!isFullscreen) {
+            showFullscreenRelatedDrawer = false
+        }
+    }
+
+    // 7. 2-Finger Double-Tap Skip Toast State
+    var twoFingerSkipMessage by remember { mutableStateOf<String?>(null) }
+    var hideTwoFingerSkipJob by remember { mutableStateOf<Job?>(null) }
+    var lastTwoFingerTapTimeMs by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(mediaPlayer) {
         while (true) {
             mediaPlayer?.let {
                 isPlaying = it.isPlaying
                 isBuffering = it.playbackState == Player.STATE_BUFFERING || (it.playbackState == Player.STATE_IDLE && it.playWhenReady)
-                currentTime = it.currentPosition
+                if (!isHorizontalScrubbing) {
+                    currentTime = it.currentPosition
+                }
                 totalTime = it.duration.coerceAtLeast(0L)
                 bufferedTime = it.bufferedPosition.coerceAtLeast(0L)
             }
@@ -129,34 +193,53 @@ fun ModernPlayerControls(
 
     val swipeThresholdPx = with(density) { 42.dp.toPx() }
     val topEdgeIgnorePx = with(density) { 36.dp.toPx() }
+    val bottomEdgeIgnorePx = with(density) { 54.dp.toPx() }
 
-    // Gesture Layer (YouTube-style Multi-Touch Pinch Zoom, 1-Finger Vertical Fullscreen Swipe, Single Tap, Double Tap Seek, and Hold 2x Speed)
     Box(
         modifier = modifier
             .fillMaxSize()
-            // 1. Multi-touch Pinch-to-Zoom AND 1-Finger Vertical Swipe (Fullscreen / Minimize)
+            // ── Unified Gesture Layer:
+            //    - 2-Finger Pinch-to-Zoom & 2-Finger Double-Tap Chapter/Video Skip
+            //    - 1-Finger Horizontal Slide to Seek
+            //    - 1-Finger Vertical Swipe (Left: Brightness in FS, Right: Volume in FS, Center: Fullscreen / Related Drawer / Minimize)
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val firstDown = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Main)
+                    val gestureStartMs = System.currentTimeMillis()
+                    val startX = firstDown.position.x
                     val startY = firstDown.position.y
+                    val viewWidth = size.width.toFloat().coerceAtLeast(1f)
+                    val viewHeight = size.height.toFloat().coerceAtLeast(1f)
                     val touchSlop = viewConfiguration.touchSlop
 
-                    var isMultiTouchZoom = false
-                    var isVerticalSwipe = false
+                    var isMultiTouch = false
+                    var maxPressedCount = 1
+                    var twoFingerCenterX = startX
+                    var multiTouchTotalMove = 0f
+
+                    var gestureMode = "NONE" // "NONE", "HORIZ_SEEK", "VERT_BRIGHTNESS", "VERT_VOLUME", "VERT_CENTER"
                     var totalPanX = 0f
                     var totalPanY = 0f
-                    var verticalSwipeTriggered = false
+                    var verticalActionTriggered = false
+
+                    val inSafeVerticalRegion = startY > topEdgeIgnorePx && startY < (viewHeight - bottomEdgeIgnorePx)
 
                     do {
                         val event = awaitPointerEvent(PointerEventPass.Main)
-                        val pressedCount = event.changes.count { it.pressed }
+                        val pressedChanges = event.changes.filter { it.pressed }
+                        val pressedCount = pressedChanges.size
+                        if (pressedCount > maxPressedCount) {
+                            maxPressedCount = pressedCount
+                        }
 
                         if (pressedCount >= 2) {
-                            // Two-finger Pinch-to-Zoom & Pan (like real YouTube)
-                            isMultiTouchZoom = true
+                            isMultiTouch = true
+                            twoFingerCenterX = pressedChanges.map { it.position.x }.average().toFloat()
                             val zoom = event.calculateZoom()
                             val pan = event.calculatePan()
-                            if (abs(zoom - 1f) > 0.005f || pan != Offset.Zero) {
+                            multiTouchTotalMove += pan.getDistance() + abs(zoom - 1f) * 200f
+
+                            if (abs(zoom - 1f) > 0.006f || pan.getDistance() > 2f) {
                                 currentOnScaleChange(zoom, pan)
                                 showZoomToast = true
                                 hideZoomToastJob?.cancel()
@@ -166,48 +249,156 @@ fun ModernPlayerControls(
                                 }
                             }
                             event.changes.forEach { it.consume() }
-                        } else if (!isMultiTouchZoom && pressedCount == 1 && !isHold2xActive) {
+                        } else if (!isMultiTouch && pressedCount == 1 && !isHold2xActive) {
                             val pan = event.calculatePan()
                             totalPanX += pan.x
                             totalPanY += pan.y
 
-                            if (!isVerticalSwipe) {
-                                val dist = kotlin.math.hypot(totalPanX, totalPanY)
-                                if (dist > touchSlop * 1.4f) {
-                                    if (abs(totalPanY) > abs(totalPanX) * 1.35f && startY > topEdgeIgnorePx) {
-                                        isVerticalSwipe = true
+                            if (gestureMode == "NONE" && inSafeVerticalRegion) {
+                                val dist = hypot(totalPanX, totalPanY)
+                                if (dist > touchSlop * 1.35f) {
+                                    if (abs(totalPanX) > abs(totalPanY) * 1.35f && totalTime > 0L) {
+                                        gestureMode = "HORIZ_SEEK"
+                                        isHorizontalScrubbing = true
+                                        scrubStartPosMs = mediaPlayer?.currentPosition ?: 0L
+                                        scrubTargetPosMs = scrubStartPosMs
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    } else if (abs(totalPanY) > abs(totalPanX) * 1.35f) {
+                                        if (currentIsFullscreen && startX < viewWidth * 0.28f) {
+                                            gestureMode = "VERT_BRIGHTNESS"
+                                            val winAttr = activity?.window?.attributes
+                                            val curB = winAttr?.screenBrightness ?: -1f
+                                            brightnessFraction = if (curB in 0f..1f) curB else 0.55f
+                                            isAdjustingBrightness = true
+                                            hideBrightnessJob?.cancel()
+                                        } else if (currentIsFullscreen && startX > viewWidth * 0.72f) {
+                                            gestureMode = "VERT_VOLUME"
+                                            val maxVol = (audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15).coerceAtLeast(1)
+                                            val curVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: (maxVol / 2)
+                                            volumeFraction = (curVol.toFloat() / maxVol.toFloat()).coerceIn(0f, 1f)
+                                            isAdjustingVolume = true
+                                            hideVolumeJob?.cancel()
+                                        } else {
+                                            gestureMode = "VERT_CENTER"
+                                        }
                                     }
                                 }
                             }
 
-                            if (isVerticalSwipe) {
-                                event.changes.forEach { it.consume() }
-                                if (!verticalSwipeTriggered && abs(totalPanY) >= swipeThresholdPx) {
-                                    verticalSwipeTriggered = true
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    if (totalPanY < 0f) {
-                                        // Swipe UP -> Enter Fullscreen
-                                        if (!currentIsFullscreen) {
-                                            currentOnEnterFullscreen()
-                                        }
-                                    } else {
-                                        // Swipe DOWN -> Exit Fullscreen (if fullscreen) or Minimize to MiniPlayer (if portrait)
-                                        if (currentIsFullscreen) {
-                                            currentOnExitFullscreen()
+                            when (gestureMode) {
+                                "HORIZ_SEEK" -> {
+                                    event.changes.forEach { it.consume() }
+                                    // Full screen width swipe = up to 90s (or full duration if shorter)
+                                    val maxSwipeSeekMs = minOf(90_000L, totalTime.coerceAtLeast(15_000L))
+                                    val deltaMs = ((totalPanX / viewWidth) * maxSwipeSeekMs).toLong()
+                                    scrubTargetPosMs = (scrubStartPosMs + deltaMs).coerceIn(0L, totalTime.coerceAtLeast(0L))
+                                    currentTime = scrubTargetPosMs
+                                }
+                                "VERT_BRIGHTNESS" -> {
+                                    event.changes.forEach { it.consume() }
+                                    val deltaB = -pan.y / (viewHeight * 0.65f)
+                                    val newB = (brightnessFraction + deltaB).coerceIn(0.02f, 1f)
+                                    brightnessFraction = newB
+                                    activity?.window?.let { win ->
+                                        val lp = win.attributes
+                                        lp.screenBrightness = newB
+                                        win.attributes = lp
+                                    }
+                                }
+                                "VERT_VOLUME" -> {
+                                    event.changes.forEach { it.consume() }
+                                    val deltaV = -pan.y / (viewHeight * 0.65f)
+                                    val newV = (volumeFraction + deltaV).coerceIn(0f, 1f)
+                                    volumeFraction = newV
+                                    audioManager?.let { am ->
+                                        val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                                        val targetVol = (newV * maxVol).roundToInt().coerceIn(0, maxVol)
+                                        am.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, 0)
+                                    }
+                                }
+                                "VERT_CENTER" -> {
+                                    event.changes.forEach { it.consume() }
+                                    if (!verticalActionTriggered && abs(totalPanY) >= swipeThresholdPx) {
+                                        verticalActionTriggered = true
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        if (totalPanY < 0f) {
+                                            // Swipe UP
+                                            if (!currentIsFullscreen) {
+                                                currentOnEnterFullscreen()
+                                            } else if (currentRelatedVideos.isNotEmpty()) {
+                                                showFullscreenRelatedDrawer = true
+                                            }
                                         } else {
-                                            currentOnMinimize()
+                                            // Swipe DOWN
+                                            if (showFullscreenRelatedDrawer) {
+                                                showFullscreenRelatedDrawer = false
+                                            } else if (currentIsFullscreen) {
+                                                currentOnExitFullscreen()
+                                            } else {
+                                                currentOnMinimize()
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     } while (event.changes.any { it.pressed })
+
+                    // Handle gesture release cleanup
+                    if (isHorizontalScrubbing) {
+                        mediaPlayer?.seekTo(scrubTargetPosMs)
+                        isHorizontalScrubbing = false
+                    }
+                    if (isAdjustingBrightness) {
+                        hideBrightnessJob?.cancel()
+                        hideBrightnessJob = coroutineScope.launch {
+                            delay(800)
+                            isAdjustingBrightness = false
+                        }
+                    }
+                    if (isAdjustingVolume) {
+                        hideVolumeJob?.cancel()
+                        hideVolumeJob = coroutineScope.launch {
+                            delay(800)
+                            isAdjustingVolume = false
+                        }
+                    }
+
+                    // Check for 2-Finger Double-Tap to Skip Chapter / Track
+                    val gestureDurationMs = System.currentTimeMillis() - gestureStartMs
+                    if (maxPressedCount == 2 && gestureDurationMs < 260L && multiTouchTotalMove < touchSlop * 1.5f) {
+                        val nowMs = System.currentTimeMillis()
+                        if (nowMs - lastTwoFingerTapTimeMs <= 380L) {
+                            lastTwoFingerTapTimeMs = 0L
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            if (twoFingerCenterX >= viewWidth / 2f) {
+                                currentOnNextClick()
+                                twoFingerSkipMessage = "Skipped to Next ⏭"
+                            } else {
+                                currentOnPreviousClick()
+                                twoFingerSkipMessage = "Skipped to Previous ⏮"
+                            }
+                            hideTwoFingerSkipJob?.cancel()
+                            hideTwoFingerSkipJob = coroutineScope.launch {
+                                delay(1200)
+                                twoFingerSkipMessage = null
+                            }
+                        } else {
+                            lastTwoFingerTapTimeMs = nowMs
+                        }
+                    }
                 }
             }
-            // 2. Single-Tap Toggle, Double-Tap 10s Seek, and Long-Press Hold for 2x Speed
+            // ── Single-Tap Toggle, Double-Tap 10s Seek, and Long-Press Hold for 2x Speed
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onTap = { currentOnSingleTap() },
+                    onTap = {
+                        if (showFullscreenRelatedDrawer) {
+                            showFullscreenRelatedDrawer = false
+                        } else {
+                            currentOnSingleTap()
+                        }
+                    },
                     onDoubleTap = { offset ->
                         val width = size.width
                         val isFwd = offset.x >= width / 2
@@ -276,7 +467,7 @@ fun ModernPlayerControls(
             )
         }
 
-        // YouTube-style Hold-for-2x Speed Pill Indicator
+        // ── 1. Hold-for-2x Speed Pill Indicator ──
         AnimatedVisibility(
             visible = isHold2xActive,
             enter = fadeIn() + scaleIn(initialScale = 0.85f),
@@ -312,9 +503,145 @@ fun ModernPlayerControls(
             }
         }
 
-        // Floating Zoom Level Indicator (Shows when video is zoomed)
+        // ── 2. Horizontal Slide-to-Seek Center Preview Badge ──
         AnimatedVisibility(
-            visible = !isHold2xActive && (videoScale > 1.05f || showZoomToast),
+            visible = isHorizontalScrubbing,
+            enter = fadeIn() + scaleIn(initialScale = 0.9f),
+            exit = fadeOut() + scaleOut(targetScale = 0.9f),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            val deltaSec = ((scrubTargetPosMs - scrubStartPosMs) / 1000L).toInt()
+            val deltaSign = if (deltaSec >= 0) "+${deltaSec}s" else "${deltaSec}s"
+            val scrubFrac = if (totalTime > 0L) (scrubTargetPosMs.toFloat() / totalTime.toFloat()).coerceIn(0f, 1f) else 0f
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Black.copy(alpha = 0.82f),
+                modifier = Modifier.border(0.5.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(16.dp))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .width(164.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = deltaSign,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${formatVideoDuration(scrubTargetPosMs)} / ${formatVideoDuration(totalTime)}",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.25f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(scrubFrac)
+                                .background(Color.White)
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── 3. Fullscreen Brightness / Volume Vertical Swipe Pill ──
+        AnimatedVisibility(
+            visible = isAdjustingBrightness || isAdjustingVolume,
+            enter = fadeIn() + scaleIn(initialScale = 0.88f),
+            exit = fadeOut() + scaleOut(targetScale = 0.88f),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 18.dp)
+        ) {
+            val isBright = isAdjustingBrightness
+            val valueFrac = if (isBright) brightnessFraction else volumeFraction
+            val pct = (valueFrac * 100f).roundToInt().coerceIn(0, 100)
+            val icon = when {
+                isBright -> Icons.Default.LightMode
+                pct == 0 -> Icons.AutoMirrored.Filled.VolumeOff
+                else -> Icons.AutoMirrored.Filled.VolumeUp
+            }
+
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = Color.Black.copy(alpha = 0.82f),
+                modifier = Modifier.border(0.5.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(24.dp))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = if (isBright) "Brightness" else "Volume",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(96.dp)
+                            .height(4.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.25f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(valueFrac.coerceIn(0f, 1f))
+                                .background(Color.White)
+                        )
+                    }
+                    Text(
+                        text = "$pct%",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.widthIn(min = 34.dp)
+                    )
+                }
+            }
+        }
+
+        // ── 4. 2-Finger Double-Tap Skip Toast Pill ──
+        AnimatedVisibility(
+            visible = twoFingerSkipMessage != null,
+            enter = fadeIn() + scaleIn(initialScale = 0.85f),
+            exit = fadeOut() + scaleOut(targetScale = 0.85f),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 18.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.82f)
+            ) {
+                Text(
+                    text = twoFingerSkipMessage ?: "",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                )
+            }
+        }
+
+        // ── 5. Floating Zoom Level Indicator ──
+        AnimatedVisibility(
+            visible = !isHold2xActive && !isAdjustingBrightness && !isAdjustingVolume && (videoScale > 1.05f || showZoomToast),
             enter = fadeIn() + scaleIn(initialScale = 0.8f),
             exit = fadeOut() + scaleOut(targetScale = 0.8f),
             modifier = Modifier
@@ -359,9 +686,9 @@ fun ModernPlayerControls(
             }
         }
 
-        // Standard Player Controls UI Overlay
+        // ── 6. Standard Player Controls UI Overlay ──
         AnimatedVisibility(
-            visible = isVisible && !isHold2xActive,
+            visible = isVisible && !isHold2xActive && !isHorizontalScrubbing && !showFullscreenRelatedDrawer,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
@@ -370,15 +697,6 @@ fun ModernPlayerControls(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.42f))
-                    .then(
-                        if (isFullscreen) {
-                            Modifier
-                                .windowInsetsPadding(WindowInsets.displayCutout)
-                                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
-                        } else {
-                            Modifier
-                        }
-                    )
             ) {
                 // Center Playback Controls (Previous, Play/Pause, Next) matching YouTube player
                 Row(
@@ -465,7 +783,7 @@ fun ModernPlayerControls(
                     }
                 }
 
-                // YouTube-style Bottom Bar (Timestamp on left, Fullscreen on right, SeekBar along bottom)
+                // YouTube-style Bottom Bar (Timestamp on left, More videos & Fullscreen on right, SeekBar along bottom)
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -513,19 +831,51 @@ fun ModernPlayerControls(
                             )
                         }
 
-                        IconButton(
-                            onClick = onToggleFullscreen,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .testTag("player_fullscreen_button")
-                                .semantics { contentDescription = if (isFullscreen) "Exit fullscreen" else "Enter fullscreen" }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
-                            )
+                            if (isFullscreen && relatedVideos.isNotEmpty()) {
+                                Surface(
+                                    onClick = { showFullscreenRelatedDrawer = true },
+                                    shape = RoundedCornerShape(50),
+                                    color = Color.Black.copy(alpha = 0.55f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowUp,
+                                            contentDescription = "More videos",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = "More videos",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+
+                            IconButton(
+                                onClick = onToggleFullscreen,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .testTag("player_fullscreen_button")
+                                    .semantics { contentDescription = if (isFullscreen) "Exit fullscreen" else "Enter fullscreen" }
+                            ) {
+                                Icon(
+                                    imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         }
                     }
 
@@ -545,6 +895,127 @@ fun ModernPlayerControls(
                             .fillMaxWidth()
                             .padding(horizontal = if (isFullscreen) 0.dp else 12.dp)
                     )
+                }
+            }
+        }
+
+        // ── 7. Fullscreen Swipe-Up "More Videos / Up Next" Drawer ──
+        AnimatedVisibility(
+            visible = isFullscreen && showFullscreenRelatedDrawer && relatedVideos.isNotEmpty(),
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.86f))
+                    .padding(top = 12.dp, bottom = 18.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "More videos",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(
+                        onClick = { showFullscreenRelatedDrawer = false },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close more videos",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsIndexed(
+                        items = relatedVideos.take(15),
+                        key = { index, item -> "${item.url}_$index" }
+                    ) { _, video ->
+                        val thumb = video.thumbnails.firstOrNull()?.url ?: ""
+                        val vTitle = video.name ?: "Video"
+                        val vUploader = video.uploaderName ?: ""
+                        val vDuration = video.duration
+
+                        Column(
+                            modifier = Modifier
+                                .width(196.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    val url = video.url ?: ""
+                                    if (url.isNotBlank()) {
+                                        showFullscreenRelatedDrawer = false
+                                        onVideoSelect(url, vTitle, thumb)
+                                    }
+                                }
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(16f / 9f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFF222222))
+                            ) {
+                                AsyncImage(
+                                    model = thumb,
+                                    contentDescription = vTitle,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                if (vDuration > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(6.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Color.Black.copy(alpha = 0.8f))
+                                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = com.videhub.utils.FormatHelper.formatDuration(vDuration),
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = vTitle,
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (vUploader.isNotBlank()) {
+                                Text(
+                                    text = vUploader,
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

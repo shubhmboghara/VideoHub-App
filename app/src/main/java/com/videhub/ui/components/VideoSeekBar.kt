@@ -1,20 +1,25 @@
 package com.videhub.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -31,17 +36,19 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 /**
- * Custom modern video player seek bar adhering to Material Design 3 and Android UI/UX guidelines:
- * - 4dp track height with rounded caps
+ * Custom modern video player seek bar with YouTube-style Pull-Up Fine Scrubbing:
+ * - 3dp track height (expands to 5dp while scrubbing) with rounded caps
  * - Buffered progress secondary track
- * - Interactive thumb with spring scale animations (14dp idle to 18dp dragging)
- * - 48dp accessibility touch target
- * - Monospace, high-contrast time labels with shadow
+ * - Interactive thumb with spring scale animations
+ * - Pull-up while dragging switches to precision fine-tune scrubbing (0.22x sensitivity) with live preview pill
  */
 @Composable
 fun VideoSeekBar(
@@ -58,6 +65,9 @@ fun VideoSeekBar(
 ) {
     var isDragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
+    var dragStartPositionMs by remember { mutableLongStateOf(0L) }
+    var cumulativeDragY by remember { mutableFloatStateOf(0f) }
+    var isFineScrubbing by remember { mutableStateOf(false) }
     var isTappedBriefly by remember { mutableStateOf(false) }
 
     val safeDuration = remember(durationMs) { max(1L, durationMs) }
@@ -80,8 +90,17 @@ fun VideoSeekBar(
         ),
         label = "thumb_diameter_anim"
     )
+    val trackHeightDp: Dp by animateDpAsState(
+        targetValue = if (isThumbActive) 5.dp else 3.dp,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "track_height_anim"
+    )
 
     val density = LocalDensity.current
+    val fineScrubPullThresholdPx = with(density) { 28.dp.toPx() }
 
     Column(
         modifier = modifier
@@ -116,23 +135,39 @@ fun VideoSeekBar(
                             val widthPx = size.width.toFloat()
                             if (widthPx > 0f) {
                                 isDragging = true
+                                cumulativeDragY = 0f
+                                isFineScrubbing = false
+                                dragStartPositionMs = positionMs
                                 dragFraction = (offset.x / widthPx).coerceIn(0f, 1f)
                             }
                         },
-                        onDrag = { change, _ ->
+                        onDrag = { change, dragAmount ->
                             change.consume()
                             val widthPx = size.width.toFloat()
                             if (widthPx > 0f) {
-                                dragFraction = (change.position.x / widthPx).coerceIn(0f, 1f)
+                                cumulativeDragY += dragAmount.y
+                                val pulledUp = cumulativeDragY < -fineScrubPullThresholdPx
+                                isFineScrubbing = pulledUp
+                                if (pulledUp) {
+                                    // Fine-tune scrubbing: 0.22x horizontal sensitivity
+                                    val deltaFraction = (dragAmount.x / widthPx) * 0.22f
+                                    dragFraction = (dragFraction + deltaFraction).coerceIn(0f, 1f)
+                                } else {
+                                    dragFraction = (change.position.x / widthPx).coerceIn(0f, 1f)
+                                }
                             }
                         },
                         onDragEnd = {
                             val seekTarget = (dragFraction * safeDuration).toLong()
                             onSeek(seekTarget)
                             isDragging = false
+                            isFineScrubbing = false
+                            cumulativeDragY = 0f
                         },
                         onDragCancel = {
                             isDragging = false
+                            isFineScrubbing = false
+                            cumulativeDragY = 0f
                         }
                     )
                 },
@@ -140,11 +175,60 @@ fun VideoSeekBar(
         ) {
             val totalWidthPx = constraints.maxWidth.toFloat()
 
-            // 1. Draw 3dp YouTube-style Track: Inactive, Buffered, Active
+            // Floating Scrubbing Preview Pill above thumb
+            if (isDragging && totalWidthPx > 0f) {
+                val pillHalfWidthPx = with(density) { 64.dp.toPx() }
+                val rawX = displayFraction * totalWidthPx
+                val clampedCenterPx = rawX.coerceIn(pillHalfWidthPx, max(pillHalfWidthPx, totalWidthPx - pillHalfWidthPx))
+                val deltaSec = ((displayTimeMs - dragStartPositionMs) / 1000L).toInt()
+                val deltaPrefix = if (deltaSec >= 0) "+${deltaSec}s" else "${deltaSec}s"
+
+                Box(
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(
+                                x = (clampedCenterPx - pillHalfWidthPx).roundToInt(),
+                                y = with(density) { (-46).dp.roundToPx() }
+                            )
+                        }
+                        .width(128.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.Black.copy(alpha = 0.85f),
+                        modifier = Modifier.border(
+                            0.5.dp,
+                            Color.White.copy(alpha = 0.18f),
+                            RoundedCornerShape(12.dp)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "${formatVideoDuration(displayTimeMs)} ($deltaPrefix)",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (isFineScrubbing) "Fine-tuning" else "Pull up for fine seek",
+                                color = if (isFineScrubbing) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.68f),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 1. Draw YouTube-style Track: Inactive, Buffered, Active
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(3.dp)
+                    .height(trackHeightDp)
                     .testTag("video_seek_bar_canvas")
             ) {
                 val trackHeight = size.height
