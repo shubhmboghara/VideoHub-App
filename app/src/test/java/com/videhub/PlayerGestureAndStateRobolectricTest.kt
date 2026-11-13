@@ -159,14 +159,26 @@ class PlayerGestureAndStateRobolectricTest {
         // Accidental small drag -> stay on Watch Page
         assertFalse(PlayerStateManager.shouldCollapseOnDragEnd(collapseFraction = 0.12f, velocityY = 120f))
 
-        // Drag past 35% without upward fling -> collapse to Miniplayer
-        assertTrue(PlayerStateManager.shouldCollapseOnDragEnd(collapseFraction = 0.40f, velocityY = 50f))
+        // Drag past 30% without upward fling -> collapse to Miniplayer
+        assertTrue(PlayerStateManager.shouldCollapseOnDragEnd(collapseFraction = 0.35f, velocityY = 50f))
 
-        // Crisp downward fling -> collapse to Miniplayer even under 35%
-        assertTrue(PlayerStateManager.shouldCollapseOnDragEnd(collapseFraction = 0.18f, velocityY = 950f))
+        // Crisp downward fling -> collapse to Miniplayer even under 30%
+        assertTrue(PlayerStateManager.shouldCollapseOnDragEnd(collapseFraction = 0.18f, velocityY = 750f))
 
         // Strong upward pull-back before release -> cancel collapse back to Watch Page
-        assertFalse(PlayerStateManager.shouldCollapseOnDragEnd(collapseFraction = 0.55f, velocityY = -650f))
+        assertFalse(PlayerStateManager.shouldCollapseOnDragEnd(collapseFraction = 0.55f, velocityY = -500f))
+    }
+
+    @Test
+    fun `computeMiniPlayerWidthBounds never throws on narrow PiP or extreme screen widths`() {
+        val widths = listOf(-10f, 0f, 100f, 180f, 220f, 240f, 288f, 307f, 308f, 360f, 412f, 840f, 1400f)
+        for (w in widths) {
+            val bounds = PlayerStateManager.computeMiniPlayerWidthBounds(w)
+            assertTrue("baseWidthDp positive for w=$w", bounds.baseWidthDp > 0f)
+            assertTrue("minWidthDp <= baseWidthDp for w=$w", bounds.minWidthDp <= bounds.baseWidthDp + 0.001f)
+            assertTrue("baseWidthDp <= maxWidthDp for w=$w", bounds.baseWidthDp <= bounds.maxWidthDp + 0.001f)
+            assertTrue("minScale <= maxScale for w=$w", bounds.minScale <= bounds.maxScale)
+        }
     }
 
     @Test

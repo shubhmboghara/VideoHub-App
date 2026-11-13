@@ -41,7 +41,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -102,6 +105,7 @@ fun ModernPlayerControls(
 
     val currentIsFullscreen by rememberUpdatedState(isFullscreen)
     val currentIsPortrait by rememberUpdatedState(isPortrait)
+    val currentIsVisible by rememberUpdatedState(isVisible)
     val currentPlaybackSpeed by rememberUpdatedState(currentSpeed)
     val currentOnEnterFullscreen by rememberUpdatedState(onEnterFullscreen)
     val currentOnExitFullscreen by rememberUpdatedState(onExitFullscreen)
@@ -177,217 +181,41 @@ fun ModernPlayerControls(
         }
     }
 
-    val swipeThresholdPx = with(density) { 42.dp.toPx() }
-    val topEdgeIgnorePx = with(density) { 36.dp.toPx() }
-    val bottomEdgeIgnorePx = with(density) { 56.dp.toPx() }
+    val swipeThresholdPx = with(density) { 34.dp.toPx() }
+    val flickMinTravelPx = with(density) { 14.dp.toPx() }
+    val topEdgeFullscreenIgnorePx = with(density) { 24.dp.toPx() }
+    val topEdgeWatchIgnorePx = with(density) { 10.dp.toPx() }
+    val bottomEdgeVisibleIgnorePx = with(density) { 32.dp.toPx() }
+    val bottomEdgeHiddenIgnorePx = with(density) { 12.dp.toPx() }
     val edgeBackIgnorePx = with(density) { 24.dp.toPx() }
+
+    var boxCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+    fun triggerVerticalSwipeAction(isSwipeUp: Boolean) {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (isSwipeUp) {
+            if (!currentIsFullscreen) {
+                currentOnEnterFullscreen()
+            } else if (currentIsPortrait) {
+                currentOnExitFullscreen()
+            } else if (currentRelatedVideos.isNotEmpty()) {
+                showFullscreenRelatedDrawer = true
+            }
+        } else {
+            if (showFullscreenRelatedDrawer) {
+                showFullscreenRelatedDrawer = false
+            } else if (currentIsFullscreen) {
+                currentOnExitFullscreen()
+            }
+        }
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            // ── Unified Gesture Layer:
-            //    - 2-Finger Pinch-to-Zoom & 2-Finger Double-Tap Chapter/Video Skip
-            //    - 1-Finger Horizontal Slide to Seek (away from system Back edges & seekbar)
-            //    - 1-Finger Vertical Swipe UP (Enter Fullscreen from Watch Page; Exit Fullscreen in Portrait Fullscreen; More Videos in Landscape Fullscreen)
-            //    - 1-Finger Vertical Swipe DOWN (Interactive 1:1 Collapse from Watch Page -> Miniplayer; Exit Fullscreen in Fullscreen)
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    val firstDown = awaitFirstDown(
-                        requireUnconsumed = true,
-                        pass = androidx.compose.ui.input.pointer.PointerEventPass.Main
-                    )
-                    val velocityTracker = androidx.compose.ui.input.pointer.util.VelocityTracker()
-                    velocityTracker.addPosition(firstDown.uptimeMillis, firstDown.position)
-
-                    val gestureStartMs = System.currentTimeMillis()
-                    val startX = firstDown.position.x
-                    val startY = firstDown.position.y
-                    val viewWidth = size.width.toFloat().coerceAtLeast(1f)
-                    val viewHeight = size.height.toFloat().coerceAtLeast(1f)
-                    val touchSlop = viewConfiguration.touchSlop
-
-                    var isMultiTouch = false
-                    var maxPressedCount = 1
-                    var twoFingerCenterX = startX
-                    var multiTouchTotalMove = 0f
-
-                    var gestureMode = "NONE" // "NONE", "HORIZ_SEEK", "VERT_ACTION", "VERT_COLLAPSE"
-                    var totalPanX = 0f
-                    var totalPanY = 0f
-                    var verticalActionTriggered = false
-                    var collapseDragStarted = false
-                    var finishedNormally = false
-
-                    val inSafeVerticalRegion = startY > topEdgeIgnorePx && startY < (viewHeight - bottomEdgeIgnorePx)
-                    val inSafeHorizontalRegion = startX > edgeBackIgnorePx && startX < (viewWidth - edgeBackIgnorePx)
-
-                    try {
-                        do {
-                            val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Main)
-                            val pressedChanges = event.changes.filter { it.pressed }
-                            val pressedCount = pressedChanges.size
-                            if (pressedCount > maxPressedCount) {
-                                maxPressedCount = pressedCount
-                            }
-
-                            if (pressedCount >= 2) {
-                                if (!isMultiTouch) {
-                                    isMultiTouch = true
-                                    // Cancel any active 1-finger drag cleanly on 2nd finger down
-                                    if (collapseDragStarted) {
-                                        collapseDragStarted = false
-                                        currentOnCollapseDragCancel()
-                                    }
-                                    if (isHorizontalScrubbing) {
-                                        isHorizontalScrubbing = false
-                                    }
-                                    gestureMode = "NONE"
-                                }
-                                twoFingerCenterX = pressedChanges.map { it.position.x }.average().toFloat()
-                                val zoom = event.calculateZoom()
-                                val pan = event.calculatePan()
-                                multiTouchTotalMove += pan.getDistance() + abs(zoom - 1f) * 200f
-
-                                if (abs(zoom - 1f) > 0.006f || pan.getDistance() > 2f) {
-                                    currentOnScaleChange(zoom, pan)
-                                    showZoomToast = true
-                                    hideZoomToastJob?.cancel()
-                                    hideZoomToastJob = coroutineScope.launch {
-                                        delay(1200)
-                                        showZoomToast = false
-                                    }
-                                }
-                                event.changes.forEach { it.consume() }
-                            } else if (!isMultiTouch && pressedCount == 1 && !isHold2xActive) {
-                                val change = pressedChanges.first()
-                                // Respect children (e.g., VideoSeekBar or buttons) that already consumed this move
-                                if (change.isConsumed && gestureMode == "NONE") {
-                                    continue
-                                }
-
-                                val pan = event.calculatePan()
-                                totalPanX += pan.x
-                                totalPanY += pan.y
-                                velocityTracker.addPosition(change.uptimeMillis, change.position)
-
-                                if (gestureMode == "NONE" && inSafeVerticalRegion) {
-                                    val dist = hypot(totalPanX, totalPanY)
-                                    if (dist > touchSlop * 1.25f) {
-                                        if (abs(totalPanX) > abs(totalPanY) * 1.35f && totalTime > 0L && inSafeHorizontalRegion) {
-                                            gestureMode = "HORIZ_SEEK"
-                                            isHorizontalScrubbing = true
-                                            scrubStartPosMs = mediaPlayer?.currentPosition ?: 0L
-                                            scrubTargetPosMs = scrubStartPosMs
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        } else if (abs(totalPanY) > abs(totalPanX) * 1.35f) {
-                                            if (!currentIsFullscreen && totalPanY > 0f) {
-                                                // Interactive 1:1 downward collapse from Watch Page -> Miniplayer
-                                                gestureMode = "VERT_COLLAPSE"
-                                                collapseDragStarted = true
-                                                currentOnCollapseDragStart()
-                                                currentOnCollapseDragDelta(totalPanY)
-                                            } else {
-                                                gestureMode = "VERT_ACTION"
-                                            }
-                                        }
-                                    }
-                                } else if (gestureMode == "VERT_COLLAPSE") {
-                                    event.changes.forEach { it.consume() }
-                                    currentOnCollapseDragDelta(pan.y)
-                                    continue
-                                }
-
-                                when (gestureMode) {
-                                    "HORIZ_SEEK" -> {
-                                        event.changes.forEach { it.consume() }
-                                        val maxSwipeSeekMs = minOf(90_000L, totalTime.coerceAtLeast(15_000L))
-                                        val deltaMs = ((totalPanX / viewWidth) * maxSwipeSeekMs).toLong()
-                                        scrubTargetPosMs = (scrubStartPosMs + deltaMs).coerceIn(0L, totalTime.coerceAtLeast(0L))
-                                        currentTime = scrubTargetPosMs
-                                    }
-                                    "VERT_ACTION" -> {
-                                        event.changes.forEach { it.consume() }
-                                        if (!verticalActionTriggered && abs(totalPanY) >= swipeThresholdPx) {
-                                            verticalActionTriggered = true
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            if (totalPanY < 0f) {
-                                                // Swipe UP
-                                                if (!currentIsFullscreen) {
-                                                    currentOnEnterFullscreen()
-                                                } else if (currentIsPortrait) {
-                                                    // Portrait full-screen YouTube swipe-up exits fullscreen
-                                                    currentOnExitFullscreen()
-                                                } else if (currentRelatedVideos.isNotEmpty()) {
-                                                    showFullscreenRelatedDrawer = true
-                                                }
-                                            } else {
-                                                // Swipe DOWN (only in Fullscreen here; Watch Page uses VERT_COLLAPSE)
-                                                if (showFullscreenRelatedDrawer) {
-                                                    showFullscreenRelatedDrawer = false
-                                                } else if (currentIsFullscreen) {
-                                                    currentOnExitFullscreen()
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } while (event.changes.any { it.pressed })
-
-                        finishedNormally = true
-                        val velocity = velocityTracker.calculateVelocity()
-
-                        if (collapseDragStarted) {
-                            collapseDragStarted = false
-                            currentOnCollapseDragEnd(velocity.y)
-                        }
-
-                        if (isHorizontalScrubbing) {
-                            mediaPlayer?.seekTo(scrubTargetPosMs)
-                            isHorizontalScrubbing = false
-                        }
-
-                        // Check for 2-Finger Double-Tap to Skip Chapter / Track
-                        val gestureDurationMs = System.currentTimeMillis() - gestureStartMs
-                        if (maxPressedCount == 2 && gestureDurationMs < 260L && multiTouchTotalMove < touchSlop * 1.5f) {
-                            val nowMs = System.currentTimeMillis()
-                            if (nowMs - lastTwoFingerTapTimeMs <= 380L) {
-                                lastTwoFingerTapTimeMs = 0L
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                if (twoFingerCenterX >= viewWidth / 2f) {
-                                    currentOnNextClick()
-                                    twoFingerSkipMessage = "Skipped to Next ⏭"
-                                } else {
-                                    currentOnPreviousClick()
-                                    twoFingerSkipMessage = "Skipped to Previous ⏮"
-                                }
-                                hideTwoFingerSkipJob?.cancel()
-                                hideTwoFingerSkipJob = coroutineScope.launch {
-                                    delay(1200)
-                                    twoFingerSkipMessage = null
-                                }
-                            } else {
-                                lastTwoFingerTapTimeMs = nowMs
-                            }
-                        }
-                    } finally {
-                        if (!finishedNormally) {
-                            if (collapseDragStarted) {
-                                collapseDragStarted = false
-                                currentOnCollapseDragCancel()
-                            }
-                            if (isHorizontalScrubbing) {
-                                isHorizontalScrubbing = false
-                            }
-                            if (isHold2xActive) {
-                                isHold2xActive = false
-                                mediaPlayer?.playbackParameters = PlaybackParameters(currentPlaybackSpeed)
-                            }
-                        }
-                    }
-                }
-            }
-            // ── Single-Tap Toggle, Double-Tap 10s Seek, and Long-Press Hold for 2x Speed
+            .onGloballyPositioned { boxCoordinates = it }
+            // Outer tap/double-tap/long-press handler: runs AFTER inner awaitEachGesture on Main pass
+            // so consumed drags/pinches cancel taps automatically without firing stray clicks.
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = {
@@ -446,6 +274,223 @@ fun ModernPlayerControls(
                         }
                     }
                 )
+            }
+            // Inner unified gesture layer (fixed window-space coordinates prevent self-translation feedback):
+            //  - 2-Finger Pinch-to-Zoom & 2-Finger Double-Tap Skip
+            //  - 1-Finger Horizontal Slide to Seek (with strict horizontal ratio & Back edge safety)
+            //  - 1-Finger Vertical Swipe UP (Fullscreen / Exit Portrait Fullscreen / More Videos Drawer)
+            //  - 1-Finger Vertical Drag DOWN (1:1 Interactive Collapse -> Miniplayer / Exit Fullscreen)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val firstDown = awaitFirstDown(
+                        requireUnconsumed = true,
+                        pass = PointerEventPass.Main
+                    )
+                    fun toWindowPos(localPos: Offset): Offset =
+                        boxCoordinates?.takeIf { it.isAttached }?.localToWindow(localPos) ?: localPos
+
+                    val velocityTracker = VelocityTracker()
+                    var trackedPointerId = firstDown.id
+                    var lastWindowPos = toWindowPos(firstDown.position)
+                    velocityTracker.addPosition(firstDown.uptimeMillis, lastWindowPos)
+
+                    val gestureStartMs = System.currentTimeMillis()
+                    val startX = firstDown.position.x
+                    val startY = firstDown.position.y
+                    val viewWidth = size.width.toFloat().coerceAtLeast(1f)
+                    val viewHeight = size.height.toFloat().coerceAtLeast(1f)
+                    val touchSlop = viewConfiguration.touchSlop
+
+                    val activeTopIgnore = if (currentIsFullscreen) topEdgeFullscreenIgnorePx else topEdgeWatchIgnorePx
+                    val activeBottomIgnore = if (currentIsVisible) bottomEdgeVisibleIgnorePx else bottomEdgeHiddenIgnorePx
+                    val inSafeVerticalRegion = startY > activeTopIgnore && startY < (viewHeight - activeBottomIgnore)
+                    val inSafeHorizontalRegion = startX > edgeBackIgnorePx && startX < (viewWidth - edgeBackIgnorePx)
+
+                    var isMultiTouch = false
+                    var maxPressedCount = 1
+                    var twoFingerCenterX = startX
+                    var multiTouchTotalMove = 0f
+
+                    var gestureMode = "NONE" // "NONE", "HORIZ_SEEK", "VERT_ACTION", "VERT_COLLAPSE"
+                    var totalWindowPanX = 0f
+                    var totalWindowPanY = 0f
+                    var verticalActionTriggered = false
+                    var collapseDragStarted = false
+                    var finishedNormally = false
+
+                    try {
+                        do {
+                            val event = awaitPointerEvent(PointerEventPass.Main)
+                            val pressedChanges = event.changes.filter { it.pressed }
+                            val pressedCount = pressedChanges.size
+                            if (pressedCount > maxPressedCount) {
+                                maxPressedCount = pressedCount
+                            }
+
+                            if (pressedCount >= 2) {
+                                if (!isMultiTouch) {
+                                    isMultiTouch = true
+                                    if (collapseDragStarted) {
+                                        collapseDragStarted = false
+                                        currentOnCollapseDragCancel()
+                                    }
+                                    if (isHorizontalScrubbing) {
+                                        isHorizontalScrubbing = false
+                                    }
+                                    gestureMode = "NONE"
+                                }
+                                twoFingerCenterX = pressedChanges.map { it.position.x }.average().toFloat()
+                                val zoom = event.calculateZoom()
+                                val pan = event.calculatePan()
+                                multiTouchTotalMove += pan.getDistance() + abs(zoom - 1f) * 200f
+
+                                if (abs(zoom - 1f) > 0.004f || pan.getDistance() > 1.5f) {
+                                    currentOnScaleChange(zoom, pan)
+                                    showZoomToast = true
+                                    hideZoomToastJob?.cancel()
+                                    hideZoomToastJob = coroutineScope.launch {
+                                        delay(1200)
+                                        showZoomToast = false
+                                    }
+                                }
+                                event.changes.forEach { it.consume() }
+                            } else if (!isMultiTouch && pressedCount == 1 && !isHold2xActive) {
+                                val change = pressedChanges.first()
+                                if (change.isConsumed && gestureMode == "NONE") {
+                                    lastWindowPos = toWindowPos(change.position)
+                                    trackedPointerId = change.id
+                                    continue
+                                }
+
+                                val curWindowPos = toWindowPos(change.position)
+                                val deltaWindow = if (change.id == trackedPointerId) {
+                                    curWindowPos - lastWindowPos
+                                } else {
+                                    trackedPointerId = change.id
+                                    Offset.Zero
+                                }
+                                lastWindowPos = curWindowPos
+                                velocityTracker.addPosition(change.uptimeMillis, curWindowPos)
+
+                                totalWindowPanX += deltaWindow.x
+                                totalWindowPanY += deltaWindow.y
+
+                                if (gestureMode == "NONE" && inSafeVerticalRegion) {
+                                    val dist = hypot(totalWindowPanX, totalWindowPanY)
+                                    if (dist > touchSlop * 1.1f) {
+                                        if (abs(totalWindowPanX) > abs(totalWindowPanY) * 2.2f &&
+                                            abs(totalWindowPanX) > touchSlop * 1.8f &&
+                                            totalTime > 0L &&
+                                            inSafeHorizontalRegion
+                                        ) {
+                                            gestureMode = "HORIZ_SEEK"
+                                            isHorizontalScrubbing = true
+                                            scrubStartPosMs = mediaPlayer?.currentPosition ?: 0L
+                                            scrubTargetPosMs = scrubStartPosMs
+                                            event.changes.forEach { it.consume() }
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        } else if (abs(totalWindowPanY) > abs(totalWindowPanX) * 1.15f) {
+                                            event.changes.forEach { it.consume() }
+                                            if (!currentIsFullscreen && totalWindowPanY > 0f) {
+                                                gestureMode = "VERT_COLLAPSE"
+                                                collapseDragStarted = true
+                                                currentOnCollapseDragStart()
+                                                currentOnCollapseDragDelta(totalWindowPanY)
+                                            } else {
+                                                gestureMode = "VERT_ACTION"
+                                            }
+                                        }
+                                    }
+                                } else if (gestureMode == "VERT_COLLAPSE") {
+                                    event.changes.forEach { it.consume() }
+                                    currentOnCollapseDragDelta(deltaWindow.y)
+                                    continue
+                                }
+
+                                when (gestureMode) {
+                                    "HORIZ_SEEK" -> {
+                                        event.changes.forEach { it.consume() }
+                                        val maxSwipeSeekMs = minOf(90_000L, totalTime.coerceAtLeast(15_000L))
+                                        val deltaMs = ((totalWindowPanX / viewWidth) * maxSwipeSeekMs).toLong()
+                                        scrubTargetPosMs = (scrubStartPosMs + deltaMs).coerceIn(0L, totalTime.coerceAtLeast(0L))
+                                        currentTime = scrubTargetPosMs
+                                    }
+                                    "VERT_ACTION" -> {
+                                        event.changes.forEach { it.consume() }
+                                        if (!verticalActionTriggered && abs(totalWindowPanY) >= swipeThresholdPx) {
+                                            verticalActionTriggered = true
+                                            triggerVerticalSwipeAction(isSwipeUp = totalWindowPanY < 0f)
+                                        }
+                                    }
+                                }
+                            }
+                        } while (event.changes.any { it.pressed })
+
+                        finishedNormally = true
+                        val velocity = velocityTracker.calculateVelocity()
+
+                        if (collapseDragStarted) {
+                            collapseDragStarted = false
+                            currentOnCollapseDragEnd(velocity.y)
+                        } else if (gestureMode == "VERT_ACTION" && !verticalActionTriggered) {
+                            val isUpFlick = totalWindowPanY <= -flickMinTravelPx &&
+                                velocity.y <= -600f &&
+                                abs(velocity.y) > abs(velocity.x) * 1.25f
+                            val isDownFlick = totalWindowPanY >= flickMinTravelPx &&
+                                velocity.y >= 600f &&
+                                abs(velocity.y) > abs(velocity.x) * 1.25f
+                            if (isUpFlick) {
+                                verticalActionTriggered = true
+                                triggerVerticalSwipeAction(isSwipeUp = true)
+                            } else if (isDownFlick) {
+                                verticalActionTriggered = true
+                                triggerVerticalSwipeAction(isSwipeUp = false)
+                            }
+                        }
+
+                        if (isHorizontalScrubbing) {
+                            mediaPlayer?.seekTo(scrubTargetPosMs)
+                            isHorizontalScrubbing = false
+                        }
+
+                        val gestureDurationMs = System.currentTimeMillis() - gestureStartMs
+                        if (maxPressedCount == 2 && gestureDurationMs < 260L && multiTouchTotalMove < touchSlop * 1.5f) {
+                            val nowMs = System.currentTimeMillis()
+                            if (nowMs - lastTwoFingerTapTimeMs <= 380L) {
+                                lastTwoFingerTapTimeMs = 0L
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                if (twoFingerCenterX >= viewWidth / 2f) {
+                                    currentOnNextClick()
+                                    twoFingerSkipMessage = "Skipped to Next"
+                                } else {
+                                    currentOnPreviousClick()
+                                    twoFingerSkipMessage = "Skipped to Previous"
+                                }
+                                hideTwoFingerSkipJob?.cancel()
+                                hideTwoFingerSkipJob = coroutineScope.launch {
+                                    delay(1200)
+                                    twoFingerSkipMessage = null
+                                }
+                            } else {
+                                lastTwoFingerTapTimeMs = nowMs
+                            }
+                        }
+                    } finally {
+                        if (!finishedNormally) {
+                            if (collapseDragStarted) {
+                                collapseDragStarted = false
+                                currentOnCollapseDragCancel()
+                            }
+                            if (isHorizontalScrubbing) {
+                                isHorizontalScrubbing = false
+                            }
+                            if (isHold2xActive) {
+                                isHold2xActive = false
+                                mediaPlayer?.playbackParameters = PlaybackParameters(currentPlaybackSpeed)
+                            }
+                        }
+                    }
+                }
             }
     ) {
         // Double-Tap Quick Seek Animated Ripple & Chevrons Overlay

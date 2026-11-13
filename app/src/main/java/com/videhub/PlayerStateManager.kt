@@ -421,8 +421,51 @@ object PlayerStateManager {
         MiniPlayerState.markPlaybackStarted()
     }
 
+    data class MiniPlayerWidthBounds(
+        val baseWidthDp: Float,
+        val minWidthDp: Float,
+        val maxWidthDp: Float,
+        val minScale: Float,
+        val maxScale: Float
+    )
+
+    fun computeMiniPlayerWidthBounds(screenWidthDp: Float): MiniPlayerWidthBounds {
+        val safeScreenWidthDp = screenWidthDp.coerceIn(120f, 2000f)
+        val availableWidthDp = (safeScreenWidthDp - 20f).coerceAtLeast(96f)
+
+        val minBaseCap = minOf(196f, availableWidthDp)
+        val maxBaseCap = maxOf(minBaseCap, minOf(236f, availableWidthDp))
+        val baseWidthDp = (safeScreenWidthDp * 0.56f)
+            .coerceIn(minBaseCap, maxBaseCap)
+            .coerceAtLeast(1f)
+
+        val minLower = minOf(156f, baseWidthDp)
+        val minUpper = maxOf(minLower, minOf(176f, baseWidthDp))
+        val minWidthDp = (safeScreenWidthDp * 0.43f).coerceIn(minLower, minUpper)
+
+        val maxUpper = maxOf(baseWidthDp, availableWidthDp)
+        val maxLower = minOf(288f, maxUpper)
+        val maxWidthDp = (safeScreenWidthDp * 0.88f).coerceIn(maxLower, maxUpper)
+
+        val minScale = (minWidthDp / baseWidthDp).coerceIn(0.68f, 1.0f)
+        val maxScaleUpper = maxOf(minScale, 1.75f)
+        val maxScaleLower = minOf(maxScaleUpper, maxOf(minScale, 1.0f))
+        val maxScale = (maxWidthDp / basePipSafeDivisor(baseWidthDp))
+            .coerceIn(maxScaleLower, maxScaleUpper)
+
+        return MiniPlayerWidthBounds(
+            baseWidthDp = baseWidthDp,
+            minWidthDp = minWidthDp,
+            maxWidthDp = maxWidthDp,
+            minScale = minScale,
+            maxScale = maxScale
+        )
+    }
+
+    private fun basePipSafeDivisor(value: Float): Float = value.coerceAtLeast(1f)
+
     fun shouldCollapseOnDragEnd(collapseFraction: Float, velocityY: Float): Boolean {
-        return velocityY >= 800f || (collapseFraction >= 0.35f && velocityY > -400f)
+        return velocityY >= 650f || (collapseFraction >= 0.30f && velocityY > -350f)
     }
 
     fun close() {

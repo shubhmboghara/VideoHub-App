@@ -585,8 +585,7 @@ fun MainScreen() {
 
     Box(modifier = Modifier.fillMaxSize()) {
         val isPlayerBlockingScreen = playerWindowState == PlayerWindowState.FULLSCREEN ||
-            playerWindowState == PlayerWindowState.PICTURE_IN_PICTURE ||
-            (playerWindowState == PlayerWindowState.WATCH_PAGE && playerCollapseFraction < 0.35f)
+            playerWindowState == PlayerWindowState.PICTURE_IN_PICTURE
         val showBottomBar = !isPlayerBlockingScreen && !com.videhub.PipState.isActive.value
         val useZeroPadding = com.videhub.PipState.isActive.value ||
             playerWindowState == PlayerWindowState.FULLSCREEN ||
