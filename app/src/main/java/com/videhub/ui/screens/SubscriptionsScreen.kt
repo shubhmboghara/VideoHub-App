@@ -62,23 +62,27 @@ fun SubscriptionsScreen(
 
     val activeChannelId = selectedChannel?.channelId ?: ""
 
-    val latestVideos by remember(activeChannelId, sharedViewModel.subscriptionsVideosCacheMap[activeChannelId]) {
+    val cachedChannelVideos = sharedViewModel.subscriptionsVideosCacheMap[activeChannelId]
+    val latestVideos by remember(activeChannelId, cachedChannelVideos) {
         derivedStateOf {
-            (sharedViewModel.subscriptionsVideosCacheMap[activeChannelId] ?: emptyList()).filterIsInstance<StreamInfoItem>()
+            (cachedChannelVideos ?: emptyList()).filterIsInstance<StreamInfoItem>()
         }
     }
 
-    var isLoadingVideos by remember { mutableStateOf(activeChannelId.isNotBlank() && sharedViewModel.subscriptionsVideosCacheMap[activeChannelId] == null) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    var videoRetryTrigger by remember { mutableIntStateOf(0) }
+    var hasLoadedEmptyVideos by remember(activeChannelId, videoRetryTrigger) { mutableStateOf(false) }
+    var videoError by remember(activeChannelId, videoRetryTrigger) { mutableStateOf<String?>(null) }
+    var isLoadingVideos by remember(activeChannelId, videoRetryTrigger) {
+        mutableStateOf(activeChannelId.isNotBlank() && cachedChannelVideos.isNullOrEmpty())
+    }
     var isPaginating by remember { mutableStateOf(false) }
-    var pagingSource by remember { mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(sharedViewModel.subscriptionsPagingSourceMap[activeChannelId]) }
+    var pagingSource by remember(activeChannelId) { mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(sharedViewModel.subscriptionsPagingSourceMap[activeChannelId]) }
 
     val listState = androidx.compose.foundation.lazy.rememberLazyListState(
         initialFirstVisibleItemIndex = sharedViewModel.subscriptionsScrollStateMap[activeChannelId]?.first ?: 0,
         initialFirstVisibleItemScrollOffset = sharedViewModel.subscriptionsScrollStateMap[activeChannelId]?.second ?: 0
     )
-
-    var isRefreshing by remember { mutableStateOf(false) }
-    var videoRetryTrigger by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(activeChannelId) {
         if (activeChannelId.isNotBlank()) {
@@ -103,7 +107,9 @@ fun SubscriptionsScreen(
 
     fun refresh() {
         if (isRefreshing || isLoadingVideos || isPaginating || activeChannelId.isBlank()) return
-        sharedViewModel.subscriptionsVideosCacheMap[activeChannelId] = emptyList()
+        sharedViewModel.subscriptionsVideosCacheMap.remove(activeChannelId)
+        hasLoadedEmptyVideos = false
+        videoError = null
         isLoadingVideos = true
         isRefreshing = true
         videoRetryTrigger++
@@ -188,92 +194,107 @@ fun SubscriptionsScreen(
     LaunchedEffect(activeChannelId, videoRetryTrigger) {
         if (activeChannelId.isBlank()) {
             isLoadingVideos = false
+            isRefreshing = false
             return@LaunchedEffect
         }
 
-        if (sharedViewModel.subscriptionsVideosCacheMap[activeChannelId] != null && !isRefreshing) {
+        val currentCached = sharedViewModel.subscriptionsVideosCacheMap[activeChannelId]
+        if (!currentCached.isNullOrEmpty() && !isRefreshing) {
             isLoadingVideos = false
+            hasLoadedEmptyVideos = false
+            videoError = null
             return@LaunchedEffect
         }
 
-        if (!isRefreshing) {
-            isLoadingVideos = true
-        }
+        isLoadingVideos = true
+        hasLoadedEmptyVideos = false
+        videoError = null
 
-        scope.launch {
-            try {
-                val items = withContext(Dispatchers.IO) {
-                    val url = when {
-                        activeChannelId.startsWith("http") -> activeChannelId
-                        activeChannelId.startsWith("@") -> "https://www.youtube.com/$activeChannelId"
-                        else -> "https://www.youtube.com/channel/$activeChannelId"
-                    }
-                    val (info, liveStreams) = kotlinx.coroutines.coroutineScope {
-                        val infoDef = async { ExtractorHelper.getChannelInfo(url) }
-                        val liveDef = async { ExtractorHelper.getChannelLiveStreams(url) }
-                        Pair(infoDef.await(), liveDef.await())
-                    }
-
-                    // Update channel's real avatar in DB if ChannelInfo has a fresher valid avatar
-                    val freshAvatar = com.videhub.utils.AvatarHelper.getBestAvatarUrl(info.avatars)
-                    if (!freshAvatar.isNullOrBlank() && selectedChannel != null && selectedChannel.thumbnailUrl != freshAvatar) {
-                        val db = AppDatabase.getDatabase(context)
-                        db.channelDao().insert(selectedChannel.copy(thumbnailUrl = freshAvatar))
-                    }
-
-                    val verifiedActiveLive = com.videhub.utils.ChannelLiveStatusManager.verifyAndSetChannelLiveStreams(
-                        channelUrl = activeChannelId,
-                        secondaryChannelUrl = info.url,
-                        channelName = info.name ?: selectedChannel?.name,
-                        streams = liveStreams
-                    )
-
-                    val source = ExtractorHelper.getChannelPagingSource(info)
-                    pagingSource = source
-                    sharedViewModel.subscriptionsPagingSourceMap[activeChannelId] = source
-                    val rawVids = source?.loadInitial()?.filterIsInstance<StreamInfoItem>() ?: emptyList()
-
-                    val combinedVids = buildList {
-                        if (verifiedActiveLive != null) {
-                            add(verifiedActiveLive)
-                        }
-                        for (v in rawVids) {
-                            if (!com.videhub.utils.ChannelLiveStatusManager.isEndedOrPastLiveStream(v) &&
-                                (verifiedActiveLive == null || v.url != verifiedActiveLive.url)
-                            ) {
-                                add(v)
-                            }
-                        }
-                    }
-
-                    // Ensure video uploader avatar, name, and URL match the selected channel
-                    val channelAvatar = freshAvatar ?: selectedChannel?.thumbnailUrl
-                    val fallbackName = info.name?.ifBlank { null } ?: selectedChannel?.name ?: ""
-                    val fallbackUrl = info.url.ifBlank { activeChannelId }
-
-                    combinedVids.forEach { video ->
-                        if (video.uploaderName.isNullOrBlank() && fallbackName.isNotBlank()) {
-                            video.uploaderName = fallbackName
-                        }
-                        if (video.uploaderUrl.isNullOrBlank() && fallbackUrl.isNotBlank()) {
-                            video.uploaderUrl = fallbackUrl
-                        }
-                        if (!channelAvatar.isNullOrBlank() && !com.videhub.utils.AvatarHelper.isVideoThumbnail(channelAvatar)) {
-                            if (video.uploaderAvatars.isNullOrEmpty()) {
-                                video.uploaderAvatars = listOf(
-                                    org.schabi.newpipe.extractor.Image(
-                                        channelAvatar, 50, 50,
-                                        org.schabi.newpipe.extractor.Image.ResolutionLevel.UNKNOWN
-                                    )
-                                )
-                            }
-                        }
-                    }
-
-                    combinedVids
+        try {
+            val items = withContext(Dispatchers.IO) {
+                val url = when {
+                    activeChannelId.startsWith("http") -> activeChannelId
+                    activeChannelId.startsWith("@") -> "https://www.youtube.com/$activeChannelId"
+                    else -> "https://www.youtube.com/channel/$activeChannelId"
                 }
+                val (info, liveStreams) = kotlinx.coroutines.coroutineScope {
+                    val infoDef = async { ExtractorHelper.getChannelInfo(url) }
+                    val liveDef = async { ExtractorHelper.getChannelLiveStreams(url) }
+                    Pair(infoDef.await(), liveDef.await())
+                }
+
+                // Update channel's real avatar in DB if ChannelInfo has a fresher valid avatar
+                val freshAvatar = com.videhub.utils.AvatarHelper.getBestAvatarUrl(info.avatars)
+                if (!freshAvatar.isNullOrBlank() && selectedChannel != null && selectedChannel.thumbnailUrl != freshAvatar) {
+                    val db = AppDatabase.getDatabase(context)
+                    db.channelDao().insert(selectedChannel.copy(thumbnailUrl = freshAvatar))
+                }
+
+                val verifiedActiveLive = com.videhub.utils.ChannelLiveStatusManager.verifyAndSetChannelLiveStreams(
+                    channelUrl = activeChannelId,
+                    secondaryChannelUrl = info.url,
+                    channelName = info.name ?: selectedChannel?.name,
+                    streams = liveStreams
+                )
+
+                val source = ExtractorHelper.getChannelPagingSource(info)
+                pagingSource = source
+                sharedViewModel.subscriptionsPagingSourceMap[activeChannelId] = source
+                val rawVids = source?.loadInitial()?.filterIsInstance<StreamInfoItem>() ?: emptyList()
+
+                val combinedVids = buildList {
+                    if (verifiedActiveLive != null) {
+                        add(verifiedActiveLive)
+                    }
+                    for (v in rawVids) {
+                        if (!com.videhub.utils.ChannelLiveStatusManager.isEndedOrPastLiveStream(v) &&
+                            (verifiedActiveLive == null || v.url != verifiedActiveLive.url)
+                        ) {
+                            add(v)
+                        }
+                    }
+                }
+
+                // Ensure video uploader avatar, name, and URL match the selected channel
+                val channelAvatar = freshAvatar ?: selectedChannel?.thumbnailUrl
+                val fallbackName = info.name?.ifBlank { null } ?: selectedChannel?.name ?: ""
+                val fallbackUrl = info.url.ifBlank { activeChannelId }
+
+                combinedVids.forEach { video ->
+                    if (video.uploaderName.isNullOrBlank() && fallbackName.isNotBlank()) {
+                        video.uploaderName = fallbackName
+                    }
+                    if (video.uploaderUrl.isNullOrBlank() && fallbackUrl.isNotBlank()) {
+                        video.uploaderUrl = fallbackUrl
+                    }
+                    if (!channelAvatar.isNullOrBlank() && !com.videhub.utils.AvatarHelper.isVideoThumbnail(channelAvatar)) {
+                        if (video.uploaderAvatars.isNullOrEmpty()) {
+                            video.uploaderAvatars = listOf(
+                                org.schabi.newpipe.extractor.Image(
+                                    channelAvatar, 50, 50,
+                                    org.schabi.newpipe.extractor.Image.ResolutionLevel.UNKNOWN
+                                )
+                            )
+                        }
+                    }
+                }
+
+                combinedVids
+            }
+            if (items.isNotEmpty()) {
                 sharedViewModel.subscriptionsVideosCacheMap[activeChannelId] = items
-            } catch (_: Exception) {}
+                hasLoadedEmptyVideos = false
+            } else {
+                sharedViewModel.subscriptionsVideosCacheMap.remove(activeChannelId)
+                hasLoadedEmptyVideos = true
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (sharedViewModel.subscriptionsVideosCacheMap[activeChannelId].isNullOrEmpty()) {
+                videoError = e.message ?: "Failed to load videos"
+            }
+        } finally {
             isLoadingVideos = false
             isRefreshing = false
         }
@@ -310,8 +331,8 @@ fun SubscriptionsScreen(
             scrollBehavior = scrollBehavior
         )
 
-        val isChannelVideosLoading = isLoadingVideos || isRefreshing || (activeChannelId.isNotBlank() && sharedViewModel.subscriptionsVideosCacheMap[activeChannelId] == null)
-        val showFullSubscriptionsSkeleton = isInitialLoadingChannels || isRefreshing || (isChannelVideosLoading && sharedViewModel.subscriptionsVideosCacheMap.isEmpty())
+        val isChannelVideosLoading = isLoadingVideos || isRefreshing || (activeChannelId.isNotBlank() && cachedChannelVideos.isNullOrEmpty() && !hasLoadedEmptyVideos && videoError == null)
+        val showFullSubscriptionsSkeleton = isInitialLoadingChannels || (channels.isNotEmpty() && isChannelVideosLoading && sharedViewModel.subscriptionsVideosCacheMap.isEmpty())
 
         Box(modifier = Modifier.weight(1f)) {
             if (showFullSubscriptionsSkeleton) {
@@ -516,7 +537,32 @@ fun SubscriptionsScreen(
                                     }
                                 }
                             }
-                        } else if (latestVideos.isEmpty()) {
+                        } else if (videoError != null && latestVideos.isEmpty()) {
+                            item(key = "error_subscriptions_videos") {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(40.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = videoError ?: "Could not load videos.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color(0xFFAAAAAA),
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(Modifier.height(12.dp))
+                                    Button(onClick = {
+                                        videoError = null
+                                        hasLoadedEmptyVideos = false
+                                        isLoadingVideos = true
+                                        videoRetryTrigger++
+                                    }) {
+                                        Text("Retry")
+                                    }
+                                }
+                            }
+                        } else if (latestVideos.isEmpty() && hasLoadedEmptyVideos) {
                             item(key = "empty_subscriptions_videos") {
                                 Box(
                                     modifier = Modifier

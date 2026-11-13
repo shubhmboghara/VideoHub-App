@@ -22,11 +22,17 @@ class WatchLaterViewModel(application: Application) : AndroidViewModel(applicati
     private val videoDao = db.downloadedVideoDao()
     private val watchLaterDao = db.watchLaterDao()
 
+    private var savedEmitted = false
+    private var downloadedEmitted = false
+
     private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     val savedVideos: StateFlow<List<WatchLaterEntity>> = watchLaterDao.getAll()
-        .onEach { _isLoading.value = false }
+        .onEach {
+            savedEmitted = true
+            if (downloadedEmitted) _isLoading.value = false
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val downloadedPlaylist: StateFlow<DownloadedPlaylistEntity?> = playlistDao
@@ -35,6 +41,10 @@ class WatchLaterViewModel(application: Application) : AndroidViewModel(applicati
 
     val downloadedVideos: StateFlow<List<DownloadedVideoEntity>> = playlistDao
         .getVideosForPlaylist(WatchLaterSyncManager.WATCH_LATER_ID)
+        .onEach {
+            downloadedEmitted = true
+            if (savedEmitted) _isLoading.value = false
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val isSessionValid: StateFlow<Boolean> = WatchLaterSessionManager

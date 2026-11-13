@@ -129,6 +129,7 @@ fun ExploreScreen(
 
     var isLoading by remember { mutableStateOf(false) }
     var isSearching by remember { mutableStateOf(false) }
+    var hasCompletedSearch by remember { mutableStateOf(sharedViewModel.exploreVideosCache != null) }
     var searchJob by remember { mutableStateOf<Job?>(null) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var playlistDialogVideo by remember { mutableStateOf<StreamInfoItem?>(null) }
@@ -144,11 +145,14 @@ fun ExploreScreen(
     val searchCacheDao = db.searchCacheDao()
 
     fun clearSearchAndResults() {
+        searchJob?.cancel()
         query = ""
         videoResults = emptyList()
         shortsResults = emptyList()
         channelResults = emptyList()
         playlistResults = emptyList()
+        isSearching = false
+        hasCompletedSearch = false
         errorText = null
         sharedViewModel.exploreQueryCache = ""
         sharedViewModel.exploreVideosCache = null
@@ -199,18 +203,22 @@ fun ExploreScreen(
         val targetQuery = (customQuery ?: query).trim()
         if (targetQuery.isBlank()) return
         query = targetQuery
+        sharedViewModel.exploreQueryCache = targetQuery
         focusManager.clearFocus()
         keyboardController?.hide()
         isSearchFocused = false
         searchJob?.cancel()
+        isSearching = true
+        hasCompletedSearch = false
+        errorText = null
+        videoResults = emptyList()
+        shortsResults = emptyList()
+        channelResults = emptyList()
+        playlistResults = emptyList()
         searchJob = scope.launch {
-            searchHistoryDao.insertSearch(SearchHistoryEntity(targetQuery))
-            isSearching = true
-            errorText = null
-            videoResults = emptyList()
-            shortsResults = emptyList()
-            channelResults = emptyList()
-            playlistResults = emptyList()
+            launch(Dispatchers.IO) {
+                searchHistoryDao.insertSearch(SearchHistoryEntity(targetQuery))
+            }
 
             var searchQuery = targetQuery.trim('\'', '"', ' ')
 
@@ -254,7 +262,10 @@ fun ExploreScreen(
                     item.viewCount = info.viewCount
                     item.duration = info.duration
                     videoResults = listOf(item)
+                    sharedViewModel.exploreVideosCache = videoResults
+                    hasCompletedSearch = true
                     isSearching = false
+                    isRefreshing = false
                     return@launch
                 } catch (_: Exception) {
                     val cleanKeywords = searchQuery
@@ -319,6 +330,9 @@ fun ExploreScreen(
                     !(isShortTagged || isShortDuration)
                 }
                 shortsResults = emptyList()
+                sharedViewModel.exploreVideosCache = channelResults + playlistResults + videoResults
+                sharedViewModel.explorePagingSourceCache = source
+                hasCompletedSearch = true
 
                 // Cache for fast return
                 val cacheEntities = mutableListOf<SearchCacheEntity>()
@@ -379,6 +393,7 @@ fun ExploreScreen(
                 errorText = "Search failed: ${e.localizedMessage ?: "Unknown error"}"
             } finally {
                 isSearching = false
+                isRefreshing = false
             }
         }
     }
@@ -1073,6 +1088,15 @@ fun ExploreScreen(
                             }
                         }
                     }
+                }
+
+                // Completed Search With No Results
+                hasCompletedSearch && query.isNotBlank() && !hasResults -> {
+                    EmptyState(
+                        icon = Icons.Default.SearchOff,
+                        title = "No results found",
+                        message = "No results found for '$query'. Try another search term."
+                    )
                 }
 
                 // Initial / Empty Query Landing Screen (Recent Searches only, no Explore Topics grid)

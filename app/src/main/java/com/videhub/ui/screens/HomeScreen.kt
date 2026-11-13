@@ -87,8 +87,8 @@ fun HomeScreen(
 
     // Use state map directly for videos
     val currentTabVideos = sharedViewModel.homeVideosCacheMap[selectedTab]
-    val isTabLoaded = currentTabVideos != null
     val videos = currentTabVideos ?: emptyList()
+    val hasCachedVideos = !currentTabVideos.isNullOrEmpty()
     LaunchedEffect(videos) {
         if (videos.isNotEmpty()) {
             videos.filterIsInstance<StreamInfoItem>().forEach { video ->
@@ -96,7 +96,9 @@ fun HomeScreen(
             }
         }
     }
-    var isLoading by remember(selectedTab) { mutableStateOf(!isTabLoaded) }
+    var retryTrigger by remember { mutableIntStateOf(0) }
+    var hasCompletedEmptyLoad by remember(selectedTab, retryTrigger) { mutableStateOf(false) }
+    var isLoading by remember(selectedTab, retryTrigger) { mutableStateOf(!hasCachedVideos) }
     var isPaginating by remember { mutableStateOf(false) }
     var pagingSource by remember { mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(sharedViewModel.homePagingSourceMap[selectedTab]) }
     
@@ -118,7 +120,8 @@ fun HomeScreen(
     }
     
     val isOnline by remember { com.videhub.utils.NetworkUtils.getNetworkStatusFlow(context) }.collectAsStateWithLifecycle(initialValue = com.videhub.utils.NetworkUtils.isNetworkAvailable(context))
-    val offlineDownloads by db.downloadedVideoDao().getAllDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
+    val offlineDownloadsState by db.downloadedVideoDao().getAllDownloads().collectAsStateWithLifecycle(initialValue = null)
+    val offlineDownloads = offlineDownloadsState ?: emptyList()
     
     val feedRepository = remember(db, context) { com.videhub.data.repository.FeedRepository(db, context) }
     
@@ -235,27 +238,29 @@ fun HomeScreen(
 
     fun refresh(force: Boolean = false) {
         if (!force && (isRefreshing || isLoading || isPaginating)) return
+        val tabToRefresh = selectedTab
         scope.launch {
-            // "new render": clear cache and show shimmer
-            sharedViewModel.homeVideosCacheMap[selectedTab] = emptyList()
-            sharedViewModel.homeScrollStateMap[selectedTab] = Pair(0, 0)
+            // "new render": remove cached tab so leaving mid-refresh never leaves an emptyList() stub
+            sharedViewModel.homeVideosCacheMap.remove(tabToRefresh)
+            sharedViewModel.homeScrollStateMap[tabToRefresh] = Pair(0, 0)
+            hasCompletedEmptyLoad = false
             isLoading = true
             isRefreshing = true
             errorText = null
             refreshCounter++
             homeFeedPage = 1
             try {
-                val safeTab = if (tabs.isNotEmpty()) selectedTab.coerceIn(0, tabs.size - 1) else 0
+                val safeTab = if (tabs.isNotEmpty()) tabToRefresh.coerceIn(0, tabs.size - 1) else 0
                 val newVideos = mutableListOf<Any>()
                 when (safeTab) {
                     0 -> {
-                        // Concurrently refresh recommended feed videos and recommended playlists via FeedRepository
                         var freshVideos: List<InfoItem> = emptyList()
                         coroutineScope {
                             val playlistsDeferred = async(Dispatchers.IO) {
                                 try {
                                     feedRepository.getRecommendedPlaylists(isRefresh = true, refreshCount = refreshCounter)
-                                } catch (_: Exception) {
+                                } catch (e: Exception) {
+                                    if (e is kotlinx.coroutines.CancellationException) throw e
                                     emptyList<com.videhub.recommendation.RecommendedPlaylistInfo>()
                                 }
                             }
@@ -287,13 +292,21 @@ fun HomeScreen(
                         }
                     }
                 }
-                sharedViewModel.homeVideosCacheMap[selectedTab] = newVideos
-                sharedViewModel.homePagingSourceMap[selectedTab] = pagingSource
+                if (newVideos.isNotEmpty()) {
+                    sharedViewModel.homeVideosCacheMap[tabToRefresh] = newVideos
+                    hasCompletedEmptyLoad = false
+                } else {
+                    sharedViewModel.homeVideosCacheMap.remove(tabToRefresh)
+                    hasCompletedEmptyLoad = true
+                }
+                sharedViewModel.homePagingSourceMap[tabToRefresh] = pagingSource
                 listState.scrollToItem(0)
             } catch (e: Exception) {
                 if (e !is kotlinx.coroutines.CancellationException) {
-                    android.util.Log.e("HomeScreen", "Error loading All tab", e)
+                    android.util.Log.e("HomeScreen", "Error loading tab", e)
                     onError("Error: ${e.message}")
+                } else {
+                    throw e
                 }
             } finally {
                 isLoading = false
@@ -302,82 +315,78 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(selectedTab) {
-        if (sharedViewModel.homeVideosCacheMap[selectedTab] != null && sharedViewModel.homeVideosCacheMap[selectedTab]!!.isNotEmpty()) {
-            // Already cached and on the same tab
+    LaunchedEffect(selectedTab, retryTrigger) {
+        val currentCached = sharedViewModel.homeVideosCacheMap[selectedTab]
+        if (!currentCached.isNullOrEmpty()) {
+            // Already cached with real items
             isLoading = false
+            hasCompletedEmptyLoad = false
             return@LaunchedEffect
         }
+
+        // Immediately enter loading state BEFORE any IO suspension so EmptyState never flashes
+        isLoading = true
+        hasCompletedEmptyLoad = false
+        errorText = null
+
         val safeTab = if (tabs.isNotEmpty()) selectedTab.coerceIn(0, tabs.size - 1) else 0
 
-        // If on All tab, check Room database first to display cached feed instantly without spinner
-        if (safeTab == 0) {
-            val cachedFeed = withContext(Dispatchers.IO) { db.feedCacheDao().getAll() }
-            if (cachedFeed.isNotEmpty()) {
-                sharedViewModel.homeVideosCacheMap[0] = cachedFeed
-                isLoading = false
-            } else {
-                isLoading = true
-            }
-        } else {
-            isLoading = true
-        }
-
-        errorText = null
         try {
-            val newVideos = mutableListOf<Any>()
             when (safeTab) {
                 0 -> {
                     pagingSource = null
-                    try {
-                        val cachedFeed = db.feedCacheDao().getAll()
-                        if (cachedFeed.isNotEmpty() && sharedViewModel.homeVideosCacheMap[0].isNullOrEmpty()) {
-                            sharedViewModel.homeVideosCacheMap[0] = cachedFeed
-                            isLoading = false
-                        }
-                        
-                        // Concurrently load recommended playlists if not cached
-                        if (sharedViewModel.homeRecommendedPlaylistsCache == null) {
-                            scope.launch(Dispatchers.IO) {
-                                try {
-                                    val fetchedPlaylists = feedRepository.getRecommendedPlaylists()
-                                    if (fetchedPlaylists.isNotEmpty()) {
-                                        recommendedPlaylists = fetchedPlaylists
-                                        sharedViewModel.homeRecommendedPlaylistsCache = fetchedPlaylists
-                                    }
-                                } catch (_: Exception) {}
-                            }
-                        }
+                    val cachedFeed = withContext(Dispatchers.IO) { db.feedCacheDao().getAll() }
+                    if (cachedFeed.isNotEmpty()) {
+                        sharedViewModel.homeVideosCacheMap[0] = cachedFeed
+                        isLoading = false
+                    }
 
+                    // Concurrently load recommended playlists if not cached
+                    if (sharedViewModel.homeRecommendedPlaylistsCache == null) {
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val fetchedPlaylists = feedRepository.getRecommendedPlaylists()
+                                if (fetchedPlaylists.isNotEmpty()) {
+                                    recommendedPlaylists = fetchedPlaylists
+                                    sharedViewModel.homeRecommendedPlaylistsCache = fetchedPlaylists
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+
+                    try {
                         val freshVideos = feedRepository.getHomeFeed(isRefresh = false)
                         if (freshVideos.isNotEmpty()) {
                             sharedViewModel.homeVideosCacheMap[0] = freshVideos
-                        } else if (sharedViewModel.homeVideosCacheMap[0] == null) {
-                            sharedViewModel.homeVideosCacheMap[0] = emptyList()
+                            hasCompletedEmptyLoad = false
+                        } else if (sharedViewModel.homeVideosCacheMap[0].isNullOrEmpty()) {
+                            sharedViewModel.homeVideosCacheMap.remove(0)
+                            hasCompletedEmptyLoad = true
                         }
                     } catch (e: Exception) {
-                        if (e !is kotlinx.coroutines.CancellationException) {
-                            if (sharedViewModel.homeVideosCacheMap[0].isNullOrEmpty()) {
-                                android.util.Log.e("HomeScreen", "Error loading All tab", e)
-                                onError("Error: ${e.message}")
-                            }
-                        } else throw e
-                    } finally {
-                        isLoading = false
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        if (sharedViewModel.homeVideosCacheMap[0].isNullOrEmpty()) {
+                            android.util.Log.e("HomeScreen", "Error loading All tab", e)
+                            onError("Error: ${e.message}")
+                        }
                     }
                 }
                 else -> {
                     if (safeTab < tabs.size) {
                         val (customFeed, source) = feedRepository.loadCustomTabFeed(tabs[safeTab])
                         pagingSource = source
-                        newVideos.addAll(customFeed)
+                        sharedViewModel.homePagingSourceMap[selectedTab] = source
+                        if (customFeed.isNotEmpty()) {
+                            sharedViewModel.homeVideosCacheMap[selectedTab] = customFeed
+                            hasCompletedEmptyLoad = false
+                        } else {
+                            sharedViewModel.homeVideosCacheMap.remove(selectedTab)
+                            hasCompletedEmptyLoad = true
+                        }
+                    } else {
+                        hasCompletedEmptyLoad = true
                     }
-                    sharedViewModel.homeVideosCacheMap[selectedTab] = newVideos
-                    isLoading = false
                 }
-            }
-            if (safeTab != 0 || newVideos.isNotEmpty()) {
-                sharedViewModel.homeVideosCacheMap[selectedTab] = newVideos
             }
             sharedViewModel.homePagingSourceMap[selectedTab] = pagingSource
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -405,27 +414,47 @@ fun HomeScreen(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                itemsIndexed(offlineDownloads, key = { index, download -> "${download.videoId}_$index" }) { index, download ->
-                    VideoCard(
-                        title = download.title,
-                        channelName = download.channelName,
-                        thumbnailUrl = download.thumbnailUrl,
-                        url = download.videoId,
-                        duration = -1L,
-                        viewCount = download.viewCount,
-                        channelAvatarUrl = null,
-                        uploadDate = download.uploadDate,
-                        onClick = { _, _, _ ->
-                            val localUri = android.net.Uri.fromFile(java.io.File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), download.fileName)).toString()
-                            onVideoClick(localUri, download.title, download.thumbnailUrl)
-                        },
-                        onChannelClick = {}
+            if (offlineDownloadsState == null) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(4, key = { "offline_shimmer_$it" }) {
+                        VideoCardShimmer()
+                    }
+                }
+            } else if (offlineDownloads.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    com.videhub.ui.components.EmptyState(
+                        icon = Icons.Default.DownloadForOffline,
+                        title = "No offline downloads",
+                        message = "Downloaded videos and songs will appear here when you are offline."
                     )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    itemsIndexed(offlineDownloads, key = { index, download -> "${download.videoId}_$index" }) { index, download ->
+                        VideoCard(
+                            title = download.title,
+                            channelName = download.channelName,
+                            thumbnailUrl = download.thumbnailUrl,
+                            url = download.videoId,
+                            duration = -1L,
+                            viewCount = download.viewCount,
+                            channelAvatarUrl = null,
+                            uploadDate = download.uploadDate,
+                            onClick = { _, _, _ ->
+                                val localUri = android.net.Uri.fromFile(java.io.File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), download.fileName)).toString()
+                                onVideoClick(localUri, download.title, download.thumbnailUrl)
+                            },
+                            onChannelClick = {}
+                        )
+                    }
                 }
             }
         }
@@ -662,7 +691,7 @@ fun HomeScreen(
             onRefresh = { refresh() },
             modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
-            val showShimmer = (isLoading || isRefreshing || !isTabLoaded) && errorText == null
+            val showShimmer = (isLoading || isRefreshing || (videos.isEmpty() && !hasCompletedEmptyLoad)) && errorText == null
             androidx.compose.animation.AnimatedContent(
                 targetState = Triple(selectedTab, showShimmer, errorText != null),
                 transitionSpec = {
@@ -681,13 +710,13 @@ fun HomeScreen(
                         Text(errorText ?: "Could not load content. Please try again.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(16.dp))
                         Button(onClick = {
+                            errorText = null
+                            hasCompletedEmptyLoad = false
                             isLoading = true
-                            val t = selectedTab
-                            selectedTab = -1
-                            selectedTab = t
+                            retryTrigger++
                         }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) { Text("Retry") }
                     }
-                    videos.isEmpty() -> com.videhub.ui.components.EmptyState(
+                    videos.isEmpty() && hasCompletedEmptyLoad -> com.videhub.ui.components.EmptyState(
                         icon = Icons.Default.Home,
                         title = "No videos found",
                         message = "Try exploring other categories.",

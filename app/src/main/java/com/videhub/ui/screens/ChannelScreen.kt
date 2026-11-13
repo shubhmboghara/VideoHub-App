@@ -190,31 +190,34 @@ fun ChannelScreen(
     var showChannelMenu by remember { mutableStateOf(false) }
     // Determine if we should load from cache
     val isSameChannel = sharedViewModel.currentChannelId == channelId
-    var channelInfo by remember { mutableStateOf<ChannelInfo?>(if (isSameChannel) sharedViewModel.channelInfoCache else null) }
-    var channelAboutInfo by remember { mutableStateOf<com.videhub.extractor.ChannelAboutInfo?>(if (isSameChannel) sharedViewModel.channelAboutInfoCache else null) }
-    var channelVideos by remember { mutableStateOf<List<StreamInfoItem>>(if (isSameChannel) sharedViewModel.channelVideosCache ?: emptyList() else emptyList()) }
-    var channelPlaylists by remember { mutableStateOf<List<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem>>(if (isSameChannel) sharedViewModel.channelPlaylistsCache ?: emptyList() else emptyList()) }
-    var channelLiveStreams by remember { mutableStateOf<List<StreamInfoItem>>(if (isSameChannel) sharedViewModel.channelLiveStreamsCache ?: emptyList() else emptyList()) }
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Home, 1: Videos, 2: Live, 3: Playlists
-    var isPlaylistsLoading by remember { mutableStateOf(false) }
-    var playlistsError by remember { mutableStateOf<String?>(null) }
-    var isLiveLoading by remember { mutableStateOf(false) }
-    var liveError by remember { mutableStateOf<String?>(null) }
-    var isHeaderLoading by remember { mutableStateOf(channelInfo == null) }
-    var headerError by remember { mutableStateOf<String?>(null) }
-    var isVideoListLoading by remember { mutableStateOf(channelVideos.isEmpty() && channelInfo == null) }
-    var videoListError by remember { mutableStateOf<String?>(null) }
+    var channelInfo by remember(channelId) { mutableStateOf<ChannelInfo?>(if (isSameChannel) sharedViewModel.channelInfoCache else null) }
+    var channelAboutInfo by remember(channelId) { mutableStateOf<com.videhub.extractor.ChannelAboutInfo?>(if (isSameChannel) sharedViewModel.channelAboutInfoCache else null) }
+    var channelVideos by remember(channelId) { mutableStateOf<List<StreamInfoItem>>(if (isSameChannel) sharedViewModel.channelVideosCache ?: emptyList() else emptyList()) }
+    var channelPlaylists by remember(channelId) { mutableStateOf<List<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem>>(if (isSameChannel) sharedViewModel.channelPlaylistsCache ?: emptyList() else emptyList()) }
+    var channelLiveStreams by remember(channelId) { mutableStateOf<List<StreamInfoItem>>(if (isSameChannel) sharedViewModel.channelLiveStreamsCache ?: emptyList() else emptyList()) }
+    var selectedTab by remember(channelId) { mutableIntStateOf(0) } // 0: Home, 1: Videos, 2: Live, 3: Playlists
+    var hasVideosLoaded by remember(channelId) { mutableStateOf(isSameChannel && sharedViewModel.channelVideosCache != null) }
+    var hasLiveLoaded by remember(channelId) { mutableStateOf(isSameChannel && sharedViewModel.channelLiveStreamsCache != null) }
+    var hasPlaylistsLoaded by remember(channelId) { mutableStateOf(isSameChannel && sharedViewModel.channelPlaylistsCache != null) }
+    var isPlaylistsLoading by remember(channelId) { mutableStateOf(false) }
+    var playlistsError by remember(channelId) { mutableStateOf<String?>(null) }
+    var isLiveLoading by remember(channelId) { mutableStateOf(!hasLiveLoaded) }
+    var liveError by remember(channelId) { mutableStateOf<String?>(null) }
+    var isHeaderLoading by remember(channelId) { mutableStateOf(channelInfo == null) }
+    var headerError by remember(channelId) { mutableStateOf<String?>(null) }
+    var isVideoListLoading by remember(channelId) { mutableStateOf(!hasVideosLoaded) }
+    var videoListError by remember(channelId) { mutableStateOf<String?>(null) }
     
-    var isSubscribed by remember { mutableStateOf(false) }
+    var isSubscribed by remember(channelId) { mutableStateOf(false) }
     var playlistDialogVideo by remember { mutableStateOf<StreamInfoItem?>(null) }
     var selectedPlaylistForMenu by remember { mutableStateOf<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem?>(null) }
-    var pagingSource by remember { mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(if (isSameChannel) sharedViewModel.channelPagingSourceCache else null) }
+    var pagingSource by remember(channelId) { mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(if (isSameChannel) sharedViewModel.channelPagingSourceCache else null) }
     var isPaginating by remember { mutableStateOf(false) }
-    var headerRetryTrigger by remember { mutableIntStateOf(0) }
-    var videoRetryTrigger by remember { mutableIntStateOf(0) }
-    var playlistRetryTrigger by remember { mutableIntStateOf(0) }
-    var liveRetryTrigger by remember { mutableIntStateOf(0) }
-    var isRefreshing by remember { mutableStateOf(false) }
+    var headerRetryTrigger by remember(channelId) { mutableIntStateOf(0) }
+    var videoRetryTrigger by remember(channelId) { mutableIntStateOf(0) }
+    var playlistRetryTrigger by remember(channelId) { mutableIntStateOf(0) }
+    var liveRetryTrigger by remember(channelId) { mutableIntStateOf(0) }
+    var isRefreshing by remember(channelId) { mutableStateOf(false) }
     
     val listState = androidx.compose.foundation.lazy.rememberLazyListState(
         initialFirstVisibleItemIndex = if (isSameChannel) sharedViewModel.channelScrollIndexCache else 0,
@@ -231,15 +234,18 @@ fun ChannelScreen(
     val currentChannelPlaylists by rememberUpdatedState(channelPlaylists)
     val currentChannelLiveStreams by rememberUpdatedState(channelLiveStreams)
     val currentPagingSource by rememberUpdatedState(pagingSource)
+    val currentHasVideosLoaded by rememberUpdatedState(hasVideosLoaded)
+    val currentHasPlaylistsLoaded by rememberUpdatedState(hasPlaylistsLoaded)
+    val currentHasLiveLoaded by rememberUpdatedState(hasLiveLoaded)
 
     DisposableEffect(channelId) {
         onDispose {
             sharedViewModel.currentChannelId = channelId
             sharedViewModel.channelInfoCache = currentChannelInfo
             sharedViewModel.channelAboutInfoCache = currentChannelAboutInfo
-            sharedViewModel.channelVideosCache = currentChannelVideos
-            sharedViewModel.channelPlaylistsCache = currentChannelPlaylists
-            sharedViewModel.channelLiveStreamsCache = currentChannelLiveStreams
+            sharedViewModel.channelVideosCache = if (currentHasVideosLoaded) currentChannelVideos else null
+            sharedViewModel.channelPlaylistsCache = if (currentHasPlaylistsLoaded) currentChannelPlaylists else null
+            sharedViewModel.channelLiveStreamsCache = if (currentHasLiveLoaded) currentChannelLiveStreams else null
             sharedViewModel.channelPagingSourceCache = currentPagingSource
             sharedViewModel.channelScrollIndexCache = listState.firstVisibleItemIndex
             sharedViewModel.channelScrollOffsetCache = listState.firstVisibleItemScrollOffset
@@ -254,13 +260,18 @@ fun ChannelScreen(
         channelLiveStreams = emptyList()
         channelInfo = null
         channelAboutInfo = null
-        sharedViewModel.channelVideosCache = emptyList()
+        hasVideosLoaded = false
+        hasLiveLoaded = false
+        hasPlaylistsLoaded = false
+        sharedViewModel.channelVideosCache = null
         sharedViewModel.channelPlaylistsCache = null
         sharedViewModel.channelLiveStreamsCache = null
         sharedViewModel.channelInfoCache = null
         sharedViewModel.channelAboutInfoCache = null
         isHeaderLoading = true
         isVideoListLoading = true
+        isLiveLoading = true
+        isPlaylistsLoading = (selectedTab == 3)
         isRefreshing = true
         headerRetryTrigger++
         videoRetryTrigger++
@@ -348,6 +359,8 @@ fun ChannelScreen(
             channelLiveStreams = liveStreams
             verifiedActiveLiveStream = activeVerified
             hasVerifiedLiveStatus = true
+            hasLiveLoaded = true
+            isLiveLoading = false
 
             sharedViewModel.currentChannelId = channelId
             sharedViewModel.channelInfoCache = info
@@ -358,29 +371,35 @@ fun ChannelScreen(
         } catch (e: Exception) {
             headerError = e.message ?: "Failed to load channel"
             videoListError = "Cannot load videos" // Cannot load videos without channel info
+            liveError = "Cannot load live streams"
+            playlistsError = "Cannot load playlists"
             isVideoListLoading = false
+            isLiveLoading = false
+            isPlaylistsLoading = false
         } finally {
             isHeaderLoading = false
-            isLiveLoading = false
+            if (headerError != null) {
+                isLiveLoading = false
+            }
             if (isRefreshing && headerError != null) {
                 isRefreshing = false
             }
         }
     }
 
-    var initialVideoLoadDone by remember { mutableStateOf(false) }
+    var initialVideoLoadDone by remember(channelId) { mutableStateOf(false) }
 
     LaunchedEffect(channelInfo, videoRetryTrigger) {
         if (channelInfo == null) return@LaunchedEffect
         
-        if (isSameChannel && !initialVideoLoadDone && channelVideos.isNotEmpty() && !isRefreshing) {
+        if (isSameChannel && !initialVideoLoadDone && hasVideosLoaded && !isRefreshing) {
             isVideoListLoading = false
             initialVideoLoadDone = true
             return@LaunchedEffect
         }
         initialVideoLoadDone = true
         
-        if (!isRefreshing) isVideoListLoading = true
+        isVideoListLoading = true
         videoListError = null
         try {
             val videos = withContext(Dispatchers.IO) {
@@ -389,6 +408,8 @@ fun ChannelScreen(
                 source?.loadInitial()?.filterIsInstance<StreamInfoItem>() ?: emptyList()
             }
             channelVideos = videos
+            sharedViewModel.channelVideosCache = videos
+            hasVideosLoaded = true
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -401,7 +422,11 @@ fun ChannelScreen(
 
     LaunchedEffect(channelInfo, liveRetryTrigger) {
         if (channelInfo != null) {
-            if (channelLiveStreams.isNotEmpty() && !isRefreshing) return@LaunchedEffect
+            if ((hasLiveLoaded || channelLiveStreams.isNotEmpty()) && !isRefreshing) {
+                hasLiveLoaded = true
+                isLiveLoading = false
+                return@LaunchedEffect
+            }
             isLiveLoading = true
             liveError = null
             try {
@@ -419,6 +444,7 @@ fun ChannelScreen(
                 channelLiveStreams = streams
                 verifiedActiveLiveStream = activeVerified
                 hasVerifiedLiveStatus = true
+                hasLiveLoaded = true
                 sharedViewModel.channelLiveStreamsCache = streams
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -432,13 +458,20 @@ fun ChannelScreen(
 
     LaunchedEffect(selectedTab, channelInfo, playlistRetryTrigger) {
         if (selectedTab == 3 && channelInfo != null) {
-            if (channelPlaylists.isNotEmpty() && !isRefreshing) return@LaunchedEffect
+            if ((hasPlaylistsLoaded || channelPlaylists.isNotEmpty()) && !isRefreshing) {
+                hasPlaylistsLoaded = true
+                isPlaylistsLoading = false
+                return@LaunchedEffect
+            }
             isPlaylistsLoading = true
             playlistsError = null
             try {
-                val lists = ExtractorHelper.getChannelPlaylists(channelInfo!!.url)
+                val lists = withContext(Dispatchers.IO) {
+                    ExtractorHelper.getChannelPlaylists(channelInfo!!.url)
+                }
                 channelPlaylists = lists
                 sharedViewModel.channelPlaylistsCache = lists
+                hasPlaylistsLoaded = true
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -737,11 +770,12 @@ fun ChannelScreen(
                         }
                     }
 
-                    if (videoLoading && topLiveStream == null) {
+                    val showHomeShimmer = (videoLoading || (!hasVideosLoaded && videoListError == null && !hasHeaderError)) && topLiveStream == null
+                    if (showHomeShimmer) {
                         item(key = "channel_home_shimmer") {
                             com.videhub.ui.components.ChannelHomeTabShimmer()
                         }
-                    } else if (regularHomeVideos.isEmpty() && topLiveStream == null) {
+                    } else if (hasVideosLoaded && regularHomeVideos.isEmpty() && topLiveStream == null && videoListError == null && !hasHeaderError) {
                         item {
                             com.videhub.ui.components.EmptyState(
                                 icon = Icons.Default.PlayArrow,
@@ -849,7 +883,8 @@ fun ChannelScreen(
                 
                 // Tab 1: Videos Tab (Vertical list, no sorting chips)
                 else if (selectedTab == 1) {
-                    if (videoLoading) {
+                    val showVideosShimmer = videoLoading || (!hasVideosLoaded && videoListError == null && !hasHeaderError)
+                    if (showVideosShimmer) {
                         items(6, key = { "channel_videos_shimmer_$it" }) {
                             com.videhub.ui.components.VideoRowShimmer()
                         }
@@ -887,7 +922,7 @@ fun ChannelScreen(
                             }
                         }
                     } else if (!headerLoading && !hasHeaderError) {
-                        if (channelVideos.isEmpty()) {
+                        if (hasVideosLoaded && channelVideos.isEmpty()) {
                             item {
                                 com.videhub.ui.components.EmptyState(
                                     icon = Icons.Default.PlayArrow,
@@ -944,7 +979,8 @@ fun ChannelScreen(
                 
                 // Tab 2: Live Tab (Live streams, running, upcoming, and past completed)
                 else if (selectedTab == 2) {
-                    if (isLiveLoading) {
+                    val showLiveShimmer = isLiveLoading || (!hasLiveLoaded && liveError == null && !hasHeaderError)
+                    if (showLiveShimmer) {
                         items(5, key = { "channel_live_shimmer_$it" }) {
                             com.videhub.ui.components.VideoRowShimmer()
                         }
@@ -968,7 +1004,7 @@ fun ChannelScreen(
                                 }
                             }
                         }
-                    } else if (channelLiveStreams.isEmpty()) {
+                    } else if (hasLiveLoaded && channelLiveStreams.isEmpty()) {
                         item {
                             com.videhub.ui.components.EmptyState(
                                 icon = Icons.Default.Sensors,
@@ -997,7 +1033,8 @@ fun ChannelScreen(
                 
                 // Tab 3: Playlists Tab (Compact playlist rows matching Image 4)
                 else if (selectedTab == 3) {
-                    if (isPlaylistsLoading) {
+                    val showPlaylistsShimmer = isPlaylistsLoading || (!hasPlaylistsLoaded && playlistsError == null && !hasHeaderError)
+                    if (showPlaylistsShimmer) {
                         items(5, key = { "channel_playlists_shimmer_$it" }) {
                             com.videhub.ui.components.CompactPlaylistRowShimmer()
                         }
@@ -1021,7 +1058,7 @@ fun ChannelScreen(
                                 }
                             }
                         }
-                    } else if (channelPlaylists.isEmpty()) {
+                    } else if (hasPlaylistsLoaded && channelPlaylists.isEmpty()) {
                         item {
                             com.videhub.ui.components.EmptyState(
                                 icon = Icons.AutoMirrored.Filled.PlaylistPlay,

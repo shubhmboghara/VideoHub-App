@@ -18,7 +18,7 @@ import org.schabi.newpipe.extractor.playlist.PlaylistInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 
 data class PlaylistUiState(
-    val isLoading: Boolean = false,
+    val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val playlistInfo: PlaylistInfo? = null,
     val playlistUrl: String = "",
@@ -51,16 +51,9 @@ class PlaylistViewModel : ViewModel() {
             }
             try {
                 val info = ExtractorHelper.getPlaylistInfo(url)
-                _uiState.value = PlaylistUiState(
-                    isLoading = false,
-                    isRefreshing = false,
-                    playlistInfo = info,
-                    playlistUrl = url
-                )
-                
                 val db = AppDatabase.getDatabase(context)
                 val downloadedVideosFlow = db.downloadedVideoDao().getAllDownloads()
-                
+
                 downloadedVideosFlow.collect { downloaded ->
                     val combinedList = info.relatedItems.mapNotNull { streamItem ->
                         if (streamItem !is StreamInfoItem) return@mapNotNull null
@@ -69,6 +62,12 @@ class PlaylistViewModel : ViewModel() {
                         PlaylistItemUiState(streamItem, isDownloaded, isDownloading)
                     }
                     _playlistItems.value = combinedList
+                    _uiState.value = PlaylistUiState(
+                        isLoading = false,
+                        isRefreshing = false,
+                        playlistInfo = info,
+                        playlistUrl = url
+                    )
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e

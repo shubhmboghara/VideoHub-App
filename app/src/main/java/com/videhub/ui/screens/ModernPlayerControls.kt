@@ -1,7 +1,5 @@
 package com.videhub.ui.screens
 
-import android.content.Context
-import android.media.AudioManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -23,14 +21,11 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
@@ -96,9 +91,6 @@ fun ModernPlayerControls(
     onNextClick: () -> Unit,
     onSingleTap: () -> Unit
 ) {
-    val context = LocalContext.current
-    val activity = remember(context) { context.getActivity() }
-    val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
@@ -138,22 +130,6 @@ fun ModernPlayerControls(
     var isHorizontalScrubbing by remember { mutableStateOf(false) }
     var scrubStartPosMs by remember { mutableLongStateOf(0L) }
     var scrubTargetPosMs by remember { mutableLongStateOf(0L) }
-
-    // 5. Fullscreen Brightness & Volume Vertical Swipe State
-    var isAdjustingBrightness by remember { mutableStateOf(false) }
-    var brightnessFraction by remember {
-        val currentWinBrightness = activity?.window?.attributes?.screenBrightness ?: -1f
-        mutableFloatStateOf(if (currentWinBrightness in 0f..1f) currentWinBrightness else 0.55f)
-    }
-    var hideBrightnessJob by remember { mutableStateOf<Job?>(null) }
-
-    var isAdjustingVolume by remember { mutableStateOf(false) }
-    var volumeFraction by remember {
-        val maxVol = (audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15).coerceAtLeast(1)
-        val curVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: (maxVol / 2)
-        mutableFloatStateOf((curVol.toFloat() / maxVol.toFloat()).coerceIn(0f, 1f))
-    }
-    var hideVolumeJob by remember { mutableStateOf<Job?>(null) }
 
     // 6. Fullscreen Swipe-Up "Up Next / Related Videos" Drawer State
     var showFullscreenRelatedDrawer by remember { mutableStateOf(false) }
@@ -264,23 +240,7 @@ fun ModernPlayerControls(
                                         scrubTargetPosMs = scrubStartPosMs
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     } else if (abs(totalPanY) > abs(totalPanX) * 1.35f) {
-                                        if (currentIsFullscreen && startX < viewWidth * 0.28f) {
-                                            gestureMode = "VERT_BRIGHTNESS"
-                                            val winAttr = activity?.window?.attributes
-                                            val curB = winAttr?.screenBrightness ?: -1f
-                                            brightnessFraction = if (curB in 0f..1f) curB else 0.55f
-                                            isAdjustingBrightness = true
-                                            hideBrightnessJob?.cancel()
-                                        } else if (currentIsFullscreen && startX > viewWidth * 0.72f) {
-                                            gestureMode = "VERT_VOLUME"
-                                            val maxVol = (audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15).coerceAtLeast(1)
-                                            val curVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: (maxVol / 2)
-                                            volumeFraction = (curVol.toFloat() / maxVol.toFloat()).coerceIn(0f, 1f)
-                                            isAdjustingVolume = true
-                                            hideVolumeJob?.cancel()
-                                        } else {
-                                            gestureMode = "VERT_CENTER"
-                                        }
+                                        gestureMode = "VERT_CENTER"
                                     }
                                 }
                             }
@@ -293,28 +253,6 @@ fun ModernPlayerControls(
                                     val deltaMs = ((totalPanX / viewWidth) * maxSwipeSeekMs).toLong()
                                     scrubTargetPosMs = (scrubStartPosMs + deltaMs).coerceIn(0L, totalTime.coerceAtLeast(0L))
                                     currentTime = scrubTargetPosMs
-                                }
-                                "VERT_BRIGHTNESS" -> {
-                                    event.changes.forEach { it.consume() }
-                                    val deltaB = -pan.y / (viewHeight * 0.65f)
-                                    val newB = (brightnessFraction + deltaB).coerceIn(0.02f, 1f)
-                                    brightnessFraction = newB
-                                    activity?.window?.let { win ->
-                                        val lp = win.attributes
-                                        lp.screenBrightness = newB
-                                        win.attributes = lp
-                                    }
-                                }
-                                "VERT_VOLUME" -> {
-                                    event.changes.forEach { it.consume() }
-                                    val deltaV = -pan.y / (viewHeight * 0.65f)
-                                    val newV = (volumeFraction + deltaV).coerceIn(0f, 1f)
-                                    volumeFraction = newV
-                                    audioManager?.let { am ->
-                                        val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-                                        val targetVol = (newV * maxVol).roundToInt().coerceIn(0, maxVol)
-                                        am.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, 0)
-                                    }
                                 }
                                 "VERT_CENTER" -> {
                                     event.changes.forEach { it.consume() }
@@ -348,20 +286,6 @@ fun ModernPlayerControls(
                     if (isHorizontalScrubbing) {
                         mediaPlayer?.seekTo(scrubTargetPosMs)
                         isHorizontalScrubbing = false
-                    }
-                    if (isAdjustingBrightness) {
-                        hideBrightnessJob?.cancel()
-                        hideBrightnessJob = coroutineScope.launch {
-                            delay(800)
-                            isAdjustingBrightness = false
-                        }
-                    }
-                    if (isAdjustingVolume) {
-                        hideVolumeJob?.cancel()
-                        hideVolumeJob = coroutineScope.launch {
-                            delay(800)
-                            isAdjustingVolume = false
-                        }
                     }
 
                     // Check for 2-Finger Double-Tap to Skip Chapter / Track
@@ -557,66 +481,7 @@ fun ModernPlayerControls(
             }
         }
 
-        // ── 3. Fullscreen Brightness / Volume Vertical Swipe Pill ──
-        AnimatedVisibility(
-            visible = isAdjustingBrightness || isAdjustingVolume,
-            enter = fadeIn() + scaleIn(initialScale = 0.88f),
-            exit = fadeOut() + scaleOut(targetScale = 0.88f),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 18.dp)
-        ) {
-            val isBright = isAdjustingBrightness
-            val valueFrac = if (isBright) brightnessFraction else volumeFraction
-            val pct = (valueFrac * 100f).roundToInt().coerceIn(0, 100)
-            val icon = when {
-                isBright -> Icons.Default.LightMode
-                pct == 0 -> Icons.AutoMirrored.Filled.VolumeOff
-                else -> Icons.AutoMirrored.Filled.VolumeUp
-            }
-
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = Color.Black.copy(alpha = 0.82f),
-                modifier = Modifier.border(0.5.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(24.dp))
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = if (isBright) "Brightness" else "Volume",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Box(
-                        modifier = Modifier
-                            .width(96.dp)
-                            .height(4.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.25f))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(valueFrac.coerceIn(0f, 1f))
-                                .background(Color.White)
-                        )
-                    }
-                    Text(
-                        text = "$pct%",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.widthIn(min = 34.dp)
-                    )
-                }
-            }
-        }
-
-        // ── 4. 2-Finger Double-Tap Skip Toast Pill ──
+        // ── 3. 2-Finger Double-Tap Skip Toast Pill ──
         AnimatedVisibility(
             visible = twoFingerSkipMessage != null,
             enter = fadeIn() + scaleIn(initialScale = 0.85f),
@@ -639,9 +504,9 @@ fun ModernPlayerControls(
             }
         }
 
-        // ── 5. Floating Zoom Level Indicator ──
+        // ── 4. Floating Zoom Level Indicator ──
         AnimatedVisibility(
-            visible = !isHold2xActive && !isAdjustingBrightness && !isAdjustingVolume && (videoScale > 1.05f || showZoomToast),
+            visible = !isHold2xActive && (videoScale > 1.05f || showZoomToast),
             enter = fadeIn() + scaleIn(initialScale = 0.8f),
             exit = fadeOut() + scaleOut(targetScale = 0.8f),
             modifier = Modifier

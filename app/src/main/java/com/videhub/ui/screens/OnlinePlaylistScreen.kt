@@ -124,6 +124,13 @@ fun OnlinePlaylistScreen(
                         }
                     }
                 }
+            } else if (playlistItems.isEmpty()) {
+                com.videhub.ui.components.EmptyState(
+                    icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                    title = "No videos in this playlist",
+                    message = "This playlist has no available videos.",
+                    modifier = Modifier.fillMaxSize()
+                )
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),

@@ -125,7 +125,9 @@ class FeedRepository(
                                 val secondaryItems = secondarySearch.relatedItems.filterIsInstance<StreamInfoItem>()
                                 collected.addAll(secondaryItems)
                             }
-                        } catch (_: Exception) {}
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                        }
 
                         // Filter by interest relevance with freshness scoring
                         val filtered = filterAndRankForSingleInterest(
@@ -181,7 +183,8 @@ class FeedRepository(
                                 }
                             }
                             channelVideos
-                        } catch (_: Exception) {
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
                             emptyList<StreamInfoItem>()
                         }
                     }
@@ -208,7 +211,8 @@ class FeedRepository(
                             info.relatedItems?.filterIsInstance<StreamInfoItem>()?.let {
                                 if (isRefresh) it.shuffled() else it
                             }?.take(6) ?: emptyList()
-                        } catch (_: Exception) {
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
                             emptyList<StreamInfoItem>()
                         }
                     }
@@ -234,7 +238,8 @@ class FeedRepository(
                 try {
                     val trending = ExtractorHelper.getTrending()
                     trending.filterIsInstance<StreamInfoItem>()
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     emptyList<StreamInfoItem>()
                 }
             }
@@ -245,7 +250,9 @@ class FeedRepository(
                     try {
                         val search = ExtractorHelper.searchYouTube(q, pages = 1)
                         collectedDiscovery.addAll(search.relatedItems.filterIsInstance<StreamInfoItem>())
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                    }
                 }
                 collectedDiscovery
             }
@@ -618,6 +625,7 @@ class FeedRepository(
 
             Pair(resultItems, source)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Pair(emptyList(), null)
         }
     }

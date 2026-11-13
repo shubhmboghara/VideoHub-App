@@ -261,9 +261,13 @@ fun DownloadsScreen(
         }
     }
 
-    val downloadedPlaylists by db.downloadedPlaylistDao().getDownloadedPlaylistsSummary().collectAsStateWithLifecycle(initialValue = emptyList())
-    val allDownloads by db.downloadedVideoDao().getAllDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
-    val playlistDownloads by db.downloadedVideoDao().getPlaylistDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
+    val downloadedPlaylistsState by db.downloadedPlaylistDao().getDownloadedPlaylistsSummary().collectAsStateWithLifecycle(initialValue = null)
+    val allDownloadsState by db.downloadedVideoDao().getAllDownloads().collectAsStateWithLifecycle(initialValue = null)
+    val playlistDownloadsState by db.downloadedVideoDao().getPlaylistDownloads().collectAsStateWithLifecycle(initialValue = null)
+    val hasRoomLoaded = downloadedPlaylistsState != null && allDownloadsState != null && playlistDownloadsState != null
+    val downloadedPlaylists = downloadedPlaylistsState ?: emptyList()
+    val allDownloads = allDownloadsState ?: emptyList()
+    val playlistDownloads = playlistDownloadsState ?: emptyList()
     val activeSingleDownloadsMap by DownloadProgressTracker.activeDownloads.collectAsStateWithLifecycle(initialValue = emptyMap())
     var showWatchLaterMenu by remember { mutableStateOf(false) }
 
@@ -387,6 +391,12 @@ fun DownloadsScreen(
     }
 
     LaunchedEffect(Unit) { loadFiles() }
+
+    LaunchedEffect(hasRoomLoaded) {
+        if (hasRoomLoaded) {
+            loadFiles()
+        }
+    }
 
     // Automatically reload files on disk whenever downloads state changes or completes
     LaunchedEffect(allDownloads.map { Triple(it.videoId, it.state, it.fileName) }) {
@@ -927,7 +937,7 @@ fun DownloadsScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (isInitialLoading && hasNoItems) {
+            if ((isInitialLoading || !hasRoomLoaded) && hasNoItems) {
                 val brush = com.videhub.ui.components.shimmerBrush()
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -967,7 +977,7 @@ fun DownloadsScreen(
                         }
                     }
                 }
-            } else if (hasNoItems || hasNoSearchResults) {
+            } else if (hasRoomLoaded && !isInitialLoading && (hasNoItems || hasNoSearchResults)) {
                 val infiniteTransition = rememberInfiniteTransition(label = "empty_state")
                 val scale by infiniteTransition.animateFloat(
                     initialValue = 1f,
