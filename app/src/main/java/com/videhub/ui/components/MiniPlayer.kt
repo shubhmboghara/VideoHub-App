@@ -39,8 +39,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -405,404 +407,421 @@ fun MiniPlayer(
                     .background(Color.Black)
             )
 
-            val artworkData = player.currentMediaItem?.mediaMetadata?.artworkData
-            val validArtUrl = artworkUrl.isNotBlank() && artworkUrl != "none"
-            val hasArtwork = validArtUrl || artworkData != null
-            val modelData: Any? = remember(artworkData, artworkUrl, validArtUrl) {
-                if (artworkData != null) artworkData
-                else if (artworkUrl.startsWith("/")) java.io.File(artworkUrl)
-                else if (validArtUrl) artworkUrl
-                else null
-            }
+            MiniPlayerCardChrome(
+                player = player,
+                isMusicMode = isMusicMode,
+                artworkUrl = artworkUrl,
+                title = title,
+                channelName = channelName,
+                isLoadingNext = isLoadingNext,
+                isRestored = isRestored,
+                progress = progress,
+                pipHeightDp = pipHeightDp,
+                sizeFactor = sizeFactor,
+                onExpand = onExpand,
+                onCloseClick = onCloseClick,
+                onVideoPlay = onVideoPlay
+            )
+        }
+    }
+}
 
-            var isPlaying by remember(player) { mutableStateOf(player.isPlaying) }
-            var playbackState by remember(player) { mutableIntStateOf(player.playbackState) }
-            DisposableEffect(player) {
-                val listener = object : Player.Listener {
-                    override fun onIsPlayingChanged(playing: Boolean) {
-                        isPlaying = playing
-                    }
-                    override fun onPlaybackStateChanged(state: Int) {
-                        playbackState = state
-                    }
-                }
-                player.addListener(listener)
-                onDispose {
-                    player.removeListener(listener)
-                }
-            }
+@Composable
+fun MiniPlayerCardChrome(
+    player: Player?,
+    isMusicMode: Boolean,
+    artworkUrl: String,
+    title: String,
+    channelName: String,
+    isLoadingNext: Boolean,
+    isRestored: Boolean,
+    progress: Float,
+    pipHeightDp: Dp,
+    sizeFactor: Float,
+    onExpand: () -> Unit,
+    onCloseClick: () -> Unit,
+    onVideoPlay: (String, String, String) -> Unit = { _, _, _ -> },
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val artworkData = player?.currentMediaItem?.mediaMetadata?.artworkData
+    val validArtUrl = artworkUrl.isNotBlank() && artworkUrl != "none"
+    val hasArtwork = validArtUrl || artworkData != null
+    val modelData: Any? = remember(artworkData, artworkUrl, validArtUrl) {
+        if (artworkData != null) artworkData
+        else if (artworkUrl.startsWith("/")) java.io.File(artworkUrl)
+        else if (validArtUrl) artworkUrl
+        else null
+    }
 
-            // ── 2. Mode-Specific Visuals (Music Mode vs Video Mode) ──
-            if (isMusicMode) {
+    var isPlaying by remember(player) { mutableStateOf(player?.isPlaying ?: false) }
+    var playbackState by remember(player) { mutableIntStateOf(player?.playbackState ?: Player.STATE_IDLE) }
+    DisposableEffect(player) {
+        if (player == null) return@DisposableEffect onDispose {}
+        isPlaying = player.isPlaying
+        playbackState = player.playbackState
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+            override fun onPlaybackStateChanged(state: Int) {
+                playbackState = state
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            player.removeListener(listener)
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        // ── Mode-Specific Visuals (Music Mode vs Video Mode) ──
+        if (isMusicMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF141414))
+            )
+
+            // Ambient blurred artwork background
+            if (hasArtwork && modelData != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(modelData)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(radius = 22.dp)
+                )
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF141414))
+                        .background(Color.Black.copy(alpha = 0.52f))
                 )
+            }
 
-                // Ambient blurred artwork background
-                if (hasArtwork && modelData != null) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(modelData)
-                            .build(),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .blur(radius = 22.dp)
+            val scaleAnimatable = remember { Animatable(1f) }
+            LaunchedEffect(isPlaying) {
+                if (isPlaying) {
+                    scaleAnimatable.animateTo(
+                        targetValue = 1.04f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(2000, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        )
                     )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.52f))
+                } else {
+                    scaleAnimatable.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(600, easing = FastOutSlowInEasing)
                     )
                 }
+            }
 
-                val scaleAnimatable = remember { Animatable(1f) }
-                LaunchedEffect(isPlaying) {
-                    if (isPlaying) {
-                        scaleAnimatable.animateTo(
-                            targetValue = 1.04f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(2000, easing = FastOutSlowInEasing),
-                                repeatMode = RepeatMode.Reverse
-                            )
-                        )
-                    } else {
-                        scaleAnimatable.animateTo(
-                            targetValue = 1f,
-                            animationSpec = tween(600, easing = FastOutSlowInEasing)
-                        )
-                    }
-                }
+            val infiniteTransition = rememberInfiniteTransition(label = "glow_pulse")
+            val pulseAlpha by infiniteTransition.animateFloat(
+                initialValue = 0.15f,
+                targetValue = 0.42f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1500),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "pulse_alpha"
+            )
+            val glowAlpha by animateFloatAsState(
+                targetValue = if (isPlaying) pulseAlpha else 0f,
+                animationSpec = tween(600),
+                label = "glow_fade"
+            )
 
-                val infiniteTransition = rememberInfiniteTransition(label = "glow_pulse")
-                val pulseAlpha by infiniteTransition.animateFloat(
-                    initialValue = 0.15f,
-                    targetValue = 0.42f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(1500),
-                        repeatMode = RepeatMode.Reverse
-                    ),
-                    label = "pulse_alpha"
-                )
-                val glowAlpha by animateFloatAsState(
-                    targetValue = if (isPlaying) pulseAlpha else 0f,
-                    animationSpec = tween(600),
-                    label = "glow_fade"
-                )
+            val artOuterPad = (6.dp * sizeFactor).coerceIn(4.dp, 12.dp)
+            val artCorner = (10.dp * sizeFactor).coerceIn(8.dp, 14.dp)
+            val titleFontSp = (11.5f * sizeFactor).coerceIn(10f, 14f).sp
+            val subFontSp = (9.5f * sizeFactor).coerceIn(8.5f, 11.5f).sp
+            val showChannelSubtitle = channelName.isNotBlank() && pipHeightDp >= 106.dp
 
-                val artOuterPad = (6.dp * sizeFactor).coerceIn(4.dp, 12.dp)
-                val artCorner = (10.dp * sizeFactor).coerceIn(8.dp, 14.dp)
-                val titleFontSp = (11.5f * sizeFactor).coerceIn(10f, 14f).sp
-                val subFontSp = (9.5f * sizeFactor).coerceIn(8.5f, 11.5f).sp
-                val showChannelSubtitle = channelName.isNotBlank() && pipHeightDp >= 106.dp
-
-                Column(
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = (4.dp * sizeFactor).coerceIn(2.dp, 8.dp), bottom = (6.dp * sizeFactor).coerceIn(4.dp, 10.dp)),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(top = (4.dp * sizeFactor).coerceIn(2.dp, 8.dp), bottom = (6.dp * sizeFactor).coerceIn(4.dp, 10.dp)),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                        .weight(1f)
+                        .fillMaxWidth()
                 ) {
+                    // Glow Ring
                     Box(
-                        contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                    ) {
-                        // Glow Ring
+                            .fillMaxHeight()
+                            .aspectRatio(1f)
+                            .padding(artOuterPad * 0.5f)
+                            .background(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = glowAlpha),
+                                        Color.Transparent
+                                    )
+                                ),
+                                shape = RoundedCornerShape(artCorner)
+                            )
+                    )
+
+                    if (hasArtwork && modelData != null) {
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .aspectRatio(1f)
-                                .padding(artOuterPad * 0.5f)
-                                .background(
-                                    brush = Brush.radialGradient(
-                                        colors = listOf(
-                                            Color.White.copy(alpha = glowAlpha),
-                                            Color.Transparent
-                                        )
-                                    ),
-                                    shape = RoundedCornerShape(artCorner)
-                                )
-                        )
-
-                        if (hasArtwork && modelData != null) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .aspectRatio(1f)
-                                    .padding(artOuterPad)
-                                    .shadow(6.dp, RoundedCornerShape(artCorner))
-                                    .clip(RoundedCornerShape(artCorner))
-                                    .graphicsLayer {
-                                        scaleX = scaleAnimatable.value
-                                        scaleY = scaleAnimatable.value
-                                    }
-                            ) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(modelData)
-                                        .error(android.R.drawable.ic_media_play)
-                                        .build(),
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .aspectRatio(1f)
-                                    .padding(artOuterPad)
-                                    .shadow(6.dp, RoundedCornerShape(artCorner))
-                                    .clip(RoundedCornerShape(artCorner))
-                                    .background(Color(0xFF272727))
-                                    .graphicsLayer {
-                                        scaleX = scaleAnimatable.value
-                                        scaleY = scaleAnimatable.value
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Audiotrack,
-                                    contentDescription = "No Artwork",
-                                    tint = Color.White.copy(alpha = 0.8f),
-                                    modifier = Modifier.fillMaxSize(0.5f)
-                                )
-                            }
+                                .padding(artOuterPad)
+                                .shadow(6.dp, RoundedCornerShape(artCorner))
+                                .clip(RoundedCornerShape(artCorner))
+                                .graphicsLayer {
+                                    scaleX = scaleAnimatable.value
+                                    scaleY = scaleAnimatable.value
+                                }
+                        ) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(modelData)
+                                    .error(android.R.drawable.ic_media_play)
+                                    .build(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .aspectRatio(1f)
+                                .padding(artOuterPad)
+                                .shadow(6.dp, RoundedCornerShape(artCorner))
+                                .clip(RoundedCornerShape(artCorner))
+                                .background(Color(0xFF272727))
+                                .graphicsLayer {
+                                    scaleX = scaleAnimatable.value
+                                    scaleY = scaleAnimatable.value
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Audiotrack,
+                                contentDescription = "No Artwork",
+                                tint = Color.White.copy(alpha = 0.8f),
+                                modifier = Modifier.fillMaxSize(0.5f)
+                            )
                         }
                     }
+                }
 
-                    // Bottom Metadata
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = (24.dp * sizeFactor).coerceIn(18.dp, 36.dp)),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
+                // Bottom Metadata
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = (24.dp * sizeFactor).coerceIn(18.dp, 36.dp)),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = title,
+                        fontSize = titleFontSp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (showChannelSubtitle) {
                         Text(
-                            text = title,
-                            fontSize = titleFontSp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White,
+                            text = channelName,
+                            fontSize = subFontSp,
+                            color = Color.White.copy(alpha = 0.72f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        if (showChannelSubtitle) {
-                            Text(
-                                text = channelName,
-                                fontSize = subFontSp,
-                                color = Color.White.copy(alpha = 0.72f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
                     }
                 }
+            }
 
-                // Equalizer Bars (Bottom Start)
-                val maxEqHeight = (13f * sizeFactor).coerceIn(10f, 18f)
-                val minEqHeight = (3.5f * sizeFactor).coerceIn(3f, 5f)
-                val barWidth = (2.5.dp * sizeFactor).coerceIn(2.dp, 3.5.dp)
+            // Equalizer Bars (Bottom Start)
+            val maxEqHeight = (13f * sizeFactor).coerceIn(10f, 18f)
+            val minEqHeight = (3.5f * sizeFactor).coerceIn(3f, 5f)
+            val barWidth = (2.5.dp * sizeFactor).coerceIn(2.dp, 3.5.dp)
 
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(
-                            start = (8.dp * sizeFactor).coerceIn(6.dp, 12.dp),
-                            bottom = (8.dp * sizeFactor).coerceIn(6.dp, 12.dp)
-                        )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(
+                        start = (8.dp * sizeFactor).coerceIn(6.dp, 12.dp),
+                        bottom = (8.dp * sizeFactor).coerceIn(6.dp, 12.dp)
+                    )
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    modifier = Modifier.height(maxEqHeight.dp)
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                        verticalAlignment = Alignment.Bottom,
-                        modifier = Modifier.height(maxEqHeight.dp)
-                    ) {
-                        val eqAnim1 = remember { Animatable(minEqHeight) }
-                        val eqAnim2 = remember { Animatable(minEqHeight) }
-                        val eqAnim3 = remember { Animatable(minEqHeight) }
+                    val eqAnim1 = remember { Animatable(minEqHeight) }
+                    val eqAnim2 = remember { Animatable(minEqHeight) }
+                    val eqAnim3 = remember { Animatable(minEqHeight) }
 
-                        LaunchedEffect(isPlaying, maxEqHeight, minEqHeight) {
-                            if (isPlaying) {
-                                launch {
-                                    eqAnim1.animateTo(
-                                        maxEqHeight,
-                                        infiniteRepeatable(
-                                            animation = tween(300, easing = LinearEasing),
-                                            repeatMode = RepeatMode.Reverse
-                                        )
+                    LaunchedEffect(isPlaying, maxEqHeight, minEqHeight) {
+                        if (isPlaying) {
+                            launch {
+                                eqAnim1.animateTo(
+                                    maxEqHeight,
+                                    infiniteRepeatable(
+                                        animation = tween(300, easing = LinearEasing),
+                                        repeatMode = RepeatMode.Reverse
                                     )
-                                }
-                                launch {
-                                    eqAnim2.animateTo(
-                                        maxEqHeight,
-                                        infiniteRepeatable(
-                                            animation = tween(440, easing = LinearEasing),
-                                            repeatMode = RepeatMode.Reverse
-                                        )
-                                    )
-                                }
-                                launch {
-                                    eqAnim3.animateTo(
-                                        maxEqHeight,
-                                        infiniteRepeatable(
-                                            animation = tween(360, easing = LinearEasing),
-                                            repeatMode = RepeatMode.Reverse
-                                        )
-                                    )
-                                }
-                            } else {
-                                launch { eqAnim1.animateTo(minEqHeight, tween(250)) }
-                                launch { eqAnim2.animateTo(minEqHeight, tween(250)) }
-                                launch { eqAnim3.animateTo(minEqHeight, tween(250)) }
+                                )
                             }
+                            launch {
+                                eqAnim2.animateTo(
+                                    maxEqHeight,
+                                    infiniteRepeatable(
+                                        animation = tween(440, easing = LinearEasing),
+                                        repeatMode = RepeatMode.Reverse
+                                    )
+                                )
+                            }
+                            launch {
+                                eqAnim3.animateTo(
+                                    maxEqHeight,
+                                    infiniteRepeatable(
+                                        animation = tween(360, easing = LinearEasing),
+                                        repeatMode = RepeatMode.Reverse
+                                    )
+                                )
+                            }
+                        } else {
+                            launch { eqAnim1.animateTo(minEqHeight, tween(250)) }
+                            launch { eqAnim2.animateTo(minEqHeight, tween(250)) }
+                            launch { eqAnim3.animateTo(minEqHeight, tween(250)) }
                         }
-
-                        Box(
-                            modifier = Modifier
-                                .width(barWidth)
-                                .height(eqAnim1.value.dp)
-                                .clip(RoundedCornerShape(1.5.dp))
-                                .background(Color.White.copy(alpha = 0.9f))
-                        )
-                        Box(
-                            modifier = Modifier
-                                .width(barWidth)
-                                .height(eqAnim2.value.dp)
-                                .clip(RoundedCornerShape(1.5.dp))
-                                .background(Color.White.copy(alpha = 0.9f))
-                        )
-                        Box(
-                            modifier = Modifier
-                                .width(barWidth)
-                                .height(eqAnim3.value.dp)
-                                .clip(RoundedCornerShape(1.5.dp))
-                                .background(Color.White.copy(alpha = 0.9f))
-                        )
                     }
-                }
-            } else {
-                // Video Mode: show thumbnail when idle/restored before video surface renders
-                if ((isRestored || player.mediaItemCount == 0 || playbackState == Player.STATE_IDLE) && hasArtwork && modelData != null) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(modelData)
-                            .build(),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
+
+                    Box(
+                        modifier = Modifier
+                            .width(barWidth)
+                            .height(eqAnim1.value.dp)
+                            .clip(RoundedCornerShape(1.5.dp))
+                            .background(Color.White.copy(alpha = 0.9f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(barWidth)
+                            .height(eqAnim2.value.dp)
+                            .clip(RoundedCornerShape(1.5.dp))
+                            .background(Color.White.copy(alpha = 0.9f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(barWidth)
+                            .height(eqAnim3.value.dp)
+                            .clip(RoundedCornerShape(1.5.dp))
+                            .background(Color.White.copy(alpha = 0.9f))
                     )
                 }
-
-                // Bottom legibility gradient scrim
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Black.copy(alpha = 0.22f),
-                                    Color.Transparent,
-                                    Color.Black.copy(alpha = 0.78f)
-                                )
-                            )
-                        )
-                )
-
-                Text(
-                    text = title,
-                    fontSize = (11.5f * sizeFactor).coerceIn(10f, 14f).sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(
-                            start = (10.dp * sizeFactor).coerceIn(8.dp, 14.dp),
-                            end = (10.dp * sizeFactor).coerceIn(8.dp, 14.dp),
-                            bottom = (7.dp * sizeFactor).coerceIn(5.dp, 11.dp)
-                        )
+            }
+        } else {
+            // Video Mode: show thumbnail when idle/restored before video surface renders
+            if ((isRestored || (player?.mediaItemCount ?: 0) == 0 || playbackState == Player.STATE_IDLE) && hasArtwork && modelData != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(modelData)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
                 )
             }
 
-            // ── 3. Tap-to-Expand Center Overlay & Loading Spinner ──
+            // Bottom legibility gradient scrim
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clickable { onExpand() },
-                contentAlignment = Alignment.Center
-            ) {
-                if (isLoadingNext) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        strokeWidth = 2.5.dp,
-                        modifier = Modifier.size((32.dp * sizeFactor).coerceIn(24.dp, 42.dp))
-                    )
-                }
-            }
-
-            // ── 4. Proportional YouTube-Style Corner Controls (Play/Pause & Close) ──
-            val badgeSize = (30.dp * sizeFactor).coerceIn(24.dp, 38.dp)
-            val iconSize = (18.dp * sizeFactor).coerceIn(14.dp, 22.dp)
-            val cornerPad = (6.dp * sizeFactor).coerceIn(4.dp, 10.dp)
-            val touchTargetSize = (42.dp * sizeFactor).coerceIn(34.dp, 52.dp)
-
-            if (!isLoadingNext) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .size(touchTargetSize)
-                        .clickable {
-                            if (isPlaying) {
-                                player.pause()
-                            } else {
-                                if (player.mediaItemCount == 0 || isRestored) {
-                                    com.videhub.MiniPlayerState.markPlaybackStarted()
-                                    val url = com.videhub.MiniPlayerState.currentVideoUrl.value ?: ""
-                                    val t = com.videhub.MiniPlayerState.currentTitle.value ?: ""
-                                    val thumb = com.videhub.MiniPlayerState.currentThumbnailUrl.value ?: artworkUrl
-                                    onVideoPlay(url, t, thumb)
-                                } else {
-                                    player.play()
-                                }
-                            }
-                        },
-                    contentAlignment = Alignment.TopStart
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .padding(start = cornerPad, top = cornerPad)
-                            .size(badgeSize)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.62f))
-                            .border(0.5.dp, Color.White.copy(alpha = 0.16f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = Color.White,
-                            modifier = Modifier.size(iconSize)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.22f),
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.78f)
+                            )
                         )
-                    }
-                }
-            }
+                    )
+            )
 
+            Text(
+                text = title,
+                fontSize = (11.5f * sizeFactor).coerceIn(10f, 14f).sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(
+                        start = (10.dp * sizeFactor).coerceIn(8.dp, 14.dp),
+                        end = (10.dp * sizeFactor).coerceIn(8.dp, 14.dp),
+                        bottom = (7.dp * sizeFactor).coerceIn(5.dp, 11.dp)
+                    )
+            )
+        }
+
+        // ── Tap-to-Expand Center Overlay & Loading Spinner ──
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable { onExpand() }
+                .testTag("miniplayer_expand_area"),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isLoadingNext) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    strokeWidth = 2.5.dp,
+                    modifier = Modifier.size((32.dp * sizeFactor).coerceIn(24.dp, 42.dp))
+                )
+            }
+        }
+
+        // ── Proportional YouTube-Style Corner Controls (Play/Pause & Close) ──
+        val badgeSize = (30.dp * sizeFactor).coerceIn(24.dp, 38.dp)
+        val iconSize = (18.dp * sizeFactor).coerceIn(14.dp, 22.dp)
+        val cornerPad = (6.dp * sizeFactor).coerceIn(4.dp, 10.dp)
+        val touchTargetSize = (42.dp * sizeFactor).coerceIn(34.dp, 52.dp)
+
+        if (!isLoadingNext) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
+                    .align(Alignment.TopStart)
                     .size(touchTargetSize)
-                    .clickable { onCloseClick() },
-                contentAlignment = Alignment.TopEnd
+                    .clickable {
+                        if (player != null && isPlaying) {
+                            player.pause()
+                        } else {
+                            if (player == null || player.mediaItemCount == 0 || isRestored) {
+                                com.videhub.PlayerStateManager.markPlaybackStarted()
+                                val url = com.videhub.MiniPlayerState.currentVideoUrl.value ?: ""
+                                val t = com.videhub.MiniPlayerState.currentTitle.value ?: ""
+                                val thumb = com.videhub.MiniPlayerState.currentThumbnailUrl.value ?: artworkUrl
+                                onVideoPlay(url, t, thumb)
+                            } else {
+                                player.play()
+                            }
+                        }
+                    }
+                    .testTag("miniplayer_play_pause_button"),
+                contentAlignment = Alignment.TopStart
             ) {
                 Box(
                     modifier = Modifier
-                        .padding(end = cornerPad, top = cornerPad)
+                        .padding(start = cornerPad, top = cornerPad)
                         .size(badgeSize)
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.62f))
@@ -810,29 +829,55 @@ fun MiniPlayer(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
                         tint = Color.White,
                         modifier = Modifier.size(iconSize)
                     )
                 }
             }
+        }
 
-            // ── 5. YouTube Bottom Playback Progress Bar ────────────
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .size(touchTargetSize)
+                .clickable { onCloseClick() }
+                .testTag("miniplayer_close_button"),
+            contentAlignment = Alignment.TopEnd
+        ) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(2.5.dp)
-                    .background(Color.White.copy(alpha = 0.24f))
+                    .padding(end = cornerPad, top = cornerPad)
+                    .size(badgeSize)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.62f))
+                    .border(0.5.dp, Color.White.copy(alpha = 0.16f), CircleShape),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(progress.coerceIn(0f, 1f))
-                        .background(Color(0xFFFF0033))
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = Color.White,
+                    modifier = Modifier.size(iconSize)
                 )
             }
+        }
+
+        // ── YouTube Bottom Playback Progress Bar ──
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(2.5.dp)
+                .background(Color.White.copy(alpha = 0.24f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(progress.coerceIn(0f, 1f))
+                    .background(Color(0xFFFF0033))
+            )
         }
     }
 }

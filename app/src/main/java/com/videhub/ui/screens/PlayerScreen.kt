@@ -1,92 +1,84 @@
 package com.videhub.ui.screens
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-
-import androidx.compose.ui.platform.LocalConfiguration
-import android.content.res.Configuration
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.displayCutoutPadding
-import androidx.compose.foundation.layout.safeGestures
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.displayCutout
-import androidx.compose.foundation.background
-
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import com.videhub.ui.components.safeBottomSheetPadding
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import kotlinx.coroutines.tasks.await
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.layout.ContentScale
-import androidx.core.view.WindowCompat
+import androidx.compose.ui.util.lerp
 import androidx.core.view.WindowInsetsCompat
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.media3.common.MimeTypes
-import androidx.media3.common.PlaybackException
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.dash.DashMediaSource
-import androidx.media3.exoplayer.source.MergingMediaSource
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
-import androidx.media3.ui.PlayerView
+import com.videhub.MiniPlayerGlobalState
+import com.videhub.MiniPlayerStateEnum
+import com.videhub.PlayerStateManager
+import com.videhub.PlayerWindowState
 import com.videhub.data.AppDatabase
-import com.videhub.data.entity.ChannelEntity
-import com.videhub.data.entity.HistoryEntity
 import com.videhub.data.entity.PlaylistEntity
-import com.videhub.data.entity.PlaylistVideoEntity
-import com.videhub.data.entity.LikedVideoEntity
-import com.videhub.ui.components.AnimatedSubscribeButton
-import com.videhub.extractor.ExtractorHelper
+import com.videhub.ui.components.EdgeDirection
+import com.videhub.ui.components.EdgePeekTab
+import com.videhub.ui.components.MiniPlayerCardChrome
+import com.videhub.ui.components.safeBottomSheetPadding
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.stream.VideoStream
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 // Use Android YouTube app UA for player — avoids bot detection
 private const val UA = "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"
@@ -112,7 +104,15 @@ fun PlayerScreen(
     initialFullscreen: Boolean = false,
     onChannelClick: (String) -> Unit,
     forceMusicMode: Boolean = false,
-    mediaPlayer: Player? = null
+    mediaPlayer: Player? = null,
+    playerWindowState: PlayerWindowState = if (initialFullscreen) PlayerWindowState.FULLSCREEN else PlayerWindowState.WATCH_PAGE,
+    isRestoredFromSavedState: Boolean = false,
+    onCollapseToMiniplayer: () -> Unit = onBack,
+    onExpandFromMiniplayer: () -> Unit = {},
+    onEnterFullscreen: () -> Unit = {},
+    onExitFullscreen: () -> Unit = {},
+    onClosePlayer: () -> Unit = onBack,
+    onCollapseProgressChanged: (Float) -> Unit = {}
 ) {
     val context = LocalContext.current
     val currentSpeed by com.videhub.data.SettingsManager.getPlaybackSpeed(context).collectAsStateWithLifecycle(initialValue = 1f)
@@ -257,7 +257,10 @@ fun PlayerScreen(
         mutableStateOf(!isLocal && relatedVideos.isEmpty())
     }
 
-    LaunchedEffect(videoUrl, retryTrigger) {
+    LaunchedEffect(videoUrl, retryTrigger, isRestoredFromSavedState, playerWindowState) {
+        if (isRestoredFromSavedState && playerWindowState == PlayerWindowState.MINIPLAYER) {
+            return@LaunchedEffect
+        }
         val cachedInfo = sharedViewModel.playerStreamInfoCache
         val isCachedForThisVideo = cachedInfo != null && (cachedInfo.url == videoUrl || cachedInfo.originalUrl == videoUrl)
         if (retryTrigger == 0 && isCachedForThisVideo) {
@@ -422,7 +425,10 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(videoUrl, streamInfo, selectedQuality, offlineStreamUri, retryTrigger) {
+    LaunchedEffect(videoUrl, streamInfo, selectedQuality, offlineStreamUri, retryTrigger, isRestoredFromSavedState, playerWindowState) {
+        if (isRestoredFromSavedState && playerWindowState == PlayerWindowState.MINIPLAYER) {
+            return@LaunchedEffect
+        }
         val isLocal = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
         try {
             var audioUrlForMerge: String? = offlineAudioUri
@@ -660,11 +666,15 @@ fun PlayerScreen(
     }
     var isMusicMode by remember(videoUrl, initialIsMusic) { mutableStateOf(initialIsMusic) }
 
-    var isFullscreen by remember { mutableStateOf(initialFullscreen) }
+    val isFullscreen = playerWindowState == PlayerWindowState.FULLSCREEN
+    val isMiniplayer = playerWindowState == PlayerWindowState.MINIPLAYER
+    val isPipActiveState = playerWindowState == PlayerWindowState.PICTURE_IN_PICTURE || com.videhub.PipState.isActive.value
+    val isLandscapeVideoOrPortrait = com.videhub.PipState.videoAspectRatio?.toFloat()?.let { it in 0.1f..0.9f } == true
+
     fun syncSystemBarsForFullscreen(fullscreenActive: Boolean) {
         activity?.let {
             val ctrl = WindowInsetsControllerCompat(it.window, it.window.decorView)
-            if (fullscreenActive && !isMusicMode) {
+            if (fullscreenActive && !isMusicMode && !isMiniplayer) {
                 ctrl.hide(WindowInsetsCompat.Type.systemBars())
                 ctrl.systemBarsBehavior =
                     WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -675,23 +685,20 @@ fun PlayerScreen(
     }
 
     fun setFullscreen(enable: Boolean) {
-        isFullscreen = enable
-        activity?.let {
-            it.requestedOrientation = if (enable)
-                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else if (isMusicMode)
-                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            else
-                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        if (enable && isMusicMode) return
+        if (enable) {
+            onEnterFullscreen()
+        } else {
+            onExitFullscreen()
         }
-        syncSystemBarsForFullscreen(enable)
     }
 
     fun switchToMusicMode() {
         if (isFullscreen) {
-            setFullscreen(false)
+            onExitFullscreen()
         }
         isMusicMode = true
+        PlayerStateManager.updateMusicMode(true)
         activity?.let {
             it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             WindowInsetsControllerCompat(it.window, it.window.decorView)
@@ -701,10 +708,28 @@ fun PlayerScreen(
 
     val currentConfig = LocalConfiguration.current
     val isCurrentlyLandscape = currentConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val isCurrentlyPortrait = currentConfig.orientation != Configuration.ORIENTATION_LANDSCAPE
+
+    LaunchedEffect(isFullscreen, isMusicMode, isMiniplayer, isLandscapeVideoOrPortrait) {
+        activity?.let { act ->
+            act.requestedOrientation = when {
+                isMiniplayer -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                isFullscreen -> if (isLandscapeVideoOrPortrait) {
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                } else {
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                }
+                isMusicMode -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
+    }
+
     LaunchedEffect(
         isFullscreen,
         isCurrentlyLandscape,
         isMusicMode,
+        isMiniplayer,
         showSettingsSheet,
         showPlaybackSpeedMenu,
         showQualitySelector,
@@ -719,27 +744,27 @@ fun PlayerScreen(
             showSleepTimerDialog || showSleepTimerSheet || showEqualizerSheet ||
             showVideoActionBottomSheet || showDownloadDialog || showAddToPlaylistDialog
         if (!anySheetOpen) {
-            syncSystemBarsForFullscreen(isFullscreen || isCurrentlyLandscape)
+            syncSystemBarsForFullscreen(!isMiniplayer && (isFullscreen || isCurrentlyLandscape))
         }
     }
 
     var lastPhysicalState by remember { mutableStateOf("UNKNOWN") }
-    DisposableEffect(context) {
+    DisposableEffect(context, isMiniplayer, isMusicMode, isFullscreen) {
         val listener = object : android.view.OrientationEventListener(context) {
             override fun onOrientationChanged(orientation: Int) {
                 if (orientation == ORIENTATION_UNKNOWN) return
                 val isPhysicallyLandscape = (orientation > 250 && orientation < 290) || (orientation > 70 && orientation < 110)
                 val isPhysicallyPortrait = (orientation < 20 || orientation > 340) || (orientation > 160 && orientation < 200)
-                
+
                 val currentState = if (isPhysicallyLandscape) "LANDSCAPE" else if (isPhysicallyPortrait) "PORTRAIT" else lastPhysicalState
                 if (currentState != lastPhysicalState) {
                     lastPhysicalState = currentState
                     try {
                         val autoRotateEnabled = android.provider.Settings.System.getInt(context.contentResolver, android.provider.Settings.System.ACCELEROMETER_ROTATION, 0) == 1
-                        if (autoRotateEnabled && !isMusicMode) {
+                        if (autoRotateEnabled && !isMusicMode && !isMiniplayer) {
                             if (currentState == "LANDSCAPE" && !isFullscreen) {
                                 setFullscreen(true)
-                            } else if (currentState == "PORTRAIT" && isFullscreen) {
+                            } else if (currentState == "PORTRAIT" && isFullscreen && !isLandscapeVideoOrPortrait) {
                                 setFullscreen(false)
                             }
                         }
@@ -1194,14 +1219,17 @@ fun PlayerScreen(
             switchToMusicMode()
         }
     }
-    androidx.compose.runtime.LaunchedEffect(isMusicMode) {
+    LaunchedEffect(isMusicMode) {
         showCaptionsRef.value = isMusicMode
+        PlayerStateManager.updateMusicMode(isMusicMode)
         if (isMusicMode) {
             if (isFullscreen) {
-                isFullscreen = false
+                onExitFullscreen()
             }
             activity?.let {
-                it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                if (!isMiniplayer) {
+                    it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                }
                 WindowInsetsControllerCompat(it.window, it.window.decorView)
                     .show(WindowInsetsCompat.Type.systemBars())
             }
@@ -1228,7 +1256,7 @@ fun PlayerScreen(
             }
         }
     }
-    
+
     val queue by com.videhub.QueueManager.queue.collectAsStateWithLifecycle()
 
     LaunchedEffect(videoUrl) {
@@ -1237,17 +1265,17 @@ fun PlayerScreen(
             com.videhub.QueueManager.clearDownloadedItems()
         }
     }
-    
-    LaunchedEffect(Unit) {
-        if (initialFullscreen) {
-            setFullscreen(true)
+
+    LaunchedEffect(initialFullscreen) {
+        if (initialFullscreen && !isMusicMode) {
+            onEnterFullscreen()
         }
     }
 
-
-    LaunchedEffect(isMusicMode, streamInfo) {
-        com.videhub.PipState.canEnterPip = !isMusicMode
-        if (streamInfo != null) {
+    LaunchedEffect(isMusicMode, playerWindowState, streamInfo) {
+        com.videhub.PipState.canEnterPip = !isMusicMode &&
+            (playerWindowState == PlayerWindowState.WATCH_PAGE || playerWindowState == PlayerWindowState.FULLSCREEN)
+        if (streamInfo != null && !(isRestoredFromSavedState && isMiniplayer)) {
             val currentCaptions = com.videhub.ui.components.LiveCaptionsManager.captions.value
             // Re-fetch if empty, OR if we just switched to music mode (to prioritize description/LRCLIB over potentially noise CC)
             if (currentCaptions.isEmpty() || isMusicMode) {
@@ -1266,13 +1294,16 @@ fun PlayerScreen(
         }
     }
 
-    DisposableEffect(Unit) { 
-        onDispose { 
+    DisposableEffect(Unit) {
+        onDispose {
             com.videhub.ui.components.LiveCaptionsManager.clear()
             com.videhub.PipState.canEnterPip = false
-            setFullscreen(false)
-            activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        } 
+            activity?.let {
+                WindowInsetsControllerCompat(it.window, it.window.decorView)
+                    .show(WindowInsetsCompat.Type.systemBars())
+                it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
     }
     
     DisposableEffect(mediaPlayer) {
@@ -1303,10 +1334,17 @@ fun PlayerScreen(
                 if (currentId != null && currentId != videoUrl && currentId.isNotBlank()) {
                     val newTitle = mediaItem.mediaMetadata.title?.toString() ?: ""
                     val newThumb = mediaItem.mediaMetadata.artworkUri?.toString()?.takeIf { it != "none" } ?: ""
+                    val newArtist = mediaItem.mediaMetadata.artist?.toString() ?: ""
                     try {
-                        onVideoPlay(currentId, newTitle, newThumb, com.videhub.MiniPlayerState.isMusicMode.value, isFullscreen)
+                        PlayerStateManager.updateMediaInCurrentState(
+                            url = currentId,
+                            title = newTitle,
+                            thumbnailUrl = newThumb,
+                            channelName = newArtist,
+                            isMusicMode = isMusicMode
+                        )
                     } catch (e: Exception) {
-                        android.util.Log.e("PlayerScreen", "Error navigating to next item: ", e)
+                        android.util.Log.e("PlayerScreen", "Error syncing next item: ", e)
                     }
                 }
             }
@@ -1328,10 +1366,17 @@ fun PlayerScreen(
                     if (mediaId != null && mediaId != videoUrl && mediaId.isNotBlank()) {
                         val newTitle = p.currentMediaItem?.mediaMetadata?.title?.toString() ?: ""
                         val newThumb = p.currentMediaItem?.mediaMetadata?.artworkUri?.toString()?.takeIf { it != "none" } ?: ""
+                        val newArtist = p.currentMediaItem?.mediaMetadata?.artist?.toString() ?: ""
                         try {
-                            onVideoPlay(mediaId, newTitle, newThumb, com.videhub.MiniPlayerState.isMusicMode.value, isFullscreen)
+                            PlayerStateManager.updateMediaInCurrentState(
+                                url = mediaId,
+                                title = newTitle,
+                                thumbnailUrl = newThumb,
+                                channelName = newArtist,
+                                isMusicMode = isMusicMode
+                            )
                         } catch (e: Exception) {
-                            android.util.Log.e("PlayerScreen", "Error navigating to new item on resume: ", e)
+                            android.util.Log.e("PlayerScreen", "Error syncing new item on resume: ", e)
                         }
                     }
                 }
@@ -1341,7 +1386,16 @@ fun PlayerScreen(
         onDispose { playerLifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    BackHandler(enabled = isFullscreen) { setFullscreen(false) }
+    BackHandler(
+        enabled = playerWindowState == PlayerWindowState.FULLSCREEN ||
+            playerWindowState == PlayerWindowState.WATCH_PAGE
+    ) {
+        if (playerWindowState == PlayerWindowState.FULLSCREEN) {
+            onExitFullscreen()
+        } else {
+            onCollapseToMiniplayer()
+        }
+    }
 
     // ── Connect to shared PlaybackService via MediaController ─────────────────
     
@@ -1389,113 +1443,263 @@ fun PlayerScreen(
     }
     var originalVideoId by remember(videoUrl) { mutableStateOf(videoUrl) }
 
-    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            val configuration = LocalConfiguration.current
-            val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-            val isPip = com.videhub.PipState.isActive.value
-            val isExpandedPlayer = isFullscreen || isLandscape || isPip
-            val videoHeight = if (isExpandedPlayer) {
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
+    val resolvedTitle = if (title.isNotBlank() && title != "Video" && title != "Loading...") title else (streamInfo?.name ?: title.ifBlank { "Video" })
+    val resolvedThumbnail = if (thumbnailUrl.isNotBlank() && thumbnailUrl != "none") thumbnailUrl else (streamInfo?.thumbnails?.firstOrNull()?.url ?: "")
+    val isLocalVideoFile = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
+    val isStreamLoading = !(isRestoredFromSavedState && isMiniplayer) &&
+        streamInfo == null && !isLocalVideoFile && offlineStreamUri == null && errorMessage == null
+
+    val miniLoadingNext by com.videhub.MiniPlayerState.isLoadingNext.collectAsState()
+    val miniSavedPos by com.videhub.MiniPlayerState.lastSavedPosition.collectAsState()
+    val miniSavedDur by com.videhub.MiniPlayerState.lastSavedDuration.collectAsState()
+
+    var miniPlayerProgress by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(mediaPlayer, isMiniplayer, isRestoredFromSavedState, miniSavedPos, miniSavedDur) {
+        if (!isMiniplayer) return@LaunchedEffect
+        while (true) {
+            if (mediaPlayer == null || (isRestoredFromSavedState && (mediaPlayer.mediaItemCount == 0 || mediaPlayer.playbackState == Player.STATE_IDLE))) {
+                val dur = miniSavedDur.takeIf { it > 0 } ?: 1L
+                miniPlayerProgress = (miniSavedPos.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
             } else {
-                Modifier
-                    .fillMaxWidth()
-                    .background(Color.Black)
-                    .statusBarsPadding()
-                    .aspectRatio(16f / 9f)
+                val dur = mediaPlayer.duration.takeIf { it > 0 } ?: 1L
+                miniPlayerProgress = (mediaPlayer.currentPosition.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
             }
-            
-            val isLocalFile = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
-            val isStreamLoading = streamInfo == null && !isLocalFile && offlineStreamUri == null && errorMessage == null
+            delay(400)
+        }
+    }
 
-            Box(modifier = videoHeight) {
-                VideoPlayerContainer(
-                    modifier = Modifier.fillMaxSize(),
-                    mediaPlayer = mediaPlayer,
-                    isFullscreen = isFullscreen || isLandscape,
-                    isMusicMode = isMusicMode,
-                    showCaptions = showCaptionsRef.value,
-                    isScreenLocked = isScreenLocked,
-                    isStreamLoading = isStreamLoading,
-                    onToggleFullscreen = { setFullscreen(!(isFullscreen || isLandscape)) },
-                    onCaptionsRequested = { showCaptionSelector = true },
-                    activeCaptions = activeCaptions,
-                    onActiveCaptionsChanged = { activeCaptions = it },
-                    offlineCaptions = offlineCaptions,
-                    onBack = {
-                        if (isFullscreen || isLandscape) {
-                            setFullscreen(false)
-                        } else {
-                            onBack()
-                        }
-                    },
-                    onShowSettingsSheet = { showSettingsSheet = true },
-                    onShowSpeedMenu = { showPlaybackSpeedMenu = true },
-                    currentSpeed = currentSpeed,
-                    onToggleMusicMode = { switchToMusicMode() },
-                    relatedVideos = relatedVideos,
-                    onVideoSelect = { url, t, thumb -> onVideoPlay(url, t, thumb, false, false) }
-                )
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val density = LocalDensity.current
+        val containerWidthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+        val containerHeightPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
+        val statusBarTopPx = WindowInsets.statusBars.getTop(density).toFloat()
+        val navBarBottomPx = WindowInsets.navigationBars.getBottom(density).toFloat()
 
-                if (isScreenLocked) {
-                    androidx.compose.foundation.layout.Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(isScreenLocked) {
-                                detectTapGestures {
-                                    showLockIconTemp = true
-                                    lockIconJob?.cancel()
-                                    lockIconJob = lockIconScope.launch {
-                                        kotlinx.coroutines.delay(2000)
-                                        showLockIconTemp = false
-                                    }
-                                }
-                            }
-                    ) {
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = showLockIconTemp,
-                            enter = androidx.compose.animation.fadeIn(
-                                animationSpec = androidx.compose.animation.core.tween(200)
-                            ),
-                            exit = androidx.compose.animation.fadeOut(
-                                animationSpec = androidx.compose.animation.core.tween(600)
-                            ),
-                            modifier = Modifier
-                                .align(Alignment.CenterStart)
-                                .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.safeGestures)
-                                .padding(start = 48.dp)
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    isScreenLocked = false
-                                    showLockIconTemp = false
-                                    lockIconJob?.cancel()
-                                },
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .background(
-                                        Color.Black.copy(alpha = 0.6f),
-                                        androidx.compose.foundation.shape.CircleShape
-                                    )
-                            ) {
-                                Icon(
-                                    imageVector = androidx.compose.material.icons.Icons.Default.Lock,
-                                    contentDescription = "Tap to unlock",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                    }
+        // Miniplayer calibrated geometry
+        val screenWidthDp = with(density) { containerWidthPx.toDp().value }
+        val basePipWidthDp = (screenWidthDp * 0.56f).coerceIn(196f, 236f)
+        val minPipWidthDp = (screenWidthDp * 0.43f).coerceIn(156f, 176f)
+        val maxPipWidthDp = (screenWidthDp * 0.88f).coerceIn(288f, (screenWidthDp - 20f).coerceAtLeast(220f))
+
+        val minScale = (minPipWidthDp / basePipWidthDp).coerceIn(0.68f, 0.88f)
+        val maxScale = (maxPipWidthDp / basePipWidthDp).coerceIn(1.30f, 1.75f)
+        val basePipWidthPx = with(density) { basePipWidthDp.dp.toPx() }
+        val basePipHeightPx = basePipWidthPx * (9f / 16f)
+
+        val pipScale = remember { Animatable(MiniPlayerGlobalState.pipScale.floatValue.coerceIn(minScale, maxScale)) }
+        val pipWidthPx = basePipWidthPx * pipScale.value
+        val pipHeightPx = basePipHeightPx * pipScale.value
+        val pipWidthDp = with(density) { pipWidthPx.toDp() }
+        val pipHeightDp = with(density) { pipHeightPx.toDp() }
+        val sizeFactor = (pipWidthDp.value / basePipWidthDp).coerceIn(minScale, maxScale)
+
+        val horizontalMarginPx = with(density) { 10.dp.toPx() }
+        val topMarginPx = statusBarTopPx + with(density) { 10.dp.toPx() }
+        val bottomMarginPx = navBarBottomPx + with(density) { 68.dp.toPx() }
+
+        val minX = horizontalMarginPx
+        val maxX = maxOf(minX, containerWidthPx - pipWidthPx - horizontalMarginPx)
+        val minY = topMarginPx
+        val maxY = maxOf(minY, containerHeightPx - pipHeightPx - bottomMarginPx)
+
+        val pipOffsetX = remember {
+            Animatable(
+                if (MiniPlayerGlobalState.pipOffsetX.floatValue < 0f) maxX
+                else MiniPlayerGlobalState.pipOffsetX.floatValue.coerceIn(minX, maxX)
+            )
+        }
+        val pipOffsetY = remember {
+            Animatable(
+                if (MiniPlayerGlobalState.pipOffsetY.floatValue < 0f) maxY
+                else MiniPlayerGlobalState.pipOffsetY.floatValue.coerceIn(minY, maxY)
+            )
+        }
+
+        LaunchedEffect(maxX, maxY) {
+            val targetX = if (MiniPlayerGlobalState.pipOffsetX.floatValue < 0f) maxX else pipOffsetX.value.coerceIn(minX, maxX)
+            val targetY = if (MiniPlayerGlobalState.pipOffsetY.floatValue < 0f) maxY else pipOffsetY.value.coerceIn(minY, maxY)
+            pipOffsetX.snapTo(targetX)
+            pipOffsetY.snapTo(targetY)
+            MiniPlayerGlobalState.pipOffsetX.floatValue = targetX
+            MiniPlayerGlobalState.pipOffsetY.floatValue = targetY
+        }
+
+        // Collapse state (0f = Watch Page, 1f = Miniplayer)
+        val collapseAnimatable = remember {
+            Animatable(if (playerWindowState == PlayerWindowState.MINIPLAYER) 1f else 0f)
+        }
+        var isUserDraggingCollapse by remember { mutableStateOf(false) }
+
+        LaunchedEffect(playerWindowState) {
+            if (!isUserDraggingCollapse) {
+                val target = if (playerWindowState == PlayerWindowState.MINIPLAYER) 1f else 0f
+                if (abs(collapseAnimatable.value - target) > 0.001f) {
+                    collapseAnimatable.animateTo(
+                        targetValue = target,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
                 }
             }
-            
-            val resolvedTitle = if (title.isNotBlank() && title != "Video" && title != "Loading...") title else (streamInfo?.name ?: title.ifBlank { "Video" })
-            val resolvedThumbnail = if (thumbnailUrl.isNotBlank() && thumbnailUrl != "none") thumbnailUrl else (streamInfo?.thumbnails?.firstOrNull()?.url ?: "")
+        }
 
-            if (!isFullscreen && !isLandscape && !com.videhub.PipState.isActive.value && !isMusicMode) {
+        LaunchedEffect(collapseAnimatable) {
+            snapshotFlow { collapseAnimatable.value }.collect { fraction ->
+                onCollapseProgressChanged(fraction)
+            }
+        }
+
+        val effectiveFullscreen = isFullscreen || (isCurrentlyLandscape && !isMiniplayer) || isPipActiveState
+        val fullscreenProgress by animateFloatAsState(
+            targetValue = if (effectiveFullscreen) 1f else 0f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "fullscreen_progress"
+        )
+
+        val cp = collapseAnimatable.value.coerceIn(0f, 1f)
+        val fp = fullscreenProgress.coerceIn(0f, 1f)
+
+        val watchX = 0f
+        val watchY = statusBarTopPx
+        val watchW = containerWidthPx
+        val watchH = containerWidthPx * (9f / 16f)
+        val collapseDistancePx = (pipOffsetY.value - watchY).coerceAtLeast(180f)
+
+        val watchToMiniX = lerp(watchX, pipOffsetX.value, cp)
+        val watchToMiniY = lerp(watchY, pipOffsetY.value, cp)
+        val watchToMiniW = lerp(watchW, pipWidthPx, cp)
+        val watchToMiniH = lerp(watchH, pipHeightPx, cp)
+
+        val cardX = lerp(watchToMiniX, 0f, fp)
+        val cardY = lerp(watchToMiniY, 0f, fp)
+        val cardW = lerp(watchToMiniW, containerWidthPx, fp)
+        val cardH = lerp(watchToMiniH, containerHeightPx, fp)
+
+        val isSettledMiniplayer = playerWindowState == PlayerWindowState.MINIPLAYER &&
+            cp >= 0.99f && !isUserDraggingCollapse && fp < 0.05f
+
+        val miniChromeAlpha = if (isSettledMiniplayer) 1f else ((cp - 0.65f) / 0.35f).coerceIn(0f, 1f) * (1f - fp)
+        val watchControlsAlpha = (1f - cp * 2.5f).coerceIn(0f, 1f)
+        val backdropAlpha = (1f - cp * 1.15f).coerceIn(0f, 1f) * (1f - fp)
+        val detailsAlpha = (1f - cp * 2.2f).coerceIn(0f, 1f) * (1f - fp)
+
+        val cardCornerDp = if (fp > 0.05f) {
+            0.dp
+        } else {
+            val targetMiniCornerDp = (12f * sizeFactor).coerceIn(10f, 16f)
+            (targetMiniCornerDp * cp).dp
+        }
+        val cardShape = RoundedCornerShape(cardCornerDp)
+
+        fun startCollapseDrag() {
+            if (!effectiveFullscreen && !isMusicMode && !isSettledMiniplayer) {
+                isUserDraggingCollapse = true
+            }
+        }
+
+        fun dragCollapseBy(deltaPx: Float) {
+            if (!isUserDraggingCollapse) return
+            val next = (collapseAnimatable.value + deltaPx / collapseDistancePx).coerceIn(0f, 1f)
+            scope.launch { collapseAnimatable.snapTo(next) }
+        }
+
+        fun finishCollapseDrag(velocityY: Float) {
+            if (!isUserDraggingCollapse) return
+            isUserDraggingCollapse = false
+            val shouldCollapse = PlayerStateManager.shouldCollapseOnDragEnd(collapseAnimatable.value, velocityY)
+            scope.launch {
+                if (shouldCollapse) {
+                    onCollapseToMiniplayer()
+                    collapseAnimatable.animateTo(
+                        targetValue = 1f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
+                } else {
+                    collapseAnimatable.animateTo(
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
+                }
+            }
+        }
+
+        fun cancelCollapseDrag() {
+            if (!isUserDraggingCollapse) return
+            isUserDraggingCollapse = false
+            scope.launch {
+                val target = if (playerWindowState == PlayerWindowState.MINIPLAYER) 1f else 0f
+                collapseAnimatable.animateTo(
+                    targetValue = target,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+        }
+
+        val detailsNestedScroll = remember(collapseDistancePx, effectiveFullscreen, isMusicMode, isSettledMiniplayer) {
+            object : NestedScrollConnection {
+                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                    if (source != NestedScrollSource.Drag || effectiveFullscreen || isMusicMode || isSettledMiniplayer) {
+                        return Offset.Zero
+                    }
+                    val isAtTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+                    if (isUserDraggingCollapse || (isAtTop && available.y > 0f)) {
+                        if (!isUserDraggingCollapse) {
+                            isUserDraggingCollapse = true
+                        }
+                        val next = (collapseAnimatable.value + available.y / collapseDistancePx).coerceIn(0f, 1f)
+                        scope.launch { collapseAnimatable.snapTo(next) }
+                        if (next > 0f || available.y > 0f) {
+                            return Offset(0f, available.y)
+                        }
+                    }
+                    return Offset.Zero
+                }
+
+                override suspend fun onPreFling(available: Velocity): Velocity {
+                    if (isUserDraggingCollapse) {
+                        finishCollapseDrag(available.y)
+                        return available
+                    }
+                    return Velocity.Zero
+                }
+            }
+        }
+
+        // ── 1. Watch Page Background & Details Sheet (Unmounted when settled in Miniplayer so background screens stay interactive) ──
+        if (!isSettledMiniplayer && (!isPipActiveState)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = backdropAlpha }
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
+                if (statusBarTopPx > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(with(density) { statusBarTopPx.toDp() })
+                            .background(Color.Black)
+                    )
+                }
+            }
+
+            if (!isMusicMode && !effectiveFullscreen && detailsAlpha > 0.01f) {
+                val detailsTopOffsetPx = watchY + watchH + (containerHeightPx - watchY - watchH) * cp * 0.25f
+                val detailsHeightDp = with(density) { (containerHeightPx - (watchY + watchH)).coerceAtLeast(0f).toDp() }
                 BelowPlayerContent(
                     listState = listState,
                     streamInfo = streamInfo,
@@ -1506,7 +1710,10 @@ fun PlayerScreen(
                     channelName = channelName,
                     channelId = channelId,
                     thumbnailUrl = resolvedThumbnail,
-                    onChannelClick = onChannelClick,
+                    onChannelClick = { ch ->
+                        onCollapseToMiniplayer()
+                        onChannelClick(ch)
+                    },
                     context = context,
                     scope = scope,
                     db = db,
@@ -1528,16 +1735,355 @@ fun PlayerScreen(
                     sharedViewModel = sharedViewModel,
                     isMusicMode = isMusicMode,
                     isRelatedLoading = isRelatedLoading,
-                    modifier = Modifier.weight(1f)
+                    nestedScrollConnection = detailsNestedScroll,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(detailsHeightDp)
+                        .offset { IntOffset(0, detailsTopOffsetPx.roundToInt()) }
+                        .graphicsLayer { alpha = detailsAlpha }
                 )
             }
         }
 
-        val resolvedTitle = if (title.isNotBlank() && title != "Video" && title != "Loading...") title else (streamInfo?.name ?: title.ifBlank { "Video" })
-        val resolvedThumbnail = if (thumbnailUrl.isNotBlank() && thumbnailUrl != "none") thumbnailUrl else (streamInfo?.thumbnails?.firstOrNull()?.url ?: "")
+        // ── 2. Edge-Docked Miniplayer Peek Tab (when applicable) ──
+        val miniEdgeState = MiniPlayerGlobalState.state.value
+        if (isSettledMiniplayer && miniEdgeState == MiniPlayerStateEnum.EdgeDockedLeft) {
+            EdgePeekTab(
+                direction = EdgeDirection.LEFT,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset(y = with(density) { (pipOffsetY.value - containerHeightPx / 2f).toDp() + pipHeightDp / 2 }),
+                onClick = {
+                    MiniPlayerGlobalState.state.value = MiniPlayerStateEnum.FloatingPip
+                    MiniPlayerGlobalState.pipOffsetX.floatValue = minX
+                    scope.launch {
+                        pipOffsetX.animateTo(
+                            minX,
+                            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                        )
+                    }
+                }
+            )
+        } else if (isSettledMiniplayer && miniEdgeState == MiniPlayerStateEnum.EdgeDockedRight) {
+            EdgePeekTab(
+                direction = EdgeDirection.RIGHT,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(y = with(density) { (pipOffsetY.value - containerHeightPx / 2f).toDp() + pipHeightDp / 2 }),
+                onClick = {
+                    MiniPlayerGlobalState.state.value = MiniPlayerStateEnum.FloatingPip
+                    MiniPlayerGlobalState.pipOffsetX.floatValue = maxX
+                    scope.launch {
+                        pipOffsetX.animateTo(
+                            maxX,
+                            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                        )
+                    }
+                }
+            )
+        }
 
+        // ── 3. Floating Miniplayer Drag + Pinch-to-Resize + Bottom-Swipe Dismiss Modifier ──
+        val miniDragModifier = if (isSettledMiniplayer) {
+            Modifier.pointerInput(containerWidthPx, containerHeightPx, minScale, maxScale) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(
+                        requireUnconsumed = false,
+                        pass = PointerEventPass.Initial
+                    )
+                    val velocityTracker = VelocityTracker()
+                    velocityTracker.addPosition(down.uptimeMillis, down.position)
+
+                    var hasMoved = false
+                    var initialSlopPan = Offset.Zero
+                    var totalDragX = 0f
+                    var totalDragY = 0f
+                    var isHorizontalLocked = false
+                    val touchSlop = viewConfiguration.touchSlop
+
+                    var curScale = pipScale.value.coerceIn(minScale, maxScale)
+                    var curX = pipOffsetX.value
+                    var curY = pipOffsetY.value
+
+                    do {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val zoom = event.calculateZoom()
+                        val pan = event.calculatePan()
+                        val pointerCount = event.changes.count { it.pressed }
+
+                        if (!hasMoved) {
+                            initialSlopPan += pan
+                            if (initialSlopPan.getDistance() > touchSlop || (pointerCount > 1 && abs(zoom - 1f) > 0.01f)) {
+                                hasMoved = true
+                                totalDragX += initialSlopPan.x
+                                totalDragY += initialSlopPan.y
+                                if (abs(totalDragX) > abs(totalDragY)) {
+                                    isHorizontalLocked = true
+                                }
+                            }
+                        } else {
+                            totalDragX += pan.x
+                            totalDragY += pan.y
+                            if (abs(totalDragX) > abs(totalDragY)) {
+                                isHorizontalLocked = true
+                            }
+                        }
+
+                        if (hasMoved) {
+                            event.changes.forEach { it.consume() }
+
+                            val oldW = basePipWidthPx * curScale
+                            val oldH = basePipHeightPx * curScale
+                            val newScale = if (zoom != 1f) {
+                                (curScale * zoom).coerceIn(minScale, maxScale)
+                            } else {
+                                curScale
+                            }
+                            val newW = basePipWidthPx * newScale
+                            val newH = basePipHeightPx * newScale
+
+                            val dynamicMaxX = maxOf(minX, containerWidthPx - newW - horizontalMarginPx)
+                            val dynamicMaxY = maxOf(minY, containerHeightPx - newH - bottomMarginPx)
+
+                            val scaleDeltaX = (newW - oldW) / 2f
+                            val scaleDeltaY = (newH - oldH) / 2f
+
+                            curScale = newScale
+                            curX = (curX - scaleDeltaX + pan.x).coerceIn(minX, dynamicMaxX)
+                            val maxAllowedDragY = if (isHorizontalLocked || pointerCount > 1) dynamicMaxY else containerHeightPx
+                            curY = (curY - scaleDeltaY + pan.y).coerceIn(minY, maxAllowedDragY)
+
+                            MiniPlayerGlobalState.pipScale.floatValue = curScale
+                            MiniPlayerGlobalState.pipOffsetX.floatValue = curX
+                            MiniPlayerGlobalState.pipOffsetY.floatValue = curY
+
+                            scope.launch {
+                                pipScale.snapTo(curScale)
+                                pipOffsetX.snapTo(curX)
+                                pipOffsetY.snapTo(curY)
+                            }
+                        }
+
+                        event.changes.firstOrNull()?.let { change ->
+                            if (change.pressed) {
+                                velocityTracker.addPosition(change.uptimeMillis, change.position)
+                            }
+                        }
+                    } while (event.changes.any { it.pressed })
+
+                    val velocity = velocityTracker.calculateVelocity()
+                    if (hasMoved) {
+                        val currentW = basePipWidthPx * curScale
+                        val currentH = basePipHeightPx * curScale
+                        val dynamicMaxX = maxOf(minX, containerWidthPx - currentW - horizontalMarginPx)
+                        val dynamicMaxY = maxOf(minY, containerHeightPx - currentH - bottomMarginPx)
+                        val x = curX
+                        val y = curY
+
+                        val isPredominantlyVerticalDown =
+                            !isHorizontalLocked &&
+                                totalDragY > 0f &&
+                                abs(totalDragY) > abs(totalDragX) * 1.5f
+
+                        val bottomDismissZoneThreshold = containerHeightPx * 0.88f
+                        val crossedBottomZone = (y + currentH) >= bottomDismissZoneThreshold && y > dynamicMaxY + horizontalMarginPx
+                        val hasDownwardFlingVelocity =
+                            velocity.y > 1600f &&
+                                abs(velocity.y) > abs(velocity.x) * 1.5f
+
+                        val shouldDismissDownward =
+                            isPredominantlyVerticalDown && (crossedBottomZone || hasDownwardFlingVelocity)
+
+                        scope.launch {
+                            if (shouldDismissDownward) {
+                                pipOffsetY.animateTo(
+                                    targetValue = containerHeightPx,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    )
+                                )
+                                onClosePlayer()
+                            } else {
+                                val currentCenterX = x + currentW / 2f
+                                val targetX = if (currentCenterX < containerWidthPx / 2f) minX else dynamicMaxX
+                                val targetY = y.coerceIn(minY, dynamicMaxY)
+
+                                MiniPlayerGlobalState.pipOffsetX.floatValue = targetX
+                                MiniPlayerGlobalState.pipOffsetY.floatValue = targetY
+
+                                launch {
+                                    pipOffsetX.animateTo(
+                                        targetValue = targetX,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        )
+                                    )
+                                }
+                                launch {
+                                    pipOffsetY.animateTo(
+                                        targetValue = targetY,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            Modifier
+        }
+
+        // ── 4. Single Persistent Morphing Video Surface Box ──
+        // Never recreated or re-keyed across WATCH_PAGE <-> FULLSCREEN <-> MINIPLAYER <-> PICTURE_IN_PICTURE
+        val cardWidthDp = with(density) { cardW.toDp() }
+        val cardHeightDp = with(density) { cardH.toDp() }
+        val cardElevationDp = if (fp > 0.05f) 0.dp else (18f * cp).dp
+
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(cardX.roundToInt(), cardY.roundToInt()) }
+                .size(width = cardWidthDp, height = cardHeightDp)
+                .then(
+                    if (cardElevationDp > 0.dp) {
+                        Modifier.shadow(
+                            elevation = cardElevationDp,
+                            shape = cardShape,
+                            spotColor = Color.Black,
+                            ambientColor = Color.Black
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
+                .clip(cardShape)
+                .background(Color.Black)
+                .then(
+                    if (cp > 0.02f && fp < 0.05f) {
+                        Modifier.border(
+                            width = 0.75.dp,
+                            color = Color.White.copy(alpha = 0.14f * cp),
+                            shape = cardShape
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
+                .then(miniDragModifier)
+                .testTag(if (isSettledMiniplayer) "miniplayer_card" else "video_player_surface_container")
+        ) {
+            VideoPlayerContainer(
+                modifier = Modifier.fillMaxSize(),
+                mediaPlayer = mediaPlayer,
+                isFullscreen = effectiveFullscreen,
+                isPortrait = isCurrentlyPortrait,
+                isMusicMode = isMusicMode,
+                showCaptions = showCaptionsRef.value,
+                isScreenLocked = isScreenLocked,
+                isStreamLoading = isStreamLoading && !isSettledMiniplayer,
+                controlsInteractive = !isSettledMiniplayer && !isPipActiveState,
+                controlsAlpha = if (isSettledMiniplayer) 0f else watchControlsAlpha,
+                onToggleFullscreen = { setFullscreen(!isFullscreen) },
+                onEnterFullscreen = { setFullscreen(true) },
+                onExitFullscreen = { setFullscreen(false) },
+                onCollapseDragStart = ::startCollapseDrag,
+                onCollapseDragDelta = ::dragCollapseBy,
+                onCollapseDragEnd = ::finishCollapseDrag,
+                onCollapseDragCancel = ::cancelCollapseDrag,
+                onCaptionsRequested = { showCaptionSelector = true },
+                activeCaptions = activeCaptions,
+                onActiveCaptionsChanged = { activeCaptions = it },
+                offlineCaptions = offlineCaptions,
+                onBack = {
+                    if (isFullscreen) {
+                        setFullscreen(false)
+                    } else {
+                        onCollapseToMiniplayer()
+                    }
+                },
+                onShowSettingsSheet = { showSettingsSheet = true },
+                onShowSpeedMenu = { showPlaybackSpeedMenu = true },
+                currentSpeed = currentSpeed,
+                onToggleMusicMode = { switchToMusicMode() },
+                relatedVideos = relatedVideos,
+                onVideoSelect = { url, t, thumb -> onVideoPlay(url, t, thumb, false, false) }
+            )
+
+            if (isScreenLocked && !isSettledMiniplayer && !isPipActiveState) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(isScreenLocked) {
+                            detectTapGestures {
+                                showLockIconTemp = true
+                                lockIconJob?.cancel()
+                                lockIconJob = lockIconScope.launch {
+                                    delay(2000)
+                                    showLockIconTemp = false
+                                }
+                            }
+                        }
+                ) {
+                    AnimatedVisibility(
+                        visible = showLockIconTemp,
+                        enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(200)),
+                        exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(600)),
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .windowInsetsPadding(WindowInsets.safeGestures)
+                            .padding(start = 48.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                isScreenLocked = false
+                                showLockIconTemp = false
+                                lockIconJob?.cancel()
+                            },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = "Tap to unlock",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (miniChromeAlpha > 0.01f) {
+                MiniPlayerCardChrome(
+                    player = mediaPlayer,
+                    isMusicMode = isMusicMode,
+                    artworkUrl = resolvedThumbnail,
+                    title = resolvedTitle,
+                    channelName = channelName,
+                    isLoadingNext = miniLoadingNext,
+                    isRestored = isRestoredFromSavedState,
+                    progress = miniPlayerProgress,
+                    pipHeightDp = cardHeightDp,
+                    sizeFactor = sizeFactor,
+                    onExpand = onExpandFromMiniplayer,
+                    onCloseClick = onClosePlayer,
+                    onVideoPlay = { url, t, thumb -> onVideoPlay(url, t, thumb, isMusicMode, false) },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = miniChromeAlpha }
+                )
+            }
+        }
+
+        // ── 5. Music Mode Fullscreen-Card UI (when in Watch Page + Music Mode) ──
         MusicModeUI(
-            isMusicMode = isMusicMode,
+            isMusicMode = isMusicMode && playerWindowState == PlayerWindowState.WATCH_PAGE && cp < 0.5f,
             isFullscreen = isFullscreen,
             title = resolvedTitle,
             channelName = channelName,
@@ -1552,15 +2098,21 @@ fun PlayerScreen(
             isLiked = isLiked,
             onLikedChange = { isLiked = it },
             offlineCaptions = offlineCaptions,
-            onBack = onBack,
+            onBack = onCollapseToMiniplayer,
             onDownloadClick = { showDownloadDialog = true },
             onMoreClick = { showVideoActionBottomSheet = true },
             onToggleMode = {
                 if (!isAudioOnlyDownload) {
                     isMusicMode = false
+                    PlayerStateManager.updateMusicMode(false)
                 }
             },
-            onChannelClick = { channelId?.let { onChannelClick(it) } },
+            onChannelClick = {
+                channelId?.let { ch ->
+                    onCollapseToMiniplayer()
+                    onChannelClick(ch)
+                }
+            },
             autoplayEnabled = autoplayEnabled,
             isBuffering = isBuffering,
             showCaptions = showCaptionsRef.value,
@@ -1648,11 +2200,20 @@ fun VideoPlayerContainer(
     modifier: Modifier,
     mediaPlayer: androidx.media3.common.Player?,
     isFullscreen: Boolean,
+    isPortrait: Boolean = true,
     isMusicMode: Boolean,
     showCaptions: Boolean,
     isScreenLocked: Boolean,
     isStreamLoading: Boolean = false,
+    controlsInteractive: Boolean = true,
+    controlsAlpha: Float = 1f,
     onToggleFullscreen: () -> Unit,
+    onEnterFullscreen: () -> Unit = onToggleFullscreen,
+    onExitFullscreen: () -> Unit = onToggleFullscreen,
+    onCollapseDragStart: () -> Unit = {},
+    onCollapseDragDelta: (Float) -> Unit = {},
+    onCollapseDragEnd: (Float) -> Unit = {},
+    onCollapseDragCancel: () -> Unit = {},
     onCaptionsRequested: () -> Unit,
     activeCaptions: List<CharSequence>,
     onActiveCaptionsChanged: (List<String>) -> Unit,
@@ -1665,31 +2226,33 @@ fun VideoPlayerContainer(
     relatedVideos: List<org.schabi.newpipe.extractor.stream.StreamInfoItem> = emptyList(),
     onVideoSelect: (String, String, String) -> Unit = { _, _, _ -> }
 ) {
-    var controllerVisible by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    var videoScale by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
-    var videoPanOffsetX by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    var videoPanOffsetY by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var controllerVisible by remember { mutableStateOf(false) }
+    var videoScale by remember { mutableFloatStateOf(1f) }
+    var videoPanOffsetX by remember { mutableFloatStateOf(0f) }
+    var videoPanOffsetY by remember { mutableFloatStateOf(0f) }
 
-    val animatedScale by androidx.compose.animation.core.animateFloatAsState(
+    val animatedScale by animateFloatAsState(
         targetValue = videoScale,
-        animationSpec = androidx.compose.animation.core.spring(
-            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
-            stiffness = androidx.compose.animation.core.Spring.StiffnessLow
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessLow
         ),
         label = "video_zoom_scale"
     )
-    val animatedOffsetX by androidx.compose.animation.core.animateFloatAsState(
+    val animatedOffsetX by animateFloatAsState(
         targetValue = videoPanOffsetX,
         label = "video_pan_x"
     )
-    val animatedOffsetY by androidx.compose.animation.core.animateFloatAsState(
+    val animatedOffsetY by animateFloatAsState(
         targetValue = videoPanOffsetY,
         label = "video_pan_y"
     )
 
-    androidx.compose.runtime.LaunchedEffect(controllerVisible) {
-        if (controllerVisible) {
-            kotlinx.coroutines.delay(3000)
+    LaunchedEffect(controllerVisible, controlsInteractive) {
+        if (!controlsInteractive && controllerVisible) {
+            controllerVisible = false
+        } else if (controllerVisible) {
+            delay(3000)
             controllerVisible = false
         }
     }
@@ -1719,12 +2282,15 @@ fun VideoPlayerContainer(
             )
         }
 
-        if (!isStreamLoading && !com.videhub.PipState.isActive.value && !isScreenLocked) {
+        if (controlsInteractive && !isStreamLoading && !com.videhub.PipState.isActive.value && !isScreenLocked) {
             ModernPlayerControls(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = controlsAlpha },
                 mediaPlayer = mediaPlayer,
                 isVisible = controllerVisible,
                 isFullscreen = isFullscreen,
+                isPortrait = isPortrait,
                 showCaptions = showCaptions,
                 currentSpeed = currentSpeed,
                 videoScale = videoScale,
@@ -1748,13 +2314,13 @@ fun VideoPlayerContainer(
                     videoPanOffsetY = 0f
                 },
                 onToggleFullscreen = onToggleFullscreen,
-                onEnterFullscreen = {
-                    if (!isFullscreen) onToggleFullscreen()
-                },
-                onExitFullscreen = {
-                    if (isFullscreen) onToggleFullscreen()
-                },
+                onEnterFullscreen = onEnterFullscreen,
+                onExitFullscreen = onExitFullscreen,
                 onMinimize = onBack,
+                onCollapseDragStart = onCollapseDragStart,
+                onCollapseDragDelta = onCollapseDragDelta,
+                onCollapseDragEnd = onCollapseDragEnd,
+                onCollapseDragCancel = onCollapseDragCancel,
                 onSettingsClick = onShowSettingsSheet,
                 onCaptionsClick = onCaptionsRequested,
                 onPreviousClick = { mediaPlayer?.seekToPrevious() },
@@ -1768,18 +2334,20 @@ fun VideoPlayerContainer(
         CaptionsOverlay(
             isPipActive = com.videhub.PipState.isActive.value,
             showCaptions = showCaptions,
-            controllerVisible = controllerVisible,
+            controllerVisible = controllerVisible && controlsInteractive,
             offlineCaptions = offlineCaptions,
             mediaPlayer = mediaPlayer,
             activeCaptions = activeCaptions,
             isMusicMode = isMusicMode
         )
-        
-        androidx.compose.animation.AnimatedVisibility(
-            visible = !isStreamLoading && controllerVisible && !com.videhub.PipState.isActive.value && !isScreenLocked,
-            enter = androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter)
+
+        AnimatedVisibility(
+            visible = controlsInteractive && !isStreamLoading && controllerVisible && !com.videhub.PipState.isActive.value && !isScreenLocked,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .graphicsLayer { alpha = controlsAlpha }
         ) {
             Box(
                 modifier = Modifier
@@ -1794,15 +2362,16 @@ fun VideoPlayerContainer(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
                         .size(40.dp)
+                        .testTag("player_minimize_button")
                 ) {
                     Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowDown,
+                        imageVector = Icons.Default.KeyboardArrowDown,
                         contentDescription = "Minimize",
                         tint = Color.White,
                         modifier = Modifier.size(28.dp)
                     )
                 }
-                
+
                 Row(
                     modifier = Modifier.align(Alignment.CenterEnd),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1813,7 +2382,7 @@ fun VideoPlayerContainer(
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Outlined.Settings,
+                            imageVector = Icons.Outlined.Settings,
                             contentDescription = "Settings",
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)
@@ -1824,7 +2393,7 @@ fun VideoPlayerContainer(
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
-                            imageVector = if (showCaptions) androidx.compose.material.icons.Icons.Default.ClosedCaption else androidx.compose.material.icons.Icons.Outlined.ClosedCaption,
+                            imageVector = if (showCaptions) Icons.Default.ClosedCaption else Icons.Outlined.ClosedCaption,
                             contentDescription = "Captions",
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)
@@ -1835,7 +2404,7 @@ fun VideoPlayerContainer(
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Filled.Audiotrack,
+                            imageVector = Icons.Filled.Audiotrack,
                             contentDescription = "Music Mode",
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)

@@ -9,6 +9,9 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import com.videhub.PlayQueueItem
@@ -52,6 +55,7 @@ fun BelowPlayerContent(
     sharedViewModel: MainViewModel,
     isMusicMode: Boolean,
     isRelatedLoading: Boolean = false,
+    nestedScrollConnection: NestedScrollConnection? = null,
     modifier: Modifier = Modifier
 ) {
     val isCurrentLocal = com.videhub.QueueManager.isLocal(videoUrl)
@@ -62,7 +66,16 @@ fun BelowPlayerContent(
 
     LazyColumn(
         state = listState,
-        modifier = modifier.navigationBarsPadding(),
+        modifier = modifier
+            .then(
+                if (nestedScrollConnection != null) {
+                    Modifier.nestedScroll(nestedScrollConnection)
+                } else {
+                    Modifier
+                }
+            )
+            .navigationBarsPadding()
+            .testTag("watch_page_details"),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         if (isInitialStreamLoading) {

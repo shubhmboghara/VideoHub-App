@@ -158,6 +158,11 @@ class MainActivity : ComponentActivity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         PipState.isActive.value = isInPictureInPictureMode
+        if (isInPictureInPictureMode) {
+            PlayerStateManager.enterPictureInPicture()
+        } else {
+            PlayerStateManager.exitPictureInPicture()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -320,14 +325,21 @@ fun MainScreen() {
     
     val sharedViewModel: com.videhub.viewmodel.MainViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     
-    // ── Shared Player State for MiniPlayer ──
+    // ── Shared Player State for Persistent Morphing Player & MiniPlayer ──
     val context = androidx.compose.ui.platform.LocalContext.current
     var mediaPlayer by remember { mutableStateOf<androidx.media3.common.Player?>(null) }
     var currentMediaItem by remember { mutableStateOf<androidx.media3.common.MediaItem?>(null) }
     var hasActiveVideo by remember { mutableStateOf(false) }
-    val isMiniPlayerVisible by MiniPlayerState.isVisible.collectAsState()
-    val miniPlayerMusicMode by MiniPlayerState.isMusicMode.collectAsState()
-    val miniPlayerArtworkUrl by MiniPlayerState.currentThumbnailUrl.collectAsState()
+    val playerWindowState by PlayerStateManager.currentState.collectAsStateWithLifecycle()
+    val activePlayerMedia by PlayerStateManager.activeMedia.collectAsStateWithLifecycle()
+    var playerCollapseFraction by remember {
+        androidx.compose.runtime.mutableFloatStateOf(
+            if (playerWindowState == PlayerWindowState.MINIPLAYER) 1f else 0f
+        )
+    }
+    LaunchedEffect(playerWindowState) {
+        playerCollapseFraction = if (playerWindowState == PlayerWindowState.MINIPLAYER) 1f else 0f
+    }
     
     LaunchedEffect(context) {
         val lang = com.videhub.data.SettingsManager.getContentLanguage(context).first()
@@ -396,25 +408,20 @@ fun MainScreen() {
             sharedViewModel.currentPlayerUrl = safeUrl
             sharedViewModel.currentPlayerTitle = t
             sharedViewModel.currentPlayerThumbnailUrl = thumb
-            
-            val currentDestRoute = navController.currentDestination?.route
-            val isCurrentlyOnPlayer = currentDestRoute?.startsWith("player") == true
-            navController.navigate(
-                Screen.Player.createRoute(
-                    android.net.Uri.encode(safeUrl),
-                    android.net.Uri.encode(t?.ifBlank { "Video" } ?: "Video"),
-                    android.net.Uri.encode(thumb?.ifBlank { "none" } ?: "none"),
-                    isMusicMode,
-                    isFullscreen
-                )
-            ) {
-                if (isCurrentlyOnPlayer && currentDestRoute != null) {
-                    popUpTo(currentDestRoute) {
-                        inclusive = true
-                    }
-                }
-                launchSingleTop = true
-            }
+
+            val resolvedTitle = t?.ifBlank { "Video" } ?: "Video"
+            val resolvedThumb = thumb?.ifBlank { "none" } ?: "none"
+            val resolvedChannel = com.videhub.QueueManager.queue.value.find { it.url == safeUrl }?.uploaderName.orEmpty()
+
+            PlayerStateManager.openVideo(
+                url = safeUrl,
+                title = resolvedTitle,
+                thumbnailUrl = resolvedThumb,
+                channelName = resolvedChannel,
+                isMusicMode = isMusicMode,
+                isFullscreen = isFullscreen
+            )
+            playerCollapseFraction = 0f
         }
     }
 
@@ -425,14 +432,14 @@ fun MainScreen() {
         mediaPlayer = player
 
         launch {
-            if (!MiniPlayerState.isVisible.value && player.currentMediaItem == null) {
+            if (PlayerStateManager.currentState.value == PlayerWindowState.CLOSED && player.currentMediaItem == null) {
                 val lastState = com.videhub.data.SettingsManager.getLastPlaybackState(context).firstOrNull()
                 if (lastState != null && lastState.videoUrl.isNotBlank()) {
-                    MiniPlayerState.restore(
+                    PlayerStateManager.restoreToMiniplayer(
                         url = lastState.videoUrl,
                         title = lastState.title,
-                        thumb = lastState.thumbnailUrl,
-                        channel = lastState.channel,
+                        thumbnailUrl = lastState.thumbnailUrl,
+                        channelName = lastState.channel,
                         position = lastState.position,
                         duration = lastState.duration,
                         musicMode = lastState.isMusicMode
@@ -446,8 +453,10 @@ fun MainScreen() {
                 val cleanUrl = resolveYouTubeUrl(rawText)
                 if (!cleanUrl.isNullOrBlank()) {
                     if (cleanUrl.contains("/channel/") || cleanUrl.contains("/c/") || cleanUrl.contains("/user/") || cleanUrl.contains("/@")) {
+                        PlayerStateManager.collapseToMiniplayer()
                         navController.navigate(Screen.Channel.createRoute(cleanUrl))
                     } else if (cleanUrl.contains("/playlist?list=") || (cleanUrl.contains("list=") && !cleanUrl.contains("v="))) {
+                        PlayerStateManager.collapseToMiniplayer()
                         navController.navigate(Screen.OnlinePlaylist.createRoute(cleanUrl))
                     } else {
                         navigateToPlayer(cleanUrl, "Loading...", "none", isMusicMode = false, isFullscreen = false)
@@ -495,7 +504,10 @@ fun MainScreen() {
 
         launch {
             com.videhub.QueueManager.skipToNextEvent.collect {
-                if (currentRoute?.startsWith("player") == true && com.videhub.MainActivity.isAppInForeground) {
+                val currentWinState = PlayerStateManager.currentState.value
+                val inForegroundWatch = (currentWinState == PlayerWindowState.WATCH_PAGE ||
+                    currentWinState == PlayerWindowState.FULLSCREEN) && com.videhub.MainActivity.isAppInForeground
+                if (inForegroundWatch) {
                     val currentUrl = player.currentMediaItem?.mediaId
                     val isCurrentLocal = currentUrl?.let { com.videhub.QueueManager.isLocal(it) } ?: false
 
@@ -504,15 +516,16 @@ fun MainScreen() {
                     }
 
                     val nextItem = com.videhub.QueueManager.getNextVideo()
+                    val preserveFs = currentWinState == PlayerWindowState.FULLSCREEN
                     if (nextItem != null && (isCurrentLocal || !com.videhub.QueueManager.isLocal(nextItem.url))) {
-                        navigateToPlayer(nextItem.url, nextItem.title, nextItem.thumbnailUrl, MiniPlayerState.isMusicMode.value)
+                        navigateToPlayer(nextItem.url, nextItem.title, nextItem.thumbnailUrl, MiniPlayerState.isMusicMode.value, preserveFs)
                     } else {
                         if (isCurrentLocal) {
                             val isMusic = MiniPlayerState.isMusicMode.value
                             val nextD = getNextDownloadedItem(context, currentUrl!!, isMusic)
                             if (nextD != null) {
                                 val nextPath = java.io.File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), nextD.fileName).absolutePath
-                                navigateToPlayer(nextPath, nextD.title, nextD.thumbnailUrl, isMusic)
+                                navigateToPlayer(nextPath, nextD.title, nextD.thumbnailUrl, isMusic, preserveFs)
                             }
                             return@collect
                         }
@@ -522,7 +535,7 @@ fun MainScreen() {
                             }
                         }
                         if (nextRecommended != null && !nextRecommended.url.isNullOrBlank()) {
-                            navigateToPlayer(nextRecommended.url, nextRecommended.name ?: "", nextRecommended.thumbnails?.firstOrNull()?.url ?: "", MiniPlayerState.isMusicMode.value)
+                            navigateToPlayer(nextRecommended.url, nextRecommended.name ?: "", nextRecommended.thumbnails?.firstOrNull()?.url ?: "", MiniPlayerState.isMusicMode.value, preserveFs)
                         }
                     }
                 } else {
@@ -532,10 +545,14 @@ fun MainScreen() {
         }
         launch {
             com.videhub.QueueManager.skipToPreviousEvent.collect {
-                if (currentRoute?.startsWith("player") == true && com.videhub.MainActivity.isAppInForeground) {
+                val currentWinState = PlayerStateManager.currentState.value
+                val inForegroundWatch = (currentWinState == PlayerWindowState.WATCH_PAGE ||
+                    currentWinState == PlayerWindowState.FULLSCREEN) && com.videhub.MainActivity.isAppInForeground
+                if (inForegroundWatch) {
                     val prevItem = com.videhub.QueueManager.skipToPrevious()
                     if (prevItem != null) {
-                        navigateToPlayer(prevItem.url, prevItem.title, prevItem.thumbnailUrl, MiniPlayerState.isMusicMode.value)
+                        val preserveFs = currentWinState == PlayerWindowState.FULLSCREEN
+                        navigateToPlayer(prevItem.url, prevItem.title, prevItem.thumbnailUrl, MiniPlayerState.isMusicMode.value, preserveFs)
                     }
                 } else {
                     com.videhub.service.BackgroundAutoplayHandler.handleAutoplay(context, player) { com.videhub.QueueManager.skipToPrevious() }
@@ -544,23 +561,36 @@ fun MainScreen() {
         }
     }
 
-    LaunchedEffect(currentRoute, hasActiveVideo, com.videhub.PipState.isActive.value, currentMediaItem?.mediaId) {
-        val isPlayerScreen = currentRoute?.startsWith("player") == true
-        if (isPlayerScreen || !hasActiveVideo) {
-            MiniPlayerState.hide()
-        } else {
-            val title = currentMediaItem?.mediaMetadata?.title?.toString() ?: "Unknown"
-            val artist = currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Unknown"
-            var artwork = currentMediaItem?.mediaMetadata?.artworkUri?.toString() ?: ""
-            if (artwork == "none") artwork = ""
-            val url = currentMediaItem?.mediaId ?: ""; MiniPlayerState.show(url, title, artwork, artist, MiniPlayerState.isMusicMode.value)
+    LaunchedEffect(hasActiveVideo, currentMediaItem?.mediaId) {
+        if (hasActiveVideo && PlayerStateManager.currentState.value == PlayerWindowState.CLOSED) {
+            val item = currentMediaItem
+            val url = item?.mediaId
+            if (!url.isNullOrBlank()) {
+                val title = item.mediaMetadata.title?.toString() ?: "Unknown"
+                val artist = item.mediaMetadata.artist?.toString() ?: ""
+                var artwork = item.mediaMetadata.artworkUri?.toString() ?: ""
+                if (artwork == "none") artwork = ""
+                PlayerStateManager.restoreToMiniplayer(
+                    url = url,
+                    title = title,
+                    thumbnailUrl = artwork,
+                    channelName = artist,
+                    position = mediaPlayer?.currentPosition ?: 0L,
+                    duration = mediaPlayer?.duration ?: 0L,
+                    musicMode = MiniPlayerState.isMusicMode.value
+                )
+            }
         }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        val isPlayerRoute = currentRoute?.startsWith("player") == true
-        val showBottomBar = !isPlayerRoute && !com.videhub.PipState.isActive.value
-        val useZeroPadding = isPlayerRoute || com.videhub.PipState.isActive.value
+        val isPlayerBlockingScreen = playerWindowState == PlayerWindowState.FULLSCREEN ||
+            playerWindowState == PlayerWindowState.PICTURE_IN_PICTURE ||
+            (playerWindowState == PlayerWindowState.WATCH_PAGE && playerCollapseFraction < 0.35f)
+        val showBottomBar = !isPlayerBlockingScreen && !com.videhub.PipState.isActive.value
+        val useZeroPadding = com.videhub.PipState.isActive.value ||
+            playerWindowState == PlayerWindowState.FULLSCREEN ||
+            playerWindowState == PlayerWindowState.PICTURE_IN_PICTURE
         androidx.compose.material3.Scaffold(
             contentWindowInsets = if (useZeroPadding) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets,
             bottomBar = {
@@ -589,31 +619,45 @@ fun MainScreen() {
                 )
             }
         }
-        
-        androidx.compose.animation.AnimatedVisibility(
-            visible = isMiniPlayerVisible && !com.videhub.PipState.isActive.value,
-            enter = androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.fadeOut()
-        ) {
-            com.videhub.ui.components.MiniPlayer(
-                title = MiniPlayerState.currentTitle.value ?: "",
-                channelName = MiniPlayerState.currentChannelName.value ?: "",
-                isLoadingNext = com.videhub.MiniPlayerState.isLoadingNext.collectAsState().value,
-                artworkUrl = miniPlayerArtworkUrl ?: "",
-                player = mediaPlayer,
-                isMusicMode = miniPlayerMusicMode,
-                onExpand = {
-                    val id = currentMediaItem?.mediaId ?: MiniPlayerState.currentVideoUrl.value
-                    if (!id.isNullOrBlank()) {
-                        navigateToPlayer(id, MiniPlayerState.currentTitle.value ?: "", miniPlayerArtworkUrl, miniPlayerMusicMode)
-                    }
+
+        val media = activePlayerMedia
+        if (playerWindowState != PlayerWindowState.CLOSED && media != null) {
+            PlayerScreen(
+                sharedViewModel = sharedViewModel,
+                videoUrl = media.videoUrl,
+                title = media.title,
+                thumbnailUrl = media.thumbnailUrl,
+                onBack = { PlayerStateManager.collapseToMiniplayer(isGesture = false) },
+                onVideoPlay = { url, t, thumb, isMusic, isFs ->
+                    navigateToPlayer(url, t, thumb, isMusic, isFs)
                 },
-                onCloseClick = {
-                    val currentUrl = mediaPlayer?.currentMediaItem?.mediaId ?: MiniPlayerState.currentVideoUrl.value
-                    val isLocal = currentUrl?.let { com.videhub.QueueManager.isLocal(it) } ?: false
+                initialFullscreen = playerWindowState == PlayerWindowState.FULLSCREEN,
+                onChannelClick = { ch ->
+                    PlayerStateManager.collapseToMiniplayer(isGesture = false)
+                    navController.navigate(Screen.Channel.createRoute(ch))
+                },
+                forceMusicMode = media.isMusicMode,
+                mediaPlayer = mediaPlayer,
+                playerWindowState = playerWindowState,
+                isRestoredFromSavedState = media.isRestoredFromSavedState,
+                onCollapseToMiniplayer = {
+                    PlayerStateManager.collapseToMiniplayer(isGesture = false)
+                },
+                onExpandFromMiniplayer = {
+                    PlayerStateManager.expandFromMiniplayer(isGesture = false)
+                },
+                onEnterFullscreen = {
+                    PlayerStateManager.enterFullscreen(isGesture = false)
+                },
+                onExitFullscreen = {
+                    PlayerStateManager.exitFullscreen(isGesture = false)
+                },
+                onClosePlayer = {
+                    val currentUrl = mediaPlayer?.currentMediaItem?.mediaId ?: media.videoUrl
+                    val isLocal = com.videhub.QueueManager.isLocal(currentUrl)
                     mediaPlayer?.stop()
                     mediaPlayer?.clearMediaItems()
-                    MiniPlayerState.hide()
+                    PlayerStateManager.close()
                     if (isLocal || com.videhub.QueueManager.hasDownloadedItems()) {
                         com.videhub.QueueManager.clearDownloadedItems()
                     }
@@ -624,8 +668,8 @@ fun MainScreen() {
                     sharedViewModel.playerStreamInfoCache = null
                     sharedViewModel.playerRelatedItemsCache = null
                 },
-                onVideoPlay = { url, t, thumb ->
-                    navigateToPlayer(url, t, thumb, miniPlayerMusicMode)
+                onCollapseProgressChanged = { fraction ->
+                    playerCollapseFraction = fraction
                 }
             )
         }

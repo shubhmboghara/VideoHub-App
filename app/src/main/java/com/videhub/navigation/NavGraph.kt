@@ -68,23 +68,17 @@ fun NavGraph(
                 navArgument("isFullscreen") { type = NavType.BoolType; defaultValue = false }
             )
         ) { backStackEntry ->
-            val videoUrl = backStackEntry.arguments?.getString("videoUrl")
-            val title = backStackEntry.arguments?.getString("title")
-            val thumbnailUrl = backStackEntry.arguments?.getString("thumbnailUrl")
+            val videoUrl = backStackEntry.arguments?.getString("videoUrl") ?: ""
+            val title = backStackEntry.arguments?.getString("title") ?: ""
+            val thumbnailUrl = backStackEntry.arguments?.getString("thumbnailUrl") ?: ""
             val isMusicMode = backStackEntry.arguments?.getBoolean("isMusicMode") ?: false
             val isFullscreen = backStackEntry.arguments?.getBoolean("isFullscreen") ?: false
-            PlayerScreen(
-                sharedViewModel = sharedViewModel,
-                videoUrl = videoUrl ?: "",
-                title = title ?: "",
-                thumbnailUrl = thumbnailUrl ?: "",
-                onBack = { navController.popBackStack() },
-                onVideoPlay = { url, t, thumb, isM, isFs -> onNavigateToPlayer(url, t, thumb, isM, isFs) },
-                initialFullscreen = isFullscreen,
-                onChannelClick = { ch -> navController.navigate(Screen.Channel.createRoute(ch)) },
-                forceMusicMode = isMusicMode,
-                mediaPlayer = mediaPlayer
-            )
+            androidx.compose.runtime.LaunchedEffect(videoUrl) {
+                if (videoUrl.isNotBlank()) {
+                    onNavigateToPlayer(videoUrl, title, thumbnailUrl, isMusicMode, isFullscreen)
+                }
+                navController.popBackStack()
+            }
         }
         composable(
             route = Screen.OnlinePlaylist.ROUTE,
