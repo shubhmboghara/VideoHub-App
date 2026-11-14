@@ -217,4 +217,64 @@ class PlayerGestureAndStateRobolectricTest {
         assertSame(playerBackToWatch, playerMini)
         assertSame(playerMini, playerReExpanded)
     }
+
+    @Test
+    fun `single finger miniplayer hold and drag never shrinks or resizes scale`() {
+        val minScale = 0.76f
+        val maxScale = 1.45f
+
+        // Single-finger drag must preserve scale even if zoom != 1f or isPinching flag is true
+        assertEquals(
+            1.0f,
+            PlayerStateManager.computeNextMiniPlayerScale(
+                currentScale = 1.0f,
+                zoom = 0.65f,
+                pointerCount = 1,
+                isPinching = true,
+                minScale = minScale,
+                maxScale = maxScale
+            ),
+            0.0001f
+        )
+
+        // Two-finger tiny jitter under 1% without active pinch does not change scale
+        assertEquals(
+            1.0f,
+            PlayerStateManager.computeNextMiniPlayerScale(
+                currentScale = 1.0f,
+                zoom = 0.995f,
+                pointerCount = 2,
+                isPinching = false,
+                minScale = minScale,
+                maxScale = maxScale
+            ),
+            0.0001f
+        )
+
+        // Intentional two-finger pinch zooms smoothly and clamps to bounds
+        assertEquals(
+            1.25f,
+            PlayerStateManager.computeNextMiniPlayerScale(
+                currentScale = 1.0f,
+                zoom = 1.25f,
+                pointerCount = 2,
+                isPinching = true,
+                minScale = minScale,
+                maxScale = maxScale
+            ),
+            0.0001f
+        )
+        assertEquals(
+            minScale,
+            PlayerStateManager.computeNextMiniPlayerScale(
+                currentScale = 1.0f,
+                zoom = 0.4f,
+                pointerCount = 2,
+                isPinching = true,
+                minScale = minScale,
+                maxScale = maxScale
+            ),
+            0.0001f
+        )
+    }
 }

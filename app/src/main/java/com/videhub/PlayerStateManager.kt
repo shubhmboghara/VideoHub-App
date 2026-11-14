@@ -464,6 +464,20 @@ object PlayerStateManager {
 
     private fun basePipSafeDivisor(value: Float): Float = value.coerceAtLeast(1f)
 
+    fun computeNextMiniPlayerScale(
+        currentScale: Float,
+        zoom: Float,
+        pointerCount: Int,
+        isPinching: Boolean,
+        minScale: Float,
+        maxScale: Float
+    ): Float {
+        val clampedCurrent = currentScale.coerceIn(minScale, maxScale)
+        if (pointerCount < 2) return clampedCurrent
+        if (!isPinching && kotlin.math.abs(zoom - 1f) <= 0.01f) return clampedCurrent
+        return (clampedCurrent * zoom).coerceIn(minScale, maxScale)
+    }
+
     fun shouldCollapseOnDragEnd(collapseFraction: Float, velocityY: Float): Boolean {
         return velocityY >= 650f || (collapseFraction >= 0.30f && velocityY > -350f)
     }

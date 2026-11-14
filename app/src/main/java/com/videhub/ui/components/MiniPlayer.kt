@@ -221,7 +221,6 @@ fun MiniPlayer(
 
         Box(
             modifier = Modifier
-                .onGloballyPositioned { cardCoords = it }
                 .offset {
                     IntOffset(
                         renderX.roundToInt(),
@@ -233,6 +232,7 @@ fun MiniPlayer(
                 .clip(cardShape)
                 .background(Color(0xFF0F0F0F))
                 .border(width = 0.75.dp, color = Color.White.copy(alpha = 0.14f), shape = cardShape)
+                .onGloballyPositioned { cardCoords = it }
                 .pointerInput(screenWidthPx, screenHeightPx, minScale, maxScale) {
                     awaitEachGesture {
                         val down = awaitFirstDown(
@@ -246,6 +246,7 @@ fun MiniPlayer(
                         velocityTracker.addPosition(down.uptimeMillis, lastWinPos)
 
                         var hasMoved = false
+                        var isPinching = false
                         var initialSlopPan = Offset.Zero
                         var totalDragX = 0f
                         var totalDragY = 0f
@@ -262,6 +263,9 @@ fun MiniPlayer(
                                 val zoom = event.calculateZoom()
                                 val pressedChanges = event.changes.filter { it.pressed }
                                 val pointerCount = pressedChanges.size
+                                if (pointerCount < 2) {
+                                    isPinching = false
+                                }
                                 val primaryChange = pressedChanges.firstOrNull { it.id == trackedPointerId } ?: pressedChanges.firstOrNull()
                                 val pan = if (primaryChange != null) {
                                     val winPos = toWin(primaryChange.position)
@@ -280,19 +284,34 @@ fun MiniPlayer(
 
                                 if (!hasMoved) {
                                     initialSlopPan += pan
-                                    if (initialSlopPan.getDistance() > touchSlop || (pointerCount > 1 && abs(zoom - 1f) > 0.01f)) {
+                                    val startedPinch = pointerCount >= 2 && abs(zoom - 1f) > 0.01f
+                                    if (initialSlopPan.getDistance() > touchSlop || startedPinch) {
                                         hasMoved = true
+                                        if (startedPinch) {
+                                            isPinching = true
+                                        }
+                                        scope.launch {
+                                            pipScale.stop()
+                                            pipOffsetX.stop()
+                                            pipOffsetY.stop()
+                                        }
+                                        curScale = pipScale.value.coerceIn(minScale, maxScale)
+                                        curX = pipOffsetX.value
+                                        curY = pipOffsetY.value
+                                        activeDragScale = curScale
+                                        activeDragX = curX
+                                        activeDragY = curY
                                         isDraggingMini = true
                                         totalDragX += initialSlopPan.x
                                         totalDragY += initialSlopPan.y
-                                        if (abs(totalDragX) > abs(totalDragY)) {
+                                        if (abs(totalDragX) > abs(totalDragY) * 1.25f) {
                                             isHorizontalLocked = true
                                         }
                                     }
                                 } else {
                                     totalDragX += pan.x
                                     totalDragY += pan.y
-                                    if (abs(totalDragX) > abs(totalDragY)) {
+                                    if (abs(totalDragX) > abs(totalDragY) * 1.5f) {
                                         isHorizontalLocked = true
                                     }
                                 }
@@ -302,10 +321,16 @@ fun MiniPlayer(
 
                                     val oldW = basePipWidthPx * curScale
                                     val oldH = basePipHeightPx * curScale
-                                    val newScale = if (zoom != 1f) {
-                                        (curScale * zoom).coerceIn(minScale, maxScale)
-                                    } else {
-                                        curScale
+                                    val newScale = com.videhub.PlayerStateManager.computeNextMiniPlayerScale(
+                                        currentScale = curScale,
+                                        zoom = zoom,
+                                        pointerCount = pointerCount,
+                                        isPinching = isPinching,
+                                        minScale = minScale,
+                                        maxScale = maxScale
+                                    )
+                                    if (pointerCount >= 2 && abs(zoom - 1f) > 0.01f) {
+                                        isPinching = true
                                     }
                                     val newW = basePipWidthPx * newScale
                                     val newH = basePipHeightPx * newScale

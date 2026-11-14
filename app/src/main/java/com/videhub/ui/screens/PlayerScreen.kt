@@ -35,9 +35,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -46,12 +48,14 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
@@ -64,8 +68,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import com.videhub.MiniPlayerGlobalState
 import com.videhub.MiniPlayerStateEnum
+import com.videhub.PlayerGeometryBounds
 import com.videhub.PlayerStateManager
+import com.videhub.PlayerTransitionController
 import com.videhub.PlayerWindowState
+import com.videhub.rememberPlayerTransitionController
 import com.videhub.data.AppDatabase
 import com.videhub.data.entity.PlaylistEntity
 import com.videhub.ui.components.EdgeDirection
@@ -1552,140 +1559,132 @@ fun PlayerScreen(
         val currentMiniX = if (isMiniDragging) activeMiniX else if (pipOffsetX.value <= 0f && MiniPlayerGlobalState.pipOffsetX.floatValue < 0f) maxX else pipOffsetX.value
         val currentMiniY = if (isMiniDragging) activeMiniY else if (pipOffsetY.value <= 0f && MiniPlayerGlobalState.pipOffsetY.floatValue < 0f) maxY else pipOffsetY.value
 
-        // Collapse state (0f = Watch Page, 1f = Miniplayer) with synchronous drag value for 0-lag 1:1 tracking
-        val collapseAnimatable = remember {
-            Animatable(if (playerWindowState == PlayerWindowState.MINIPLAYER) 1f else 0f)
-        }
-        var isUserDraggingCollapse by remember { mutableStateOf(false) }
-        var activeDragCollapseFraction by remember {
-            mutableFloatStateOf(if (playerWindowState == PlayerWindowState.MINIPLAYER) 1f else 0f)
-        }
+        val effectiveFullscreen = isFullscreen || (isCurrentlyLandscape && !isMiniplayer) || isPipActiveState
+        val transitionController = rememberPlayerTransitionController(playerWindowState)
 
         LaunchedEffect(playerWindowState) {
-            if (!isUserDraggingCollapse) {
-                val target = if (playerWindowState == PlayerWindowState.MINIPLAYER) 1f else 0f
-                activeDragCollapseFraction = target
-                if (abs(collapseAnimatable.value - target) > 0.001f) {
-                    collapseAnimatable.animateTo(
-                        targetValue = target,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
-                    )
-                }
-            }
+            transitionController.syncCollapseTarget(playerWindowState == PlayerWindowState.MINIPLAYER)
         }
 
-        LaunchedEffect(collapseAnimatable) {
-            snapshotFlow {
-                if (isUserDraggingCollapse) activeDragCollapseFraction else collapseAnimatable.value
-            }.collect { fraction ->
+        LaunchedEffect(effectiveFullscreen) {
+            transitionController.syncFullscreenTarget(effectiveFullscreen)
+        }
+
+        LaunchedEffect(transitionController) {
+            snapshotFlow { transitionController.currentCollapseProgress }.collect { fraction ->
                 onCollapseProgressChanged(fraction)
             }
         }
-
-        val effectiveFullscreen = isFullscreen || (isCurrentlyLandscape && !isMiniplayer) || isPipActiveState
-        val fullscreenProgress by animateFloatAsState(
-            targetValue = if (effectiveFullscreen) 1f else 0f,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = Spring.StiffnessMediumLow
-            ),
-            label = "fullscreen_progress"
-        )
-
-        val cp = (if (isUserDraggingCollapse) activeDragCollapseFraction else collapseAnimatable.value).coerceIn(0f, 1f)
-        val fp = fullscreenProgress.coerceIn(0f, 1f)
 
         val watchX = 0f
         val watchY = statusBarTopPx
         val watchW = containerWidthPx
         val watchH = containerWidthPx * (9f / 16f)
         val collapseDistancePx = (currentMiniY - watchY).coerceAtLeast(180f)
+        val fullscreenDragRangePx = (containerHeightPx - watchH).coerceAtLeast(220f)
+        val fullscreenMinTravelPx = with(density) { 30.dp.toPx() }
+        val detailsSlidePx = with(density) { 28.dp.toPx() }
+        val targetMiniCornerDp = (12f * sizeFactor).coerceIn(10f, 16f)
 
-        val watchToMiniX = lerp(watchX, currentMiniX, cp)
-        val watchToMiniY = lerp(watchY, currentMiniY, cp)
-        val watchToMiniW = lerp(watchW, pipWidthPx, cp)
-        val watchToMiniH = lerp(watchH, pipHeightPx, cp)
+        val currentGeometryBounds = PlayerGeometryBounds(
+            watchX = watchX,
+            watchY = watchY,
+            watchWidth = watchW,
+            watchHeight = watchH,
+            miniX = currentMiniX,
+            miniY = currentMiniY,
+            miniWidth = pipWidthPx,
+            miniHeight = pipHeightPx,
+            containerWidth = containerWidthPx,
+            containerHeight = containerHeightPx,
+            miniCornerDp = targetMiniCornerDp
+        )
+        val boundsHolder = remember { MutableBoundsHolder(currentGeometryBounds) }
+        boundsHolder.bounds = currentGeometryBounds
 
-        val cardX = lerp(watchToMiniX, 0f, fp)
-        val cardY = lerp(watchToMiniY, 0f, fp)
-        val cardW = lerp(watchToMiniW, containerWidthPx, fp)
-        val cardH = lerp(watchToMiniH, containerHeightPx, fp)
-
-        val isSettledMiniplayer = playerWindowState == PlayerWindowState.MINIPLAYER &&
-            cp >= 0.99f && !isUserDraggingCollapse && fp < 0.05f
-
-        val miniChromeAlpha = if (isSettledMiniplayer) 1f else ((cp - 0.65f) / 0.35f).coerceIn(0f, 1f) * (1f - fp)
-        val watchControlsAlpha = (1f - cp * 2.5f).coerceIn(0f, 1f)
-        val backdropAlpha = (1f - cp * 1.15f).coerceIn(0f, 1f) * (1f - fp)
-        val detailsAlpha = (1f - cp * 2.0f).coerceIn(0f, 1f) * (1f - fp)
-
-        val cardCornerDp = if (fp > 0.05f) {
-            0.dp
-        } else {
-            val targetMiniCornerDp = (12f * sizeFactor).coerceIn(10f, 16f)
-            (targetMiniCornerDp * cp).dp
+        val isSettledMiniplayer by remember(playerWindowState) {
+            derivedStateOf {
+                playerWindowState == PlayerWindowState.MINIPLAYER &&
+                    transitionController.currentCollapseProgress >= 0.99f &&
+                    !transitionController.isDraggingCollapse &&
+                    transitionController.currentFullscreenProgress < 0.05f
+            }
         }
-        val cardShape = RoundedCornerShape(cardCornerDp)
+        val showBackdropAndDetails by remember(isPipActiveState) {
+            derivedStateOf { !isSettledMiniplayer && !isPipActiveState }
+        }
+        val showDetailsSheet by remember(isMusicMode) {
+            derivedStateOf {
+                !isMusicMode &&
+                    transitionController.currentCollapseProgress < 0.98f &&
+                    transitionController.currentFullscreenProgress < 0.98f
+            }
+        }
+        val showMiniChrome by remember {
+            derivedStateOf {
+                (isSettledMiniplayer || transitionController.currentCollapseProgress > 0.52f) &&
+                    transitionController.currentFullscreenProgress < 0.95f
+            }
+        }
+        val showMusicModeWatch by remember(isMusicMode, playerWindowState) {
+            derivedStateOf {
+                isMusicMode &&
+                    playerWindowState == PlayerWindowState.WATCH_PAGE &&
+                    transitionController.currentCollapseProgress < 0.5f
+            }
+        }
 
         fun startCollapseDrag() {
             if (!effectiveFullscreen && !isMusicMode && !isSettledMiniplayer) {
-                activeDragCollapseFraction = collapseAnimatable.value.coerceIn(0f, 1f)
-                isUserDraggingCollapse = true
-                scope.launch { collapseAnimatable.stop() }
+                transitionController.startCollapseDrag()
             }
         }
 
         fun dragCollapseBy(deltaPx: Float) {
-            if (!isUserDraggingCollapse) return
-            activeDragCollapseFraction = (activeDragCollapseFraction + deltaPx / collapseDistancePx).coerceIn(0f, 1f)
+            transitionController.dragCollapseBy(deltaPx, boundsHolder.bounds.miniY - boundsHolder.bounds.watchY)
         }
 
         fun finishCollapseDrag(velocityY: Float) {
-            if (!isUserDraggingCollapse) return
-            val endFraction = activeDragCollapseFraction.coerceIn(0f, 1f)
-            isUserDraggingCollapse = false
-            val shouldCollapse = PlayerStateManager.shouldCollapseOnDragEnd(endFraction, velocityY)
-            scope.launch {
-                collapseAnimatable.snapTo(endFraction)
-                if (shouldCollapse) {
-                    onCollapseToMiniplayer()
-                    collapseAnimatable.animateTo(
-                        targetValue = 1f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
-                    )
-                } else {
-                    collapseAnimatable.animateTo(
-                        targetValue = 0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
-                    )
-                }
-            }
+            transitionController.finishCollapseDrag(
+                velocityY = velocityY,
+                collapseDistancePx = boundsHolder.bounds.miniY - boundsHolder.bounds.watchY,
+                onCommitMiniplayer = onCollapseToMiniplayer
+            )
         }
 
         fun cancelCollapseDrag() {
-            if (!isUserDraggingCollapse) return
-            val endFraction = activeDragCollapseFraction.coerceIn(0f, 1f)
-            isUserDraggingCollapse = false
-            scope.launch {
-                collapseAnimatable.snapTo(endFraction)
-                val target = if (playerWindowState == PlayerWindowState.MINIPLAYER) 1f else 0f
-                collapseAnimatable.animateTo(
-                    targetValue = target,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    )
-                )
+            transitionController.cancelCollapseDrag(
+                isCurrentlyMiniplayer = playerWindowState == PlayerWindowState.MINIPLAYER
+            )
+        }
+
+        fun startFullscreenDrag() {
+            if (!isMusicMode && !isSettledMiniplayer && !isPipActiveState) {
+                transitionController.startFullscreenDrag(currentlyFullscreen = isFullscreen)
             }
+        }
+
+        fun dragFullscreenBy(deltaY: Float) {
+            transitionController.dragFullscreenBy(
+                deltaY = deltaY,
+                dragRangePx = fullscreenDragRangePx,
+                isPortraitFullscreen = isCurrentlyPortrait
+            )
+        }
+
+        fun finishFullscreenDrag(velocityY: Float) {
+            transitionController.finishFullscreenDrag(
+                velocityY = velocityY,
+                dragRangePx = fullscreenDragRangePx,
+                minTravelPx = fullscreenMinTravelPx,
+                isPortraitFullscreen = isCurrentlyPortrait,
+                onCommitEnterFullscreen = { setFullscreen(true) },
+                onCommitExitFullscreen = { setFullscreen(false) }
+            )
+        }
+
+        fun cancelFullscreenDrag() {
+            transitionController.cancelFullscreenDrag(currentlyFullscreen = isFullscreen)
         }
 
         val detailsNestedScroll = remember(collapseDistancePx, effectiveFullscreen, isMusicMode, isSettledMiniplayer) {
@@ -1695,25 +1694,23 @@ fun PlayerScreen(
                         return Offset.Zero
                     }
                     val isAtTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
-                    if (isUserDraggingCollapse || (isAtTop && available.y > 0f)) {
-                        if (!isUserDraggingCollapse) {
-                            activeDragCollapseFraction = collapseAnimatable.value.coerceIn(0f, 1f)
-                            isUserDraggingCollapse = true
-                            scope.launch { collapseAnimatable.stop() }
+                    if (transitionController.isDraggingCollapse || (isAtTop && available.y > 0f)) {
+                        if (!transitionController.isDraggingCollapse) {
+                            transitionController.startCollapseDrag()
                         }
-                        val next = (activeDragCollapseFraction + available.y / collapseDistancePx).coerceIn(0f, 1f)
-                        val deltaConsumed = (next - activeDragCollapseFraction) * collapseDistancePx
-                        activeDragCollapseFraction = next
+                        val prev = transitionController.currentCollapseProgress
+                        transitionController.dragCollapseBy(available.y, collapseDistancePx)
+                        val next = transitionController.currentCollapseProgress
                         if (next > 0f || available.y > 0f) {
-                            return Offset(0f, if (abs(deltaConsumed) > 0f) available.y else 0f)
+                            return Offset(0f, if (abs(next - prev) > 0f) available.y else 0f)
                         }
                     }
                     return Offset.Zero
                 }
 
                 override suspend fun onPreFling(available: Velocity): Velocity {
-                    if (isUserDraggingCollapse) {
-                        val wasCollapsing = activeDragCollapseFraction > 0.001f || available.y > 0f
+                    if (transitionController.isDraggingCollapse) {
+                        val wasCollapsing = transitionController.currentCollapseProgress > 0.001f || available.y > 0f
                         finishCollapseDrag(available.y)
                         return if (wasCollapsing) available else Velocity.Zero
                     }
@@ -1723,21 +1720,30 @@ fun PlayerScreen(
         }
 
         // ── 1. Watch Page Background & Details Sheet (Unmounted when settled in Miniplayer so background screens stay interactive) ──
-        if (!isSettledMiniplayer && (!isPipActiveState)) {
+        if (showBackdropAndDetails) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = backdropAlpha }
+                    .graphicsLayer {
+                        alpha = transitionController.computeCurrentFrame(
+                            boundsHolder.bounds,
+                            detailsSlidePx,
+                            isSettledMiniplayer
+                        ).backdropAlpha
+                    }
                     .background(MaterialTheme.colorScheme.background)
-                    .then(
-                        if (cp < 0.5f && !isMusicMode) {
-                            Modifier.pointerInput(Unit) {
-                                detectTapGestures { }
+                    .pointerInput(isMusicMode) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Main)
+                            if (transitionController.currentCollapseProgress < 0.5f && !isMusicMode) {
+                                down.consume()
+                                do {
+                                    val ev = awaitPointerEvent(PointerEventPass.Main)
+                                    ev.changes.forEach { it.consume() }
+                                } while (ev.changes.any { it.pressed })
                             }
-                        } else {
-                            Modifier
                         }
-                    )
+                    }
             ) {
                 if (statusBarTopPx > 0f) {
                     Box(
@@ -1749,7 +1755,7 @@ fun PlayerScreen(
                 }
             }
 
-            if (!isMusicMode && !effectiveFullscreen && detailsAlpha > 0.01f) {
+            if (showDetailsSheet) {
                 val detailsTopOffsetPx = watchY + watchH
                 val detailsHeightDp = with(density) { (containerHeightPx - detailsTopOffsetPx).coerceAtLeast(0f).toDp() }
                 BelowPlayerContent(
@@ -1792,7 +1798,15 @@ fun PlayerScreen(
                         .fillMaxWidth()
                         .height(detailsHeightDp)
                         .offset { IntOffset(0, detailsTopOffsetPx.roundToInt()) }
-                        .graphicsLayer { alpha = detailsAlpha }
+                        .graphicsLayer {
+                            val frame = transitionController.computeCurrentFrame(
+                                boundsHolder.bounds,
+                                detailsSlidePx,
+                                isSettledMiniplayer
+                            )
+                            alpha = frame.detailsAlpha
+                            translationY = frame.detailsTranslationYPx
+                        }
                 )
             }
         }
@@ -1854,6 +1868,7 @@ fun PlayerScreen(
                     velocityTracker.addPosition(down.uptimeMillis, lastWinPos)
 
                     var hasMoved = false
+                    var isPinching = false
                     var initialSlopPan = Offset.Zero
                     var totalDragX = 0f
                     var totalDragY = 0f
@@ -1870,6 +1885,9 @@ fun PlayerScreen(
                             val zoom = event.calculateZoom()
                             val pressedChanges = event.changes.filter { it.pressed }
                             val pointerCount = pressedChanges.size
+                            if (pointerCount < 2) {
+                                isPinching = false
+                            }
                             val primaryChange = pressedChanges.firstOrNull { it.id == trackedPointerId } ?: pressedChanges.firstOrNull()
                             val pan = if (primaryChange != null) {
                                 val winPos = toWinPos(primaryChange.position)
@@ -1888,19 +1906,34 @@ fun PlayerScreen(
 
                             if (!hasMoved) {
                                 initialSlopPan += pan
-                                if (initialSlopPan.getDistance() > touchSlop || (pointerCount > 1 && abs(zoom - 1f) > 0.01f)) {
+                                val startedPinch = pointerCount >= 2 && abs(zoom - 1f) > 0.01f
+                                if (initialSlopPan.getDistance() > touchSlop || startedPinch) {
                                     hasMoved = true
+                                    if (startedPinch) {
+                                        isPinching = true
+                                    }
+                                    scope.launch {
+                                        pipScale.stop()
+                                        pipOffsetX.stop()
+                                        pipOffsetY.stop()
+                                    }
+                                    curScale = pipScale.value.coerceIn(minScale, maxScale)
+                                    curX = pipOffsetX.value
+                                    curY = pipOffsetY.value
+                                    activeMiniScale = curScale
+                                    activeMiniX = curX
+                                    activeMiniY = curY
                                     isMiniDragging = true
                                     totalDragX += initialSlopPan.x
                                     totalDragY += initialSlopPan.y
-                                    if (abs(totalDragX) > abs(totalDragY)) {
+                                    if (abs(totalDragX) > abs(totalDragY) * 1.25f) {
                                         isHorizontalLocked = true
                                     }
                                 }
                             } else {
                                 totalDragX += pan.x
                                 totalDragY += pan.y
-                                if (abs(totalDragX) > abs(totalDragY)) {
+                                if (abs(totalDragX) > abs(totalDragY) * 1.5f) {
                                     isHorizontalLocked = true
                                 }
                             }
@@ -1910,10 +1943,16 @@ fun PlayerScreen(
 
                                 val oldW = basePipWidthPx * curScale
                                 val oldH = basePipHeightPx * curScale
-                                val newScale = if (zoom != 1f) {
-                                    (curScale * zoom).coerceIn(minScale, maxScale)
-                                } else {
-                                    curScale
+                                val newScale = PlayerStateManager.computeNextMiniPlayerScale(
+                                    currentScale = curScale,
+                                    zoom = zoom,
+                                    pointerCount = pointerCount,
+                                    isPinching = isPinching,
+                                    minScale = minScale,
+                                    maxScale = maxScale
+                                )
+                                if (pointerCount >= 2 && abs(zoom - 1f) > 0.01f) {
+                                    isPinching = true
                                 }
                                 val newW = basePipWidthPx * newScale
                                 val newH = basePipHeightPx * newScale
@@ -2020,43 +2059,61 @@ fun PlayerScreen(
             Modifier
         }
 
-        // ── 4. Single Persistent Morphing Video Surface Box ──
+        // ── 4. Single Persistent Morphing Video Surface Box (0-Recomposition Layout + GraphicsLayer Morph) ──
         // Never recreated or re-keyed across WATCH_PAGE <-> FULLSCREEN <-> MINIPLAYER <-> PICTURE_IN_PICTURE
-        val cardWidthDp = with(density) { cardW.toDp() }
-        val cardHeightDp = with(density) { cardH.toDp() }
-        val cardElevationDp = if (fp > 0.05f) 0.dp else (18f * cp).dp
-
         Box(
             modifier = Modifier
                 .zIndex(2f)
-                .onGloballyPositioned { miniCardCoords = it }
-                .offset { IntOffset(cardX.roundToInt(), cardY.roundToInt()) }
-                .size(width = cardWidthDp, height = cardHeightDp)
-                .then(
-                    if (cardElevationDp > 0.dp) {
-                        Modifier.shadow(
-                            elevation = cardElevationDp,
-                            shape = cardShape,
-                            spotColor = Color.Black,
-                            ambientColor = Color.Black
-                        )
-                    } else {
-                        Modifier
+                .offset {
+                    val frame = transitionController.computeCurrentFrame(
+                        boundsHolder.bounds,
+                        detailsSlidePx,
+                        isSettledMiniplayer
+                    )
+                    IntOffset(frame.x.roundToInt(), frame.y.roundToInt())
+                }
+                .layout { measurable, _ ->
+                    val frame = transitionController.computeCurrentFrame(
+                        boundsHolder.bounds,
+                        detailsSlidePx,
+                        isSettledMiniplayer
+                    )
+                    val w = frame.width.roundToInt().coerceAtLeast(1)
+                    val h = frame.height.roundToInt().coerceAtLeast(1)
+                    val placeable = measurable.measure(Constraints.fixed(w, h))
+                    layout(w, h) {
+                        placeable.placeRelative(0, 0)
                     }
-                )
-                .clip(cardShape)
+                }
+                .graphicsLayer {
+                    val frame = transitionController.computeCurrentFrame(
+                        boundsHolder.bounds,
+                        detailsSlidePx,
+                        isSettledMiniplayer
+                    )
+                    val cornerPx = frame.cornerRadiusDp.dp.toPx()
+                    shape = RoundedCornerShape(cornerPx)
+                    clip = cornerPx > 0.5f
+                    shadowElevation = frame.elevationDp.dp.toPx()
+                }
                 .background(Color.Black)
-                .then(
-                    if (cp > 0.02f && fp < 0.05f) {
-                        Modifier.border(
-                            width = 0.75.dp,
-                            color = Color.White.copy(alpha = 0.14f * cp),
-                            shape = cardShape
+                .drawWithContent {
+                    drawContent()
+                    val frame = transitionController.computeCurrentFrame(
+                        boundsHolder.bounds,
+                        detailsSlidePx,
+                        isSettledMiniplayer
+                    )
+                    if (frame.borderAlpha > 0.005f) {
+                        val cr = CornerRadius(frame.cornerRadiusDp.dp.toPx())
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = frame.borderAlpha),
+                            cornerRadius = cr,
+                            style = Stroke(width = 0.75.dp.toPx())
                         )
-                    } else {
-                        Modifier
                     }
-                )
+                }
+                .onGloballyPositioned { miniCardCoords = it }
                 .then(miniDragModifier)
                 .testTag(if (isSettledMiniplayer) "miniplayer_card" else "video_player_surface_container")
         ) {
@@ -2071,7 +2128,14 @@ fun PlayerScreen(
                 isScreenLocked = isScreenLocked,
                 isStreamLoading = isStreamLoading && !isSettledMiniplayer,
                 controlsInteractive = !isSettledMiniplayer && !isPipActiveState,
-                controlsAlpha = if (isSettledMiniplayer) 0f else watchControlsAlpha,
+                controlsAlphaProvider = {
+                    if (isSettledMiniplayer) 0f
+                    else transitionController.computeCurrentFrame(
+                        boundsHolder.bounds,
+                        detailsSlidePx,
+                        isSettledMiniplayer
+                    ).watchControlsAlpha
+                },
                 onToggleFullscreen = { setFullscreen(!isFullscreen) },
                 onEnterFullscreen = { setFullscreen(true) },
                 onExitFullscreen = { setFullscreen(false) },
@@ -2079,6 +2143,10 @@ fun PlayerScreen(
                 onCollapseDragDelta = ::dragCollapseBy,
                 onCollapseDragEnd = ::finishCollapseDrag,
                 onCollapseDragCancel = ::cancelCollapseDrag,
+                onFullscreenDragStart = ::startFullscreenDrag,
+                onFullscreenDragDelta = ::dragFullscreenBy,
+                onFullscreenDragEnd = ::finishFullscreenDrag,
+                onFullscreenDragCancel = ::cancelFullscreenDrag,
                 onCaptionsRequested = { showCaptionSelector = true },
                 activeCaptions = activeCaptions,
                 onActiveCaptionsChanged = { activeCaptions = it },
@@ -2143,7 +2211,7 @@ fun PlayerScreen(
                 }
             }
 
-            if (miniChromeAlpha > 0.01f) {
+            if (showMiniChrome) {
                 MiniPlayerCardChrome(
                     player = mediaPlayer,
                     isMusicMode = isMusicMode,
@@ -2153,21 +2221,27 @@ fun PlayerScreen(
                     isLoadingNext = miniLoadingNext,
                     isRestored = isRestoredFromSavedState,
                     progress = miniPlayerProgress,
-                    pipHeightDp = cardHeightDp,
+                    pipHeightDp = pipHeightDp,
                     sizeFactor = sizeFactor,
                     onExpand = onExpandFromMiniplayer,
                     onCloseClick = onClosePlayer,
                     onVideoPlay = { url, t, thumb -> onVideoPlay(url, t, thumb, isMusicMode, false) },
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = miniChromeAlpha }
+                        .graphicsLayer {
+                            alpha = transitionController.computeCurrentFrame(
+                                boundsHolder.bounds,
+                                detailsSlidePx,
+                                isSettledMiniplayer
+                            ).miniChromeAlpha
+                        }
                 )
             }
         }
 
         // ── 5. Music Mode Fullscreen-Card UI (when in Watch Page + Music Mode) ──
         MusicModeUI(
-            isMusicMode = isMusicMode && playerWindowState == PlayerWindowState.WATCH_PAGE && cp < 0.5f,
+            isMusicMode = showMusicModeWatch,
             isFullscreen = isFullscreen,
             title = resolvedTitle,
             channelName = channelName,
@@ -2291,7 +2365,7 @@ fun VideoPlayerContainer(
     isScreenLocked: Boolean,
     isStreamLoading: Boolean = false,
     controlsInteractive: Boolean = true,
-    controlsAlpha: Float = 1f,
+    controlsAlphaProvider: () -> Float = { 1f },
     onToggleFullscreen: () -> Unit,
     onEnterFullscreen: () -> Unit = onToggleFullscreen,
     onExitFullscreen: () -> Unit = onToggleFullscreen,
@@ -2299,6 +2373,10 @@ fun VideoPlayerContainer(
     onCollapseDragDelta: (Float) -> Unit = {},
     onCollapseDragEnd: (Float) -> Unit = {},
     onCollapseDragCancel: () -> Unit = {},
+    onFullscreenDragStart: () -> Unit = {},
+    onFullscreenDragDelta: (Float) -> Unit = {},
+    onFullscreenDragEnd: (Float) -> Unit = {},
+    onFullscreenDragCancel: () -> Unit = {},
     onCaptionsRequested: () -> Unit,
     activeCaptions: List<CharSequence>,
     onActiveCaptionsChanged: (List<String>) -> Unit,
@@ -2387,7 +2465,7 @@ fun VideoPlayerContainer(
             ModernPlayerControls(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = controlsAlpha },
+                    .graphicsLayer { alpha = controlsAlphaProvider() },
                 mediaPlayer = mediaPlayer,
                 isVisible = controllerVisible,
                 isFullscreen = isFullscreen,
@@ -2422,6 +2500,10 @@ fun VideoPlayerContainer(
                 onCollapseDragDelta = onCollapseDragDelta,
                 onCollapseDragEnd = onCollapseDragEnd,
                 onCollapseDragCancel = onCollapseDragCancel,
+                onFullscreenDragStart = onFullscreenDragStart,
+                onFullscreenDragDelta = onFullscreenDragDelta,
+                onFullscreenDragEnd = onFullscreenDragEnd,
+                onFullscreenDragCancel = onFullscreenDragCancel,
                 onSettingsClick = onShowSettingsSheet,
                 onCaptionsClick = onCaptionsRequested,
                 onPreviousClick = { mediaPlayer?.seekToPrevious() },
@@ -2448,7 +2530,7 @@ fun VideoPlayerContainer(
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .graphicsLayer { alpha = controlsAlpha }
+                .graphicsLayer { alpha = controlsAlphaProvider() }
         ) {
             Box(
                 modifier = Modifier
@@ -2516,6 +2598,8 @@ fun VideoPlayerContainer(
         }
     }
 }
+
+private class MutableBoundsHolder(var bounds: PlayerGeometryBounds)
 
 fun android.content.Context.getActivity(): android.app.Activity? = when (this) {
     is android.app.Activity -> this

@@ -93,6 +93,10 @@ fun ModernPlayerControls(
     onCollapseDragDelta: (Float) -> Unit = {},
     onCollapseDragEnd: (Float) -> Unit = { onMinimize() },
     onCollapseDragCancel: () -> Unit = {},
+    onFullscreenDragStart: () -> Unit = {},
+    onFullscreenDragDelta: (Float) -> Unit = {},
+    onFullscreenDragEnd: (Float) -> Unit = {},
+    onFullscreenDragCancel: () -> Unit = {},
     onSettingsClick: () -> Unit,
     onCaptionsClick: () -> Unit,
     onPreviousClick: () -> Unit,
@@ -114,6 +118,10 @@ fun ModernPlayerControls(
     val currentOnCollapseDragDelta by rememberUpdatedState(onCollapseDragDelta)
     val currentOnCollapseDragEnd by rememberUpdatedState(onCollapseDragEnd)
     val currentOnCollapseDragCancel by rememberUpdatedState(onCollapseDragCancel)
+    val currentOnFullscreenDragStart by rememberUpdatedState(onFullscreenDragStart)
+    val currentOnFullscreenDragDelta by rememberUpdatedState(onFullscreenDragDelta)
+    val currentOnFullscreenDragEnd by rememberUpdatedState(onFullscreenDragEnd)
+    val currentOnFullscreenDragCancel by rememberUpdatedState(onFullscreenDragCancel)
     val currentOnScaleChange by rememberUpdatedState(onScaleChange)
     val currentOnResetZoom by rememberUpdatedState(onResetZoom)
     val currentOnSingleTap by rememberUpdatedState(onSingleTap)
@@ -311,11 +319,12 @@ fun ModernPlayerControls(
                     var twoFingerCenterX = startX
                     var multiTouchTotalMove = 0f
 
-                    var gestureMode = "NONE" // "NONE", "HORIZ_SEEK", "VERT_ACTION", "VERT_COLLAPSE"
+                    var gestureMode = "NONE" // "NONE", "HORIZ_SEEK", "VERT_ACTION", "VERT_COLLAPSE", "VERT_FS_DRAG"
                     var totalWindowPanX = 0f
                     var totalWindowPanY = 0f
                     var verticalActionTriggered = false
                     var collapseDragStarted = false
+                    var fullscreenDragStarted = false
                     var finishedNormally = false
 
                     try {
@@ -333,6 +342,10 @@ fun ModernPlayerControls(
                                     if (collapseDragStarted) {
                                         collapseDragStarted = false
                                         currentOnCollapseDragCancel()
+                                    }
+                                    if (fullscreenDragStarted) {
+                                        fullscreenDragStarted = false
+                                        currentOnFullscreenDragCancel()
                                     }
                                     if (isHorizontalScrubbing) {
                                         isHorizontalScrubbing = false
@@ -391,11 +404,22 @@ fun ModernPlayerControls(
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         } else if (abs(totalWindowPanY) > abs(totalWindowPanX) * 1.15f) {
                                             event.changes.forEach { it.consume() }
-                                            if (!currentIsFullscreen && totalWindowPanY > 0f) {
+                                            val isDraggingDown = totalWindowPanY > 0f
+                                            val isLandscapeShelfSwipe =
+                                                currentIsFullscreen && !currentIsPortrait && !isDraggingDown
+                                            val isDrawerCloseSwipe =
+                                                currentIsFullscreen && showFullscreenRelatedDrawer && isDraggingDown
+
+                                            if (!currentIsFullscreen && isDraggingDown) {
                                                 gestureMode = "VERT_COLLAPSE"
                                                 collapseDragStarted = true
                                                 currentOnCollapseDragStart()
                                                 currentOnCollapseDragDelta(totalWindowPanY)
+                                            } else if (!isLandscapeShelfSwipe && !isDrawerCloseSwipe) {
+                                                gestureMode = "VERT_FS_DRAG"
+                                                fullscreenDragStarted = true
+                                                currentOnFullscreenDragStart()
+                                                currentOnFullscreenDragDelta(totalWindowPanY)
                                             } else {
                                                 gestureMode = "VERT_ACTION"
                                             }
@@ -404,6 +428,10 @@ fun ModernPlayerControls(
                                 } else if (gestureMode == "VERT_COLLAPSE") {
                                     event.changes.forEach { it.consume() }
                                     currentOnCollapseDragDelta(deltaWindow.y)
+                                    continue
+                                } else if (gestureMode == "VERT_FS_DRAG") {
+                                    event.changes.forEach { it.consume() }
+                                    currentOnFullscreenDragDelta(deltaWindow.y)
                                     continue
                                 }
 
@@ -432,6 +460,9 @@ fun ModernPlayerControls(
                         if (collapseDragStarted) {
                             collapseDragStarted = false
                             currentOnCollapseDragEnd(velocity.y)
+                        } else if (fullscreenDragStarted) {
+                            fullscreenDragStarted = false
+                            currentOnFullscreenDragEnd(velocity.y)
                         } else if (gestureMode == "VERT_ACTION" && !verticalActionTriggered) {
                             val isUpFlick = totalWindowPanY <= -flickMinTravelPx &&
                                 velocity.y <= -600f &&
@@ -480,6 +511,10 @@ fun ModernPlayerControls(
                             if (collapseDragStarted) {
                                 collapseDragStarted = false
                                 currentOnCollapseDragCancel()
+                            }
+                            if (fullscreenDragStarted) {
+                                fullscreenDragStarted = false
+                                currentOnFullscreenDragCancel()
                             }
                             if (isHorizontalScrubbing) {
                                 isHorizontalScrubbing = false

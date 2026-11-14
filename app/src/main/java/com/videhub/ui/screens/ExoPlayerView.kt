@@ -63,7 +63,8 @@ fun ExoPlayerView(
                     translationY = offsetY
                 ),
             factory = { ctx ->
-                PlayerView(ctx).apply {
+                (android.view.LayoutInflater.from(ctx)
+                    .inflate(com.videhub.R.layout.video_player_view, null, false) as PlayerView).apply {
                     useController = false
                     player = mediaPlayer
                     useArtwork = false
