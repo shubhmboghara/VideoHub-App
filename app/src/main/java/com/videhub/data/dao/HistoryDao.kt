@@ -20,4 +20,7 @@ interface HistoryDao {
 
     @Delete
     suspend fun delete(historyEntity: HistoryEntity)
+
+    @Query("DELETE FROM history_entities")
+    suspend fun clearAll()
 }

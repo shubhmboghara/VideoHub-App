@@ -62,6 +62,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.schabi.newpipe.extractor.channel.ChannelInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 
@@ -208,7 +209,28 @@ fun ChannelScreen(
     var isVideoListLoading by remember(channelId) { mutableStateOf(!hasVideosLoaded) }
     var videoListError by remember(channelId) { mutableStateOf<String?>(null) }
     
-    var isSubscribed by remember(channelId) { mutableStateOf(false) }
+    val context = LocalContext.current
+    val db = remember { AppDatabase.getDatabase(context) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        sharedViewModel.ensureSubscriptionsLoaded(context)
+    }
+    val subscribedChannels by sharedViewModel.subscribedChannelsFlow.collectAsStateWithLifecycle()
+    val actualChannelUrl = remember(channelId) {
+        when {
+            channelId.startsWith("http") -> channelId
+            channelId.startsWith("@") -> "https://www.youtube.com/$channelId"
+            else -> "https://www.youtube.com/channel/$channelId"
+        }
+    }
+    val isSubscribed = remember(subscribedChannels, channelInfo, channelId, actualChannelUrl) {
+        sharedViewModel.isChannelSubscribed(
+            channelId = channelInfo?.url ?: actualChannelUrl,
+            channelName = channelInfo?.name,
+            secondaryChannelId = channelId
+        )
+    }
     var playlistDialogVideo by remember { mutableStateOf<StreamInfoItem?>(null) }
     var selectedPlaylistForMenu by remember { mutableStateOf<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem?>(null) }
     var pagingSource by remember(channelId) { mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(if (isSameChannel) sharedViewModel.channelPagingSourceCache else null) }
@@ -223,10 +245,6 @@ fun ChannelScreen(
         initialFirstVisibleItemIndex = if (isSameChannel) sharedViewModel.channelScrollIndexCache else 0,
         initialFirstVisibleItemScrollOffset = if (isSameChannel) sharedViewModel.channelScrollOffsetCache else 0
     )
-
-    val context = LocalContext.current
-    val db = remember { AppDatabase.getDatabase(context) }
-    val scope = rememberCoroutineScope()
 
     val currentChannelInfo by rememberUpdatedState(channelInfo)
     val currentChannelAboutInfo by rememberUpdatedState(channelAboutInfo)
@@ -298,9 +316,6 @@ fun ChannelScreen(
         }
         if (isSameChannel && channelInfo != null && !isRefreshing) {
             isHeaderLoading = false
-            withContext(Dispatchers.IO) {
-                isSubscribed = db.channelDao().isSubscribed(channelInfo!!.url)
-            }
             // Always re-verify in background whether any live stream has ended
             launch(Dispatchers.IO) {
                 try {
@@ -338,7 +353,6 @@ fun ChannelScreen(
                 Triple(infoDeferred.await(), aboutDeferred.await(), liveDeferred.await())
             }
             val activeVerified = withContext(Dispatchers.IO) {
-                isSubscribed = db.channelDao().isSubscribed(info.url)
                 val verified = com.videhub.utils.ChannelLiveStatusManager.verifyAndSetChannelLiveStreams(
                     channelUrl = actualUrl,
                     secondaryChannelUrl = info.url,
@@ -700,27 +714,21 @@ fun ChannelScreen(
                                 }
                             },
                             onSubscribeClick = {
-                                scope.launch(Dispatchers.IO) {
+                                scope.launch {
                                     val avatar = com.videhub.utils.AvatarHelper.getBestAvatarUrl(info.avatars) ?: ""
-                                    if (isSubscribed) {
-                                        db.channelDao().deleteById(info.url)
-                                        isSubscribed = false
-                                        withContext(Dispatchers.Main) {
-                                            Toast.makeText(context, "Unsubscribed", Toast.LENGTH_SHORT).show()
-                                        }
-                                    } else {
-                                        db.channelDao().insert(
-                                            ChannelEntity(
-                                                channelId = info.url,
-                                                name = info.name,
-                                                thumbnailUrl = avatar ?: ""
-                                            )
-                                        )
-                                        isSubscribed = true
-                                        withContext(Dispatchers.Main) {
-                                            Toast.makeText(context, "Subscribed", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
+                                    val nowSubscribed = sharedViewModel.toggleChannelSubscription(
+                                        context = context,
+                                        channelId = info.url.ifBlank { actualChannelUrl },
+                                        channelName = info.name,
+                                        avatarUrl = avatar,
+                                        currentlySubscribed = isSubscribed,
+                                        secondaryChannelId = actualChannelUrl
+                                    )
+                                    Toast.makeText(
+                                        context,
+                                        if (nowSubscribed) "Subscribed" else "Unsubscribed",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                             },
                             onAboutClick = {

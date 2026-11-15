@@ -229,6 +229,36 @@ object LiveCaptionsManager {
         return h * 3600000 + m * 60000 + s * 1000 + ms
     }
 
+    private fun parseTtmlTimeMs(raw: String): Long? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+        return try {
+            when {
+                trimmed.endsWith("ms", ignoreCase = true) ->
+                    trimmed.dropLast(2).trim().toDoubleOrNull()?.toLong()
+                trimmed.endsWith("s", ignoreCase = true) ->
+                    ((trimmed.dropLast(1).trim().toDoubleOrNull() ?: return null) * 1000.0).toLong()
+                trimmed.contains(":") -> parseTime(trimmed)
+                else -> ((trimmed.toDoubleOrNull() ?: return null) * 1000.0).toLong()
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun decodeXmlText(rawBody: String): String {
+        val withLineBreaks = rawBody.replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+        var content = withLineBreaks.replace(Regex("<[^>]*>"), "").trim()
+        content = content
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            .replace("&#x27;", "'")
+            .replace("&amp;apos;", "'")
+            .replace("&amp;", "&")
+            .replace("&quot;", "\"")
+        return android.text.Html.fromHtml(content, android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim()
+    }
+
     private fun parseXml(xmlText: String): List<CaptionLine3> {
         val lines = mutableListOf<CaptionLine3>()
         try {
@@ -245,9 +275,7 @@ object LiveCaptionsManager {
                 if (startMatch != null) {
                     val startSec = startMatch.groupValues[1].toDoubleOrNull() ?: 0.0
                     val durSec = durSecRegex.find(attrs)?.groupValues?.get(1)?.toDoubleOrNull() ?: 3.5
-                    var content = body.replace(Regex("<[^>]*>"), "").trim()
-                    content = content.replace("&#39;", "'").replace("&apos;", "'").replace("&#x27;", "'").replace("&amp;apos;", "'").replace("&amp;", "&").replace("&quot;", "\"")
-                    content = android.text.Html.fromHtml(content, android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim()
+                    val content = decodeXmlText(body)
                     if (content.isNotEmpty()) {
                         val start = (startSec * 1000).toLong()
                         val end = maxOf(start + 1500L, ((startSec + durSec) * 1000).toLong())
@@ -258,21 +286,32 @@ object LiveCaptionsManager {
             if (hasMatches && lines.isNotEmpty()) return lines
 
             val pTagRegex = Regex("<p\\b([^>]*)>(.*?)</p>", RegexOption.DOT_MATCHES_ALL)
-            val tRegex = Regex("t=\"([\\d]+)\"")
-            val dRegex = Regex("d=\"([\\d]+)\"")
+            val tRegex = Regex("\\bt=\"([\\d]+)\"")
+            val dRegex = Regex("\\bd=\"([\\d]+)\"")
+            val beginRegex = Regex("\\bbegin=\"([^\"]+)\"")
+            val endRegex = Regex("\\bend=\"([^\"]+)\"")
+            val durAttrRegex = Regex("\\bdur=\"([^\"]+)\"")
             pTagRegex.findAll(xmlText).forEach { match ->
                 val attrs = match.groupValues[1]
                 val body = match.groupValues[2]
                 val tMatch = tRegex.find(attrs)
+                val beginMatch = beginRegex.find(attrs)
                 if (tMatch != null) {
                     val startMs = tMatch.groupValues[1].toLongOrNull() ?: 0L
                     val durMs = dRegex.find(attrs)?.groupValues?.get(1)?.toLongOrNull() ?: 3500L
-                    var content = body.replace(Regex("<[^>]*>"), "").trim()
-                    content = content.replace("&#39;", "'").replace("&apos;", "'").replace("&#x27;", "'").replace("&amp;apos;", "'").replace("&amp;", "&").replace("&quot;", "\"")
-                    content = android.text.Html.fromHtml(content, android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim()
+                    val content = decodeXmlText(body)
                     if (content.isNotEmpty()) {
                         val end = maxOf(startMs + 1500L, startMs + durMs)
                         lines.add(CaptionLine3(startMs, end, content, null, null))
+                    }
+                } else if (beginMatch != null) {
+                    val startMs = parseTtmlTimeMs(beginMatch.groupValues[1]) ?: 0L
+                    val explicitEndMs = endRegex.find(attrs)?.groupValues?.get(1)?.let { parseTtmlTimeMs(it) }
+                    val durMs = durAttrRegex.find(attrs)?.groupValues?.get(1)?.let { parseTtmlTimeMs(it) } ?: 3500L
+                    val endMs = explicitEndMs?.takeIf { it > startMs } ?: maxOf(startMs + 1500L, startMs + durMs)
+                    val content = decodeXmlText(body)
+                    if (content.isNotEmpty()) {
+                        lines.add(CaptionLine3(startMs, endMs, content, null, null))
                     }
                 }
             }
@@ -280,6 +319,21 @@ object LiveCaptionsManager {
             Log.e("LiveCaptionsManager", "Error parsing XML subtitles", e)
         }
         return lines
+    }
+
+    private fun parseSubtitleContent(rawContent: String?): List<CaptionLine3> {
+        val content = rawContent?.trim().orEmpty()
+        if (content.isEmpty()) return emptyList()
+        return try {
+            when {
+                content.startsWith("{") -> parseSubtitlesJson(content)
+                content.startsWith("WEBVTT") || content.contains("-->") -> parseVttOrSrt(content)
+                content.startsWith("<?xml") || content.startsWith("<") -> parseXml(content)
+                else -> emptyList()
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     private val client = okhttp3.OkHttpClient.Builder()
@@ -294,9 +348,9 @@ object LiveCaptionsManager {
         }
         .build()
 
-    private suspend fun fetchSubtitleContentDirect(rawUrl: String): String? = kotlinx.coroutines.withContext(Dispatchers.IO) {
-        if (rawUrl.isBlank()) return@withContext null
-        
+    private suspend fun fetchAndParseSubtitlesDirect(rawUrl: String): List<CaptionLine3> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        if (rawUrl.isBlank()) return@withContext emptyList()
+
         val urlsToTry = mutableListOf<String>()
         val json3Url = when {
             rawUrl.contains("fmt=") -> rawUrl.replace(Regex("fmt=[^&]*"), "fmt=json3")
@@ -311,6 +365,13 @@ object LiveCaptionsManager {
             else -> "$rawUrl?fmt=vtt"
         }
         urlsToTry.add(vttUrl)
+
+        val srv1Url = when {
+            rawUrl.contains("fmt=") -> rawUrl.replace(Regex("fmt=[^&]*"), "fmt=srv1")
+            rawUrl.contains("?") -> "$rawUrl&fmt=srv1"
+            else -> "$rawUrl?fmt=srv1"
+        }
+        urlsToTry.add(srv1Url)
         urlsToTry.add(rawUrl)
 
         for (targetUrl in urlsToTry.distinct()) {
@@ -318,9 +379,10 @@ object LiveCaptionsManager {
                 val body = org.schabi.newpipe.extractor.NewPipe.getDownloader()
                     .get(targetUrl, org.schabi.newpipe.extractor.localization.Localization.DEFAULT)
                     .responseBody()
-                if (!body.isNullOrBlank()) return@withContext body
-            } catch (e: Exception) {
-                // Try fallback to OkHttp
+                val parsed = parseSubtitleContent(body)
+                if (parsed.isNotEmpty()) return@withContext parsed
+            } catch (_: Exception) {
+                // Fallback to OkHttp below
             }
 
             try {
@@ -330,14 +392,15 @@ object LiveCaptionsManager {
                 val response = client.newCall(request).execute()
                 if (response.isSuccessful) {
                     val body = response.body?.string()
-                    if (!body.isNullOrBlank()) return@withContext body
+                    val parsed = parseSubtitleContent(body)
+                    if (parsed.isNotEmpty()) return@withContext parsed
                 }
             } catch (e: Exception) {
                 Log.w("LiveCaptionsManager", "Fetch failed for $targetUrl: ${e.message}")
             }
         }
 
-        null
+        emptyList()
     }
 
     private suspend fun tryFallbackLyrics(artist: String, title: String, description: String?, expectedLang: String? = null, context: android.content.Context? = null, videoId: String? = null) {
@@ -611,16 +674,10 @@ object LiveCaptionsManager {
             val ccJob = async(Dispatchers.IO) {
                 if (urlToUse.isNullOrBlank()) return@async emptyList<CaptionLine3>()
                 try {
-                    val content = fetchSubtitleContentDirect(urlToUse)?.trim()
-                    if (!content.isNullOrBlank()) {
-                        when {
-                            content.startsWith("{") -> parseSubtitlesJson(content)
-                            content.startsWith("WEBVTT") || content.contains("-->") -> parseVttOrSrt(content)
-                            content.startsWith("<?xml") || content.startsWith("<") -> parseXml(content)
-                            else -> emptyList()
-                        }
-                    } else emptyList()
-                } catch (e: Exception) { emptyList() }
+                    fetchAndParseSubtitlesDirect(urlToUse)
+                } catch (_: Exception) {
+                    emptyList()
+                }
             }
 
             // Only fetch LRCLIB lyrics if we don't have an explicit user-selected caption track
@@ -635,7 +692,7 @@ object LiveCaptionsManager {
             val rawCC = ccJob.await()
             val parsedCC = rawCC.filter { line ->
                 val text = line.nativeText.trim()
-                text.isNotBlank() && !com.videhub.audio.LyricsManager.isPureSoundAnnotation(text)
+                text.isNotBlank() && (!isMusicMode || !com.videhub.audio.LyricsManager.isPureSoundAnnotation(text))
             }
 
             if (parsedCC.isNotEmpty()) {
@@ -643,6 +700,7 @@ object LiveCaptionsManager {
                     _captions.value = parsedCC
                     _isError.value = false
                 }
+                detectAndTranslateCaptions(parsedCC)
                 // If user selected an explicit track or not music mode, do not override!
                 if (!isMusicMode || isExplicitUserTrack) return@launch
             }
@@ -658,13 +716,16 @@ object LiveCaptionsManager {
                         _captions.value = lines
                         _isError.value = false
                     }
+                    detectAndTranslateCaptions(lines)
                     return@launch
                 }
             }
 
-            // Final fallbacks if still empty
-            if (_captions.value.isEmpty()) {
+            // Final fallbacks if still empty (only for music mode or when no explicit video subtitle track was chosen)
+            if (_captions.value.isEmpty() && (isMusicMode || !isExplicitUserTrack)) {
                 tryFallbackLyrics(artist, title, description, extractLangFromUrl(urlToUse ?: ""), context, videoId)
+            } else if (_captions.value.isEmpty()) {
+                _isError.value = true
             }
         }
     }

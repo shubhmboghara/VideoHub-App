@@ -84,6 +84,7 @@ fun ModernPlayerControls(
     relatedVideos: List<StreamInfoItem> = emptyList(),
     onVideoSelect: (String, String, String) -> Unit = { _, _, _ -> },
     onScaleChange: (Float, Offset) -> Unit = { _, _ -> },
+    onPinchStateChanged: (Boolean) -> Unit = {},
     onResetZoom: () -> Unit = {},
     onToggleFullscreen: () -> Unit,
     onEnterFullscreen: () -> Unit = onToggleFullscreen,
@@ -123,6 +124,7 @@ fun ModernPlayerControls(
     val currentOnFullscreenDragEnd by rememberUpdatedState(onFullscreenDragEnd)
     val currentOnFullscreenDragCancel by rememberUpdatedState(onFullscreenDragCancel)
     val currentOnScaleChange by rememberUpdatedState(onScaleChange)
+    val currentOnPinchStateChanged by rememberUpdatedState(onPinchStateChanged)
     val currentOnResetZoom by rememberUpdatedState(onResetZoom)
     val currentOnSingleTap by rememberUpdatedState(onSingleTap)
     val currentOnPreviousClick by rememberUpdatedState(onPreviousClick)
@@ -189,13 +191,14 @@ fun ModernPlayerControls(
         }
     }
 
-    val swipeThresholdPx = with(density) { 34.dp.toPx() }
-    val flickMinTravelPx = with(density) { 14.dp.toPx() }
-    val topEdgeFullscreenIgnorePx = with(density) { 24.dp.toPx() }
-    val topEdgeWatchIgnorePx = with(density) { 10.dp.toPx() }
-    val bottomEdgeVisibleIgnorePx = with(density) { 32.dp.toPx() }
-    val bottomEdgeHiddenIgnorePx = with(density) { 12.dp.toPx() }
-    val edgeBackIgnorePx = with(density) { 24.dp.toPx() }
+    val swipeThresholdPx = with(density) { 30.dp.toPx() }
+    val flickMinTravelPx = with(density) { 12.dp.toPx() }
+    val topEdgeFullscreenIgnorePx = with(density) { 14.dp.toPx() }
+    val topEdgeWatchIgnorePx = with(density) { 8.dp.toPx() }
+    val topEdgeVisibleIgnorePx = with(density) { 54.dp.toPx() }
+    val bottomEdgeVisibleIgnorePx = with(density) { 74.dp.toPx() }
+    val bottomEdgeHiddenIgnorePx = with(density) { 8.dp.toPx() }
+    val edgeBackIgnorePx = with(density) { 16.dp.toPx() }
 
     var boxCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
@@ -309,7 +312,11 @@ fun ModernPlayerControls(
                     val viewHeight = size.height.toFloat().coerceAtLeast(1f)
                     val touchSlop = viewConfiguration.touchSlop
 
-                    val activeTopIgnore = if (currentIsFullscreen) topEdgeFullscreenIgnorePx else topEdgeWatchIgnorePx
+                    val activeTopIgnore = when {
+                        currentIsVisible -> topEdgeVisibleIgnorePx
+                        currentIsFullscreen -> topEdgeFullscreenIgnorePx
+                        else -> topEdgeWatchIgnorePx
+                    }
                     val activeBottomIgnore = if (currentIsVisible) bottomEdgeVisibleIgnorePx else bottomEdgeHiddenIgnorePx
                     val inSafeVerticalRegion = startY > activeTopIgnore && startY < (viewHeight - activeBottomIgnore)
                     val inSafeHorizontalRegion = startX > edgeBackIgnorePx && startX < (viewWidth - edgeBackIgnorePx)
@@ -339,6 +346,7 @@ fun ModernPlayerControls(
                             if (pressedCount >= 2) {
                                 if (!isMultiTouch) {
                                     isMultiTouch = true
+                                    currentOnPinchStateChanged(true)
                                     if (collapseDragStarted) {
                                         collapseDragStarted = false
                                         currentOnCollapseDragCancel()
@@ -367,7 +375,11 @@ fun ModernPlayerControls(
                                     }
                                 }
                                 event.changes.forEach { it.consume() }
-                            } else if (!isMultiTouch && pressedCount == 1 && !isHold2xActive) {
+                            } else if (isMultiTouch) {
+                                // Consume trailing single-finger lift/move after a pinch or 2-finger tap
+                                // so detectTapGestures never fires a stray tap or 2x-speed hold.
+                                event.changes.forEach { it.consume() }
+                            } else if (pressedCount == 1 && !isHold2xActive) {
                                 val change = pressedChanges.first()
                                 if (change.isConsumed && gestureMode == "NONE") {
                                     lastWindowPos = toWindowPos(change.position)
@@ -390,9 +402,8 @@ fun ModernPlayerControls(
 
                                 if (gestureMode == "NONE" && inSafeVerticalRegion) {
                                     val dist = hypot(totalWindowPanX, totalWindowPanY)
-                                    if (dist > touchSlop * 1.1f) {
-                                        if (abs(totalWindowPanX) > abs(totalWindowPanY) * 2.2f &&
-                                            abs(totalWindowPanX) > touchSlop * 1.8f &&
+                                    if (dist > touchSlop) {
+                                        if (abs(totalWindowPanX) >= abs(totalWindowPanY) * 1.25f &&
                                             totalTime > 0L &&
                                             inSafeHorizontalRegion
                                         ) {
@@ -402,22 +413,24 @@ fun ModernPlayerControls(
                                             scrubTargetPosMs = scrubStartPosMs
                                             event.changes.forEach { it.consume() }
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        } else if (abs(totalWindowPanY) > abs(totalWindowPanX) * 1.15f) {
+                                        } else if (abs(totalWindowPanY) > abs(totalWindowPanX) * 1.1f) {
                                             event.changes.forEach { it.consume() }
                                             val isDraggingDown = totalWindowPanY > 0f
                                             val isLandscapeShelfSwipe =
-                                                currentIsFullscreen && !currentIsPortrait && !isDraggingDown
+                                                currentIsFullscreen && !currentIsPortrait && !isDraggingDown && currentRelatedVideos.isNotEmpty()
                                             val isDrawerCloseSwipe =
                                                 currentIsFullscreen && showFullscreenRelatedDrawer && isDraggingDown
 
                                             if (!currentIsFullscreen && isDraggingDown) {
                                                 gestureMode = "VERT_COLLAPSE"
                                                 collapseDragStarted = true
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                 currentOnCollapseDragStart()
                                                 currentOnCollapseDragDelta(totalWindowPanY)
                                             } else if (!isLandscapeShelfSwipe && !isDrawerCloseSwipe) {
                                                 gestureMode = "VERT_FS_DRAG"
                                                 fullscreenDragStarted = true
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                 currentOnFullscreenDragStart()
                                                 currentOnFullscreenDragDelta(totalWindowPanY)
                                             } else {
@@ -451,8 +464,14 @@ fun ModernPlayerControls(
                                         }
                                     }
                                 }
+                            } else if (pressedCount == 0 && (gestureMode != "NONE" || isMultiTouch || isHorizontalScrubbing || collapseDragStarted || fullscreenDragStarted || verticalActionTriggered)) {
+                                event.changes.forEach { it.consume() }
                             }
                         } while (event.changes.any { it.pressed })
+
+                        if (isMultiTouch) {
+                            currentOnPinchStateChanged(false)
+                        }
 
                         finishedNormally = true
                         val velocity = velocityTracker.calculateVelocity()
@@ -508,6 +527,9 @@ fun ModernPlayerControls(
                         }
                     } finally {
                         if (!finishedNormally) {
+                            if (isMultiTouch) {
+                                currentOnPinchStateChanged(false)
+                            }
                             if (collapseDragStarted) {
                                 collapseDragStarted = false
                                 currentOnCollapseDragCancel()

@@ -13,6 +13,12 @@ interface WatchProgressDao {
     @Query("SELECT * FROM watch_progress WHERE videoId = :videoId")
     suspend fun get(videoId: String): WatchProgressEntity?
 
+    @Query("SELECT * FROM watch_progress")
+    suspend fun getAllOnce(): List<WatchProgressEntity>
+
     @Query("DELETE FROM watch_progress WHERE watchedAt < :before")
     suspend fun deleteOlderThan(before: Long)
+
+    @Query("DELETE FROM watch_progress")
+    suspend fun clearAll()
 }

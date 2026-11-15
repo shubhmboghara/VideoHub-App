@@ -17,15 +17,22 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
 import com.videhub.extractor.ProxyConfig
 import com.videhub.extractor.ProxyManager
+import com.videhub.ui.components.DataTransferCard
+import com.videhub.ui.components.rememberDataBackupController
 import java.net.Proxy
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProxySettingsScreen(onBack: () -> Unit) {
+fun ProxySettingsScreen(
+    onBack: () -> Unit,
+    onDataImported: () -> Unit = {}
+) {
 
     var proxyEnabled by remember { mutableStateOf(ProxyManager.isProxyEnabled()) }
     var useAutoRotate by remember { mutableStateOf(false) }
@@ -55,8 +62,10 @@ fun ProxySettingsScreen(onBack: () -> Unit) {
         Column(
             modifier = Modifier
                 .padding(padding)
-                .padding(16.dp)
-                .fillMaxSize(),
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             val context = LocalContext.current
@@ -117,7 +126,13 @@ fun ProxySettingsScreen(onBack: () -> Unit) {
                 )
             }
 
-            Text("Appearance", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            val backupController = rememberDataBackupController(
+                onDataImported = onDataImported
+            )
+            Text("Data & Backup", style = MaterialTheme.typography.titleMedium)
+            DataTransferCard(controller = backupController)
+
+            Text("Appearance", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
             Card(
                 onClick = { showThemeDialog = true },
                 modifier = Modifier.fillMaxWidth()

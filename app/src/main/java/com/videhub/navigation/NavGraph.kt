@@ -175,8 +175,10 @@ fun NavGraph(
             )
         }
         composable("proxy_settings") {
+            val context = androidx.compose.ui.platform.LocalContext.current
             ProxySettingsScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onDataImported = { sharedViewModel.ensureSubscriptionsLoaded(context) }
             )
         }
         composable("about") {

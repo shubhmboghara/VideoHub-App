@@ -19,10 +19,6 @@ android {
     versionName = "1.4"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-    ndk {
-      abiFilters += listOf("arm64-v8a", "armeabi-v7a")
-    }
   }
 
   signingConfigs {
@@ -47,6 +43,9 @@ android {
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
+      ndk {
+        abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+      }
     }
     debug {
       signingConfig = signingConfigs.getByName("debugConfig")

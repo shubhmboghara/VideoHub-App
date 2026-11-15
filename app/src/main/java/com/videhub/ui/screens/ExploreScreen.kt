@@ -905,6 +905,7 @@ fun ExploreScreen(
                                     ) { _, channel ->
                                         ChannelResultItem(
                                             channel = channel,
+                                            sharedViewModel = sharedViewModel,
                                             onClick = { onChannelClick(channel.url ?: "") },
                                             onVideoClick = onVideoClick
                                         )
@@ -1062,6 +1063,7 @@ fun ExploreScreen(
                                     ) { _, channel ->
                                         ChannelResultItem(
                                             channel = channel,
+                                            sharedViewModel = sharedViewModel,
                                             onClick = { onChannelClick(channel.url ?: "") },
                                             onVideoClick = onVideoClick
                                         )
@@ -1207,19 +1209,22 @@ fun ExploreScreen(
 @Composable
 private fun ChannelResultItem(
     channel: ChannelInfoItem,
+    sharedViewModel: com.videhub.viewmodel.MainViewModel,
     onClick: () -> Unit,
     onVideoClick: ((String, String, String) -> Unit)? = null
 ) {
     val context = LocalContext.current
-    val db = remember { AppDatabase.getDatabase(context) }
     val scope = rememberCoroutineScope()
-    var isSubscribed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        sharedViewModel.ensureSubscriptionsLoaded(context)
+    }
+    val subscribedChannels by sharedViewModel.subscribedChannelsFlow.collectAsStateWithLifecycle()
     val channelId = channel.url ?: ""
-
-    LaunchedEffect(channelId) {
-        if (channelId.isNotBlank()) {
-            isSubscribed = db.channelDao().isSubscribed(channelId)
-        }
+    val isSubscribed = remember(subscribedChannels, channelId, channel.name) {
+        sharedViewModel.isChannelSubscribed(
+            channelId = channelId,
+            channelName = channel.name
+        )
     }
 
     Surface(
@@ -1303,24 +1308,18 @@ private fun ChannelResultItem(
                         .height(34.dp)
                         .clickable {
                             scope.launch {
-                                if (isSubscribed) {
-                                    db.channelDao().deleteById(channelId)
-                                    isSubscribed = false
-                                    Toast.makeText(context, "Unsubscribed", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    val validAvatar = avatar?.takeIf { !com.videhub.utils.AvatarHelper.isVideoThumbnail(it) }
-                                        ?: com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(channelId)
-                                        ?: ""
-                                    db.channelDao().insert(
-                                        ChannelEntity(
-                                            channelId = channelId,
-                                            name = channel.name ?: "Unknown Channel",
-                                            thumbnailUrl = validAvatar
-                                        )
-                                    )
-                                    isSubscribed = true
-                                    Toast.makeText(context, "Subscribed", Toast.LENGTH_SHORT).show()
-                                }
+                                val nowSubscribed = sharedViewModel.toggleChannelSubscription(
+                                    context = context,
+                                    channelId = channelId,
+                                    channelName = channel.name ?: "Unknown Channel",
+                                    avatarUrl = avatar,
+                                    currentlySubscribed = isSubscribed
+                                )
+                                Toast.makeText(
+                                    context,
+                                    if (nowSubscribed) "Subscribed" else "Unsubscribed",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             }
                         }
                 ) {

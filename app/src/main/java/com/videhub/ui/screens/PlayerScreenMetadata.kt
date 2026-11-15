@@ -32,11 +32,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.stream.StreamInfo
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.videhub.data.AppDatabase
 import com.videhub.data.entity.ChannelEntity
 import com.videhub.ui.components.AnimatedSubscribeButton
 import com.videhub.ui.components.ClickableDescriptionText
 import com.videhub.ui.components.openUrlSafely
+import com.videhub.viewmodel.MainViewModel
 
 @Composable
 fun PlayerScreenMetadata(
@@ -53,9 +55,36 @@ fun PlayerScreenMetadata(
     scope: CoroutineScope,
     db: AppDatabase,
     isSubscribedInitial: Boolean,
+    sharedViewModel: MainViewModel? = null,
     onSeekToSeconds: ((Long) -> Unit)? = null
 ) {
-    var isSubscribed by remember(isSubscribedInitial) { mutableStateOf(isSubscribedInitial) }
+    LaunchedEffect(sharedViewModel) {
+        sharedViewModel?.ensureSubscriptionsLoaded(context)
+    }
+    val subscribedChannels by (sharedViewModel?.subscribedChannelsFlow ?: remember { db.channelDao().getAll() })
+        .collectAsStateWithLifecycle(initialValue = sharedViewModel?.subscribedChannelsCache ?: emptyList())
+    val subscriptionsLoaded by (sharedViewModel?.subscriptionsLoadedFlow?.collectAsStateWithLifecycle()
+        ?: remember { mutableStateOf(false) })
+    val effectiveChannelId = channelId ?: streamInfo?.uploaderUrl
+    val effectiveChannelName = channelName.ifBlank { streamInfo?.uploaderName.orEmpty() }
+    val isSubscribed = remember(
+        subscribedChannels,
+        subscriptionsLoaded,
+        effectiveChannelId,
+        effectiveChannelName,
+        isSubscribedInitial
+    ) {
+        when {
+            sharedViewModel != null && (subscriptionsLoaded || subscribedChannels.isNotEmpty()) ->
+                sharedViewModel.isChannelSubscribed(
+                    channelId = effectiveChannelId,
+                    channelName = effectiveChannelName
+                )
+            subscribedChannels.isNotEmpty() ->
+                subscribedChannels.any { it.channelId == effectiveChannelId }
+            else -> isSubscribedInitial
+        }
+    }
     var expandedDesc by remember(streamInfo?.url, title) { mutableStateOf(false) }
 
     AnimatedContent(
@@ -269,15 +298,6 @@ fun PlayerScreenMetadata(
                     Spacer(Modifier.height(12.dp))
 
                     // 2. YouTube-style Channel Information Row
-                    val effectiveChannelId = channelId ?: streamInfo?.uploaderUrl
-                    LaunchedEffect(effectiveChannelId) {
-                        if (!effectiveChannelId.isNullOrBlank()) {
-                            withContext(Dispatchers.IO) {
-                                isSubscribed = db.channelDao().isSubscribed(effectiveChannelId)
-                            }
-                        }
-                    }
-
                     val avatarUrl = com.videhub.utils.AvatarHelper.getBestAvatarUrl(streamInfo?.uploaderAvatars)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -347,27 +367,40 @@ fun PlayerScreenMetadata(
                             onClick = {
                                 effectiveChannelId?.let { chId ->
                                     scope.launch {
-                                        if (isSubscribed) {
-                                            withContext(Dispatchers.IO) { db.channelDao().deleteById(chId) }
-                                            isSubscribed = false
-                                            Toast.makeText(context, "Unsubscribed", Toast.LENGTH_SHORT).show()
+                                        if (sharedViewModel != null) {
+                                            val nowSubscribed = sharedViewModel.toggleChannelSubscription(
+                                                context = context,
+                                                channelId = chId,
+                                                channelName = effectiveChannelName.ifBlank { "Channel" },
+                                                avatarUrl = avatarUrl,
+                                                currentlySubscribed = isSubscribed
+                                            )
+                                            Toast.makeText(
+                                                context,
+                                                if (nowSubscribed) "Subscribed" else "Unsubscribed",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
                                         } else {
-                                            withContext(Dispatchers.IO) {
-                                                val candidateAvatar = avatarUrl?.takeIf { !com.videhub.utils.AvatarHelper.isVideoThumbnail(it) }
-                                                val finalAvatar = candidateAvatar
-                                                    ?: com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(chId)
-                                                    ?: ""
+                                            if (isSubscribed) {
+                                                withContext(Dispatchers.IO) { db.channelDao().deleteById(chId) }
+                                                Toast.makeText(context, "Unsubscribed", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                withContext(Dispatchers.IO) {
+                                                    val candidateAvatar = avatarUrl?.takeIf { !com.videhub.utils.AvatarHelper.isVideoThumbnail(it) }
+                                                    val finalAvatar = candidateAvatar
+                                                        ?: com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(chId)
+                                                        ?: ""
 
-                                                db.channelDao().insert(
-                                                    ChannelEntity(
-                                                        channelId = chId,
-                                                        name = channelName,
-                                                        thumbnailUrl = finalAvatar
+                                                    db.channelDao().insert(
+                                                        ChannelEntity(
+                                                            channelId = chId,
+                                                            name = effectiveChannelName,
+                                                            thumbnailUrl = finalAvatar
+                                                        )
                                                     )
-                                                )
+                                                }
+                                                Toast.makeText(context, "Subscribed", Toast.LENGTH_SHORT).show()
                                             }
-                                            isSubscribed = true
-                                            Toast.makeText(context, "Subscribed", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 }

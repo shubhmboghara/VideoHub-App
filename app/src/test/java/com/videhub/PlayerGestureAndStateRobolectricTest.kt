@@ -277,4 +277,39 @@ class PlayerGestureAndStateRobolectricTest {
             0.0001f
         )
     }
+
+    @Test
+    fun `MainActivity launches and resumes without crashing`() {
+        val controller = org.robolectric.Robolectric.buildActivity(MainActivity::class.java)
+            .create()
+            .start()
+            .resume()
+        val activity = controller.get()
+        assertFalse(activity.isFinishing)
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun `MainViewModel matches subscribed channels synchronously across URLs handles and IDs`() {
+        val vm = com.videhub.viewmodel.MainViewModel(androidx.lifecycle.SavedStateHandle())
+        vm.subscribedChannelsCache = listOf(
+            com.videhub.data.entity.ChannelEntity(
+                channelId = "https://www.youtube.com/channel/UC_x5XG1OV2P6uZZ5FSM9Ttw",
+                name = "Google Developers",
+                thumbnailUrl = ""
+            ),
+            com.videhub.data.entity.ChannelEntity(
+                channelId = "https://www.youtube.com/@mkbhd",
+                name = "Marques Brownlee",
+                thumbnailUrl = ""
+            )
+        )
+
+        assertTrue(vm.isChannelSubscribed("https://www.youtube.com/channel/UC_x5XG1OV2P6uZZ5FSM9Ttw"))
+        assertTrue(vm.isChannelSubscribed("UC_x5XG1OV2P6uZZ5FSM9Ttw"))
+        assertTrue(vm.isChannelSubscribed("@mkbhd"))
+        assertTrue(vm.isChannelSubscribed("http://m.youtube.com/@mkbhd/"))
+        assertTrue(vm.isChannelSubscribed("https://youtube.com/other", channelName = "  marques brownlee "))
+        assertFalse(vm.isChannelSubscribed("https://www.youtube.com/channel/UC_unknown", channelName = "Other Channel"))
+    }
 }

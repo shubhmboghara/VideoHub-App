@@ -29,4 +29,7 @@ interface ChannelDao {
 
     @Query("SELECT * FROM channels ORDER BY name ASC")
     suspend fun getAllOnce(): List<ChannelEntity>
+
+    @Query("DELETE FROM channels")
+    suspend fun clearAll()
 }

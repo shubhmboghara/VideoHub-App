@@ -130,6 +130,39 @@ class PlayerTransitionControllerTest {
     }
 
     @Test
+    fun `settled miniplayer position and size updates track drag bounds 1 to 1`() {
+        val initialBounds = sampleBounds()
+        val draggedBounds = initialBounds.copy(
+            miniX = 32f,
+            miniY = 420f,
+            miniWidth = 620f,
+            miniHeight = 348.75f
+        )
+
+        val frameBefore = PlayerTransitionMath.computeSurfaceFrame(
+            collapseProgress = 1f,
+            fullscreenProgress = 0f,
+            bounds = initialBounds,
+            detailsSlideOffsetPx = 56f,
+            isSettledMiniplayer = true
+        )
+        val frameAfter = PlayerTransitionMath.computeSurfaceFrame(
+            collapseProgress = 1f,
+            fullscreenProgress = 0f,
+            bounds = draggedBounds,
+            detailsSlideOffsetPx = 56f,
+            isSettledMiniplayer = true
+        )
+
+        assertEquals(initialBounds.miniX, frameBefore.x, 0.01f)
+        assertEquals(initialBounds.miniY, frameBefore.y, 0.01f)
+        assertEquals(draggedBounds.miniX, frameAfter.x, 0.01f)
+        assertEquals(draggedBounds.miniY, frameAfter.y, 0.01f)
+        assertEquals(draggedBounds.miniWidth, frameAfter.width, 0.01f)
+        assertEquals(draggedBounds.miniHeight, frameAfter.height, 0.01f)
+    }
+
+    @Test
     fun `drag below threshold and cancel settle cleanly back to watch page`() = runTest {
         val clock = DeterministicFrameClock()
         val scope = CoroutineScope(coroutineContext + clock + Job())
@@ -276,5 +309,53 @@ class PlayerTransitionControllerTest {
         job2.join()
 
         assertEquals(0f, controller.currentCollapseProgress, 0.005f)
+    }
+
+    @Test
+    fun `landscape fullscreen downward exit drag shrinks player cleanly inside container`() {
+        val landscapeBounds = PlayerGeometryBounds(
+            watchX = 0f,
+            watchY = 0f,
+            watchWidth = 2400f,
+            watchHeight = 1350f, // > containerHeight if not handled
+            miniX = 1800f,
+            miniY = 720f,
+            miniWidth = 540f,
+            miniHeight = 303.75f,
+            containerWidth = 2400f,
+            containerHeight = 1080f,
+            miniCornerDp = 12f,
+            isLandscapeContainer = true
+        )
+
+        val fullFrame = PlayerTransitionMath.computeSurfaceFrame(
+            collapseProgress = 0f,
+            fullscreenProgress = 1f,
+            bounds = landscapeBounds,
+            detailsSlideOffsetPx = 56f,
+            isSettledMiniplayer = false
+        )
+        assertEquals(0f, fullFrame.x, 0.01f)
+        assertEquals(0f, fullFrame.y, 0.01f)
+        assertEquals(2400f, fullFrame.width, 0.01f)
+        assertEquals(1080f, fullFrame.height, 0.01f)
+        assertEquals(0f, fullFrame.cornerRadiusDp, 0.01f)
+
+        val midExitFrame = PlayerTransitionMath.computeSurfaceFrame(
+            collapseProgress = 0f,
+            fullscreenProgress = 0.5f,
+            bounds = landscapeBounds,
+            detailsSlideOffsetPx = 56f,
+            isSettledMiniplayer = false
+        )
+        assertTrue("Expected shrunk width < 2400, was ${midExitFrame.width}", midExitFrame.width < 2400f)
+        assertTrue("Expected shrunk height < 1080, was ${midExitFrame.height}", midExitFrame.height < 1080f)
+        assertTrue("Expected non-zero corner radius during shrink, was ${midExitFrame.cornerRadiusDp}", midExitFrame.cornerRadiusDp > 0f)
+        assertTrue("Expected card inset horizontally, x=${midExitFrame.x}", midExitFrame.x > 0f)
+        assertTrue("Expected card shifted downward cleanly, y=${midExitFrame.y}", midExitFrame.y > 0f)
+        assertTrue(
+            "Expected card bottom inside screen, bottom=${midExitFrame.y + midExitFrame.height}",
+            midExitFrame.y + midExitFrame.height <= 1080f + 0.01f
+        )
     }
 }

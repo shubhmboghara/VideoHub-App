@@ -200,7 +200,13 @@ fun PlayerScreen(
     var sleepTimerMinutes by remember { mutableStateOf<Int?>(null) }
     var sponsorSegments by remember(videoUrl) { mutableStateOf<List<com.videhub.extractor.SponsorSegment>>(emptyList()) }
     
-    var isSubscribed by remember(videoUrl) { mutableStateOf(false) }
+    val subscribedChannelsList by sharedViewModel.subscribedChannelsFlow.collectAsStateWithLifecycle()
+    val isSubscribed = remember(subscribedChannelsList, channelId, channelName) {
+        sharedViewModel.isChannelSubscribed(
+            channelId = channelId ?: streamInfo?.uploaderUrl,
+            channelName = channelName.ifBlank { streamInfo?.uploaderName }
+        )
+    }
     var isLiked by remember(videoUrl) { mutableStateOf(false) }
     var activeMediaId by remember(videoUrl) { mutableStateOf(videoUrl) }
     LaunchedEffect(activeMediaId) {
@@ -228,6 +234,7 @@ fun PlayerScreen(
     }
 
     var selectedQuality by remember(videoUrl) { mutableStateOf("Auto") }
+    var lastAppliedQuality by remember(videoUrl) { mutableStateOf("Auto") }
     var showQualitySelector by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showPlaybackSpeedMenu by remember { mutableStateOf(false) }
@@ -552,8 +559,12 @@ fun PlayerScreen(
 
                     val currentMediaId = player.currentMediaItem?.mediaId
                     val isDifferentMedia = currentMediaId != mediaItem.mediaId
+                    val isQualityChanged = selectedQuality != lastAppliedQuality
                     
                     val shouldUpdate = when {
+                        // Case 0: User explicitly changed video quality in player settings
+                        isQualityChanged -> true
+
                         // Case 1: Player is already playing or prepared for this specific video
                         !isDifferentMedia && player.playbackState != androidx.media3.common.Player.STATE_IDLE -> false
                         
@@ -604,8 +615,10 @@ fun PlayerScreen(
                         }
                         
                         lastInitializedMediaId = videoUrl
+                        lastAppliedQuality = selectedQuality
                     } else if (lastInitializedMediaId == null) {
                         lastInitializedMediaId = videoUrl
+                        lastAppliedQuality = selectedQuality
                     }
                 }
             } else {
@@ -853,13 +866,31 @@ fun PlayerScreen(
     val selectedTrack by com.videhub.ui.components.LiveCaptionsManager.selectedTrack.collectAsStateWithLifecycle(initialValue = null)
     val selectedLanguageCode by com.videhub.ui.components.LiveCaptionsManager.selectedLanguageCode.collectAsStateWithLifecycle(initialValue = null)
 
+    LaunchedEffect(videoUrl, streamInfo) {
+        val extracted = com.videhub.ui.components.CaptionTrack.extractTracks(streamInfo?.subtitles)
+        if (extracted.isNotEmpty() || streamInfo != null) {
+            com.videhub.ui.components.LiveCaptionsManager.setAvailableTracks(extracted)
+        }
+        if (isLocalFile) {
+            com.videhub.ui.components.LiveCaptionsManager.loadCaptionsFromDb(context, videoUrl)
+        }
+    }
+
     if (showCaptionSelector) {
+        val effectiveTracks = remember(availableTracks, streamInfo) {
+            availableTracks.ifEmpty {
+                com.videhub.ui.components.CaptionTrack.extractTracks(streamInfo?.subtitles)
+            }
+        }
         com.videhub.ui.components.CaptionTrackSelectorDialog(
-            availableTracks = availableTracks,
-            selectedTrack = selectedTrack,
+            availableTracks = effectiveTracks,
+            selectedTrack = if (showCaptionsRef.value) selectedTrack else null,
             onTrackSelected = { track ->
                 showCaptionSelector = false
                 activeCaptions = emptyList()
+                if (effectiveTracks.isNotEmpty()) {
+                    com.videhub.ui.components.LiveCaptionsManager.setAvailableTracks(effectiveTracks)
+                }
                 com.videhub.ui.components.LiveCaptionsManager.selectTrack(track)
                 showCaptionsRef.value = track != null
                 if (track != null) {
@@ -869,11 +900,11 @@ fun PlayerScreen(
                     } else {
                         com.videhub.ui.components.LiveCaptionsManager.fetchCaptions(
                             selectedUrl = track.url,
-                            availableTracks = availableTracks,
+                            availableTracks = effectiveTracks,
                             artist = channelName,
                             title = title,
                             description = streamInfo?.description?.content,
-                            isMusicMode = forceMusicMode,
+                            isMusicMode = isMusicMode,
                             durationSeconds = streamInfo?.duration ?: 0L,
                             context = context,
                             videoId = videoUrl
@@ -1008,11 +1039,26 @@ fun PlayerScreen(
                     androidx.compose.material3.ListItem(
                         headlineContent = { androidx.compose.material3.Text("Video Quality", style = MaterialTheme.typography.bodyLarge) },
                         leadingContent = { Icon(androidx.compose.material.icons.Icons.Default.HighQuality, contentDescription = null) },
+                        trailingContent = { androidx.compose.material3.Text(selectedQuality, color = MaterialTheme.colorScheme.onSurfaceVariant) },
                         modifier = Modifier
                             .height(48.dp)
                             .clickable {
                                 showSettingsSheet = false
                                 showQualitySelector = true
+                            }
+                    )
+                }
+                item {
+                    val captionLabel = if (showCaptionsRef.value) (selectedTrack?.displayName ?: "On") else "Off"
+                    androidx.compose.material3.ListItem(
+                        headlineContent = { androidx.compose.material3.Text("Captions", style = MaterialTheme.typography.bodyLarge) },
+                        leadingContent = { Icon(androidx.compose.material.icons.Icons.Default.ClosedCaption, contentDescription = null) },
+                        trailingContent = { androidx.compose.material3.Text(captionLabel, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                        modifier = Modifier
+                            .height(48.dp)
+                            .clickable {
+                                showSettingsSheet = false
+                                showCaptionSelector = true
                             }
                     )
                 }
@@ -1308,16 +1354,21 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(isMusicMode, playerWindowState, streamInfo) {
+    LaunchedEffect(isMusicMode, playerWindowState, streamInfo, showCaptionsRef.value) {
         com.videhub.PipState.canEnterPip = !isMusicMode &&
             (playerWindowState == PlayerWindowState.WATCH_PAGE || playerWindowState == PlayerWindowState.FULLSCREEN)
         if (streamInfo != null && !(isRestoredFromSavedState && isMiniplayer)) {
+            val tracks = com.videhub.ui.components.LiveCaptionsManager.availableTracks.value.ifEmpty {
+                com.videhub.ui.components.CaptionTrack.extractTracks(streamInfo?.subtitles).also {
+                    com.videhub.ui.components.LiveCaptionsManager.setAvailableTracks(it)
+                }
+            }
             val currentCaptions = com.videhub.ui.components.LiveCaptionsManager.captions.value
-            // Re-fetch if empty, OR if we just switched to music mode (to prioritize description/LRCLIB over potentially noise CC)
-            if (currentCaptions.isEmpty() || isMusicMode) {
+            // Auto-fetch when in music mode (for synced lyrics) or when captions are enabled
+            if ((isMusicMode || showCaptionsRef.value) && (currentCaptions.isEmpty() || isMusicMode)) {
                 com.videhub.ui.components.LiveCaptionsManager.fetchCaptions(
                     selectedUrl = com.videhub.ui.components.LiveCaptionsManager.selectedTrack.value?.url,
-                    availableTracks = com.videhub.ui.components.LiveCaptionsManager.availableTracks.value,
+                    availableTracks = tracks,
                     artist = channelName,
                     title = title,
                     description = streamInfo?.description?.content,
@@ -1347,8 +1398,7 @@ fun PlayerScreen(
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
                 val customCaptionLines = com.videhub.ui.components.LiveCaptionsManager.captions.value
-                val hasCustomCaptions = customCaptionLines.isNotEmpty() || com.videhub.ui.components.LiveCaptionsManager.selectedTrack.value != null
-                if (!hasCustomCaptions) {
+                if (customCaptionLines.isEmpty()) {
                     val cueTexts = cueGroup.cues.mapNotNull { it.text?.toString() }
                     activeCaptions = cueTexts
                 } else {
@@ -1581,8 +1631,8 @@ fun PlayerScreen(
         val watchW = containerWidthPx
         val watchH = containerWidthPx * (9f / 16f)
         val collapseDistancePx = (currentMiniY - watchY).coerceAtLeast(180f)
-        val fullscreenDragRangePx = (containerHeightPx - watchH).coerceAtLeast(220f)
-        val fullscreenMinTravelPx = with(density) { 30.dp.toPx() }
+        val fullscreenDragRangePx = with(density) { 260.dp.toPx() }
+        val fullscreenMinTravelPx = with(density) { 22.dp.toPx() }
         val detailsSlidePx = with(density) { 28.dp.toPx() }
         val targetMiniCornerDp = (12f * sizeFactor).coerceIn(10f, 16f)
 
@@ -1597,39 +1647,59 @@ fun PlayerScreen(
             miniHeight = pipHeightPx,
             containerWidth = containerWidthPx,
             containerHeight = containerHeightPx,
-            miniCornerDp = targetMiniCornerDp
+            miniCornerDp = targetMiniCornerDp,
+            isLandscapeContainer = containerWidthPx > containerHeightPx
         )
         val boundsHolder = remember { MutableBoundsHolder(currentGeometryBounds) }
         boundsHolder.bounds = currentGeometryBounds
 
-        val isSettledMiniplayer by remember(playerWindowState) {
+        val currentWindowStateForDerived by rememberUpdatedState(playerWindowState)
+        val currentIsPipForDerived by rememberUpdatedState(isPipActiveState)
+        val currentIsMusicForDerived by rememberUpdatedState(isMusicMode)
+
+        val isSettledMiniplayer by remember {
             derivedStateOf {
-                playerWindowState == PlayerWindowState.MINIPLAYER &&
-                    transitionController.currentCollapseProgress >= 0.99f &&
+                currentWindowStateForDerived == PlayerWindowState.MINIPLAYER &&
+                    transitionController.currentCollapseProgress >= 0.98f &&
                     !transitionController.isDraggingCollapse &&
                     transitionController.currentFullscreenProgress < 0.05f
             }
         }
-        val showBackdropAndDetails by remember(isPipActiveState) {
-            derivedStateOf { !isSettledMiniplayer && !isPipActiveState }
-        }
-        val showDetailsSheet by remember(isMusicMode) {
+        val isMiniplayerInteractive by remember {
             derivedStateOf {
-                !isMusicMode &&
-                    transitionController.currentCollapseProgress < 0.98f &&
+                (currentWindowStateForDerived == PlayerWindowState.MINIPLAYER ||
+                    transitionController.currentCollapseProgress >= 0.95f) &&
+                    !transitionController.isDraggingCollapse &&
+                    transitionController.currentFullscreenProgress < 0.05f
+            }
+        }
+        val showBackdropAndDetails by remember {
+            derivedStateOf {
+                !isSettledMiniplayer &&
+                    !currentIsPipForDerived &&
+                    !(currentWindowStateForDerived == PlayerWindowState.MINIPLAYER && !transitionController.isDraggingCollapse)
+            }
+        }
+        val showDetailsSheet by remember {
+            derivedStateOf {
+                !currentIsMusicForDerived &&
+                    !isSettledMiniplayer &&
+                    (transitionController.isDraggingCollapse || transitionController.currentCollapseProgress < 0.98f) &&
                     transitionController.currentFullscreenProgress < 0.98f
             }
         }
         val showMiniChrome by remember {
             derivedStateOf {
-                (isSettledMiniplayer || transitionController.currentCollapseProgress > 0.52f) &&
+                (isSettledMiniplayer ||
+                    currentWindowStateForDerived == PlayerWindowState.MINIPLAYER ||
+                    transitionController.currentCollapseProgress > 0.52f) &&
                     transitionController.currentFullscreenProgress < 0.95f
             }
         }
-        val showMusicModeWatch by remember(isMusicMode, playerWindowState) {
+        val showMusicModeWatch by remember {
             derivedStateOf {
-                isMusicMode &&
-                    playerWindowState == PlayerWindowState.WATCH_PAGE &&
+                currentIsMusicForDerived &&
+                    currentWindowStateForDerived == PlayerWindowState.WATCH_PAGE &&
                     transitionController.currentCollapseProgress < 0.5f
             }
         }
@@ -1687,6 +1757,21 @@ fun PlayerScreen(
             transitionController.cancelFullscreenDrag(currentlyFullscreen = isFullscreen)
         }
 
+        // Safety recovery: if collapse progress settled at >= 0.95f while still in WATCH_PAGE and not dragging,
+        // automatically commit Miniplayer state so the screen can never get stuck between Watch Page and Miniplayer.
+        LaunchedEffect(
+            playerWindowState,
+            transitionController.isDraggingCollapse,
+            transitionController.currentCollapseProgress
+        ) {
+            if (playerWindowState == PlayerWindowState.WATCH_PAGE &&
+                !transitionController.isDraggingCollapse &&
+                transitionController.currentCollapseProgress >= 0.95f
+            ) {
+                onCollapseToMiniplayer()
+            }
+        }
+
         val detailsNestedScroll = remember(collapseDistancePx, effectiveFullscreen, isMusicMode, isSettledMiniplayer) {
             object : NestedScrollConnection {
                 override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -1721,6 +1806,10 @@ fun PlayerScreen(
 
         // ── 1. Watch Page Background & Details Sheet (Unmounted when settled in Miniplayer so background screens stay interactive) ──
         if (showBackdropAndDetails) {
+            val shouldBlockBackdropTouches =
+                currentWindowStateForDerived != PlayerWindowState.MINIPLAYER &&
+                    !isMusicMode &&
+                    transitionController.currentCollapseProgress < 0.5f
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1732,18 +1821,24 @@ fun PlayerScreen(
                         ).backdropAlpha
                     }
                     .background(MaterialTheme.colorScheme.background)
-                    .pointerInput(isMusicMode) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Main)
-                            if (transitionController.currentCollapseProgress < 0.5f && !isMusicMode) {
-                                down.consume()
-                                do {
-                                    val ev = awaitPointerEvent(PointerEventPass.Main)
-                                    ev.changes.forEach { it.consume() }
-                                } while (ev.changes.any { it.pressed })
+                    .then(
+                        if (shouldBlockBackdropTouches) {
+                            Modifier.pointerInput(isMusicMode) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Main)
+                                    if (transitionController.currentCollapseProgress < 0.5f && !isMusicMode) {
+                                        down.consume()
+                                        do {
+                                            val ev = awaitPointerEvent(PointerEventPass.Main)
+                                            ev.changes.forEach { it.consume() }
+                                        } while (ev.changes.any { it.pressed })
+                                    }
+                                }
                             }
+                        } else {
+                            Modifier
                         }
-                    }
+                    )
             ) {
                 if (statusBarTopPx > 0f) {
                     Box(
@@ -1769,6 +1864,7 @@ fun PlayerScreen(
                     channelId = channelId,
                     thumbnailUrl = resolvedThumbnail,
                     onChannelClick = { ch ->
+                        transitionController.forceResetDragStates()
                         onCollapseToMiniplayer()
                         onChannelClick(ch)
                     },
@@ -1798,6 +1894,20 @@ fun PlayerScreen(
                         .fillMaxWidth()
                         .height(detailsHeightDp)
                         .offset { IntOffset(0, detailsTopOffsetPx.roundToInt()) }
+                        .pointerInput(transitionController) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                try {
+                                    do {
+                                        val ev = awaitPointerEvent(PointerEventPass.Final)
+                                    } while (ev.changes.any { it.pressed })
+                                } finally {
+                                    if (transitionController.isDraggingCollapse) {
+                                        finishCollapseDrag(0f)
+                                    }
+                                }
+                            }
+                        }
                         .graphicsLayer {
                             val frame = transitionController.computeCurrentFrame(
                                 boundsHolder.bounds,
@@ -1851,9 +1961,11 @@ fun PlayerScreen(
 
         // ── 3. Floating Miniplayer Drag + Pinch-to-Resize + Bottom-Swipe Dismiss Modifier (Window-Space Coordinates) ──
         var miniCardCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+        var miniSnapJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        val currentOnClosePlayer by rememberUpdatedState(onClosePlayer)
 
-        val miniDragModifier = if (isSettledMiniplayer) {
-            Modifier.pointerInput(containerWidthPx, containerHeightPx, minScale, maxScale) {
+        val miniDragModifier = if (isMiniplayerInteractive) {
+            Modifier.pointerInput(containerWidthPx, containerHeightPx, minScale, maxScale, minX, minY, bottomMarginPx) {
                 awaitEachGesture {
                     val down = awaitFirstDown(
                         requireUnconsumed = false,
@@ -1912,6 +2024,8 @@ fun PlayerScreen(
                                     if (startedPinch) {
                                         isPinching = true
                                     }
+                                    miniSnapJob?.cancel()
+                                    miniSnapJob = null
                                     scope.launch {
                                         pipScale.stop()
                                         pipOffsetX.stop()
@@ -2000,7 +2114,8 @@ fun PlayerScreen(
                             val shouldDismissDownward =
                                 isPredominantlyVerticalDown && (crossedBottomZone || hasDownwardFlingVelocity)
 
-                            scope.launch {
+                            miniSnapJob?.cancel()
+                            miniSnapJob = scope.launch {
                                 pipScale.snapTo(curScale)
                                 pipOffsetX.snapTo(curX)
                                 pipOffsetY.snapTo(curY)
@@ -2013,7 +2128,7 @@ fun PlayerScreen(
                                             stiffness = Spring.StiffnessMedium
                                         )
                                     )
-                                    onClosePlayer()
+                                    currentOnClosePlayer()
                                 } else {
                                     val currentCenterX = x + currentW / 2f
                                     val targetX = if (currentCenterX < containerWidthPx / 2f) minX else dynamicMaxX
@@ -2045,7 +2160,8 @@ fun PlayerScreen(
                         }
                     } finally {
                         if (isMiniDragging) {
-                            scope.launch {
+                            miniSnapJob?.cancel()
+                            miniSnapJob = scope.launch {
                                 pipScale.snapTo(curScale)
                                 pipOffsetX.snapTo(curX)
                                 pipOffsetY.snapTo(curY)
@@ -2152,6 +2268,7 @@ fun PlayerScreen(
                 onActiveCaptionsChanged = { activeCaptions = it },
                 offlineCaptions = offlineCaptions,
                 onBack = {
+                    transitionController.forceResetDragStates()
                     if (isFullscreen) {
                         setFullscreen(false)
                     } else {
@@ -2223,8 +2340,17 @@ fun PlayerScreen(
                     progress = miniPlayerProgress,
                     pipHeightDp = pipHeightDp,
                     sizeFactor = sizeFactor,
-                    onExpand = onExpandFromMiniplayer,
-                    onCloseClick = onClosePlayer,
+                    onExpand = {
+                        transitionController.forceResetDragStates()
+                        onExpandFromMiniplayer()
+                        scope.launch {
+                            transitionController.syncCollapseTarget(false)
+                        }
+                    },
+                    onCloseClick = {
+                        transitionController.forceResetDragStates()
+                        onClosePlayer()
+                    },
                     onVideoPlay = { url, t, thumb -> onVideoPlay(url, t, thumb, isMusicMode, false) },
                     modifier = Modifier
                         .fillMaxSize()
@@ -2390,6 +2516,7 @@ fun VideoPlayerContainer(
     onVideoSelect: (String, String, String) -> Unit = { _, _, _ -> }
 ) {
     var controllerVisible by remember { mutableStateOf(false) }
+    var isPinchingNow by remember { mutableStateOf(false) }
     var videoScale by remember { mutableFloatStateOf(1f) }
     var videoPanOffsetX by remember { mutableFloatStateOf(0f) }
     var videoPanOffsetY by remember { mutableFloatStateOf(0f) }
@@ -2445,9 +2572,9 @@ fun VideoPlayerContainer(
             isMusicMode = isMusicMode,
             showCaptions = showCaptions,
             isScreenLocked = isScreenLocked,
-            scale = animatedScale,
-            offsetX = animatedOffsetX,
-            offsetY = animatedOffsetY,
+            scale = if (isPinchingNow) videoScale else animatedScale,
+            offsetX = if (isPinchingNow) videoPanOffsetX else animatedOffsetX,
+            offsetY = if (isPinchingNow) videoPanOffsetY else animatedOffsetY,
             onToggleFullscreen = onToggleFullscreen,
             onControllerVisibilityChanged = { controllerVisible = it },
             onCaptionsRequested = onCaptionsRequested,
@@ -2473,6 +2600,7 @@ fun VideoPlayerContainer(
                 showCaptions = showCaptions,
                 currentSpeed = currentSpeed,
                 videoScale = videoScale,
+                onPinchStateChanged = { active -> isPinchingNow = active },
                 onScaleChange = { zoomChange, panChange ->
                     val rawScale = (videoScale * zoomChange).coerceIn(1f, 3.5f)
                     val newScale = if (rawScale < 1.05f && zoomChange < 1f) 1f else rawScale
@@ -2488,6 +2616,7 @@ fun VideoPlayerContainer(
                     }
                 },
                 onResetZoom = {
+                    isPinchingNow = false
                     videoScale = 1f
                     videoPanOffsetX = 0f
                     videoPanOffsetY = 0f
@@ -2599,7 +2728,9 @@ fun VideoPlayerContainer(
     }
 }
 
-private class MutableBoundsHolder(var bounds: PlayerGeometryBounds)
+private class MutableBoundsHolder(initialBounds: PlayerGeometryBounds) {
+    var bounds by mutableStateOf(initialBounds)
+}
 
 fun android.content.Context.getActivity(): android.app.Activity? = when (this) {
     is android.app.Activity -> this

@@ -13,6 +13,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -31,7 +32,8 @@ data class PlayerGeometryBounds(
     val miniHeight: Float,
     val containerWidth: Float,
     val containerHeight: Float,
-    val miniCornerDp: Float
+    val miniCornerDp: Float,
+    val isLandscapeContainer: Boolean = false
 )
 
 /**
@@ -73,20 +75,37 @@ object PlayerTransitionMath {
         val cp = collapseProgress.coerceIn(0f, 1f)
         val fp = fullscreenProgress.coerceIn(0f, 1f)
 
-        // Watch-to-Miniplayer linear-within-spring morph (interpolates directly to Miniplayer X/Y, never center-shrink)
-        val watchToMiniX = lerp(bounds.watchX, bounds.miniX, cp)
-        val watchToMiniY = lerp(bounds.watchY, bounds.miniY, cp)
-        val watchToMiniW = lerp(bounds.watchWidth, bounds.miniWidth, cp)
-        val watchToMiniH = lerp(bounds.watchHeight, bounds.miniHeight, cp)
+        // Landscape fullscreen shrink-preview target avoids expanding toward portrait 16:9 height (> containerHeight)
+        val baseX: Float
+        val baseY: Float
+        val baseW: Float
+        val baseH: Float
+        val baseCornerDp: Float
+        if (bounds.isLandscapeContainer && cp < 0.05f && !isSettledMiniplayer) {
+            val previewH = (bounds.containerHeight * 0.72f).coerceAtLeast(180f)
+            val previewW = (previewH * (16f / 9f)).coerceAtMost(bounds.containerWidth * 0.86f)
+            baseX = (bounds.containerWidth - previewW) * 0.5f
+            baseY = (bounds.containerHeight - previewH) * 0.65f
+            baseW = previewW
+            baseH = previewH
+            baseCornerDp = 18f
+        } else {
+            // Watch-to-Miniplayer linear-within-spring morph (interpolates directly to Miniplayer X/Y, never center-shrink)
+            baseX = lerp(bounds.watchX, bounds.miniX, cp)
+            baseY = lerp(bounds.watchY, bounds.miniY, cp)
+            baseW = lerp(bounds.watchWidth, bounds.miniWidth, cp)
+            baseH = lerp(bounds.watchHeight, bounds.miniHeight, cp)
+            baseCornerDp = bounds.miniCornerDp * cp
+        }
 
         // Watch/Miniplayer-to-Fullscreen morph
-        val x = lerp(watchToMiniX, 0f, fp)
-        val y = lerp(watchToMiniY, 0f, fp)
-        val width = lerp(watchToMiniW, bounds.containerWidth, fp).coerceAtLeast(1f)
-        val height = lerp(watchToMiniH, bounds.containerHeight, fp).coerceAtLeast(1f)
+        val x = lerp(baseX, 0f, fp)
+        val y = lerp(baseY, 0f, fp)
+        val width = lerp(baseW, bounds.containerWidth, fp).coerceAtLeast(1f)
+        val height = lerp(baseH, bounds.containerHeight, fp).coerceAtLeast(1f)
 
         // Progressive corner radius & elevation
-        val cornerRadiusDp = lerp(bounds.miniCornerDp * cp, 0f, fp).coerceAtLeast(0f)
+        val cornerRadiusDp = lerp(baseCornerDp, 0f, fp).coerceAtLeast(0f)
         val elevationDp = lerp(18f * cp, 0f, fp).coerceAtLeast(0f)
         val borderAlpha = (0.14f * cp * (1f - fp)).coerceIn(0f, 0.14f)
 
@@ -127,11 +146,11 @@ object PlayerTransitionMath {
         dragTravelPx: Float,
         minTravelPx: Float,
         velocityY: Float,
-        flickTravelPx: Float = minTravelPx * 0.45f
+        flickTravelPx: Float = minTravelPx * 0.40f
     ): Boolean {
         val upwardTravel = -dragTravelPx
         if (upwardTravel >= minTravelPx && velocityY <= 350f) return true
-        return upwardTravel >= flickTravelPx && velocityY <= -550f
+        return upwardTravel >= flickTravelPx && velocityY <= -420f
     }
 
     fun shouldCompleteFullscreenExit(
@@ -139,15 +158,15 @@ object PlayerTransitionMath {
         minTravelPx: Float,
         velocityY: Float,
         isPortraitFullscreen: Boolean,
-        flickTravelPx: Float = minTravelPx * 0.45f
+        flickTravelPx: Float = minTravelPx * 0.40f
     ): Boolean {
         val downwardTrigger = (dragTravelPx >= minTravelPx && velocityY >= -350f) ||
-            (dragTravelPx >= flickTravelPx && velocityY >= 550f)
+            (dragTravelPx >= flickTravelPx && velocityY >= 420f)
         if (downwardTrigger) return true
         if (isPortraitFullscreen) {
             val upwardTravel = -dragTravelPx
             return (upwardTravel >= minTravelPx && velocityY <= 350f) ||
-                (upwardTravel >= flickTravelPx && velocityY <= -550f)
+                (upwardTravel >= flickTravelPx && velocityY <= -420f)
         }
         return false
     }
@@ -169,12 +188,14 @@ class PlayerTransitionController(
     var isDraggingCollapse by mutableStateOf(false)
         private set
     private var activeDragCollapse by mutableFloatStateOf(initialCollapse.coerceIn(0f, 1f))
+    private var collapseJob: Job? = null
 
     var isDraggingFullscreen by mutableStateOf(false)
         private set
     private var activeDragFullscreen by mutableFloatStateOf(initialFullscreen.coerceIn(0f, 1f))
     private var fullscreenDragTravelPx by mutableFloatStateOf(0f)
     private var fullscreenDragStartedInFullscreen by mutableStateOf(false)
+    private var fullscreenJob: Job? = null
 
     val currentCollapseProgress: Float
         get() = (if (isDraggingCollapse) activeDragCollapse else collapseAnimatable.value).coerceIn(0f, 1f)
@@ -209,9 +230,24 @@ class PlayerTransitionController(
         )
     }
 
+    fun forceResetDragStates() {
+        isDraggingCollapse = false
+        isDraggingFullscreen = false
+    }
+
     suspend fun syncCollapseTarget(isMiniplayer: Boolean) {
-        if (isDraggingCollapse) return
+        if (isDraggingCollapse) {
+            if (!isMiniplayer || activeDragCollapse >= 0.95f) {
+                isDraggingCollapse = false
+            } else {
+                return
+            }
+        }
         val target = if (isMiniplayer) 1f else 0f
+        if (isMiniplayer && (isDraggingFullscreen || fullscreenAnimatable.value > 0.001f)) {
+            isDraggingFullscreen = false
+            fullscreenAnimatable.snapTo(0f)
+        }
         if (collapseAnimatable.isRunning && abs(collapseAnimatable.targetValue - target) < 0.01f) {
             return
         }
@@ -220,6 +256,9 @@ class PlayerTransitionController(
                 targetValue = target,
                 animationSpec = if (target == 0f) settleSpring else returnSpring
             )
+            collapseAnimatable.snapTo(target)
+        } else if (collapseAnimatable.value != target) {
+            collapseAnimatable.snapTo(target)
         }
     }
 
@@ -234,13 +273,17 @@ class PlayerTransitionController(
                 targetValue = target,
                 animationSpec = settleSpring
             )
+            fullscreenAnimatable.snapTo(target)
+        } else if (fullscreenAnimatable.value != target) {
+            fullscreenAnimatable.snapTo(target)
         }
     }
 
     fun startCollapseDrag() {
+        collapseJob?.cancel()
         activeDragCollapse = collapseAnimatable.value.coerceIn(0f, 1f)
         isDraggingCollapse = true
-        scope.launch { collapseAnimatable.stop() }
+        collapseJob = scope.launch { collapseAnimatable.stop() }
     }
 
     fun dragCollapseBy(deltaPx: Float, collapseDistancePx: Float) {
@@ -256,26 +299,37 @@ class PlayerTransitionController(
     ) {
         if (!isDraggingCollapse) return
         val endFraction = activeDragCollapse.coerceIn(0f, 1f)
-        isDraggingCollapse = false
         val safeDist = collapseDistancePx.coerceAtLeast(180f)
         val normalizedVelocity = (velocityY / safeDist).coerceIn(-12f, 12f)
         val shouldCollapse = PlayerStateManager.shouldCollapseOnDragEnd(endFraction, velocityY)
 
-        scope.launch {
-            collapseAnimatable.snapTo(endFraction)
-            if (shouldCollapse) {
-                onCommitMiniplayer()
-                collapseAnimatable.animateTo(
-                    targetValue = 1f,
-                    animationSpec = settleSpring,
-                    initialVelocity = normalizedVelocity
-                )
-            } else {
-                collapseAnimatable.animateTo(
-                    targetValue = 0f,
-                    animationSpec = returnSpring,
-                    initialVelocity = normalizedVelocity
-                )
+        collapseJob?.cancel()
+        collapseJob = scope.launch {
+            try {
+                collapseAnimatable.snapTo(endFraction)
+                isDraggingCollapse = false
+                if (shouldCollapse) {
+                    isDraggingFullscreen = false
+                    if (fullscreenAnimatable.value > 0f) {
+                        fullscreenAnimatable.snapTo(0f)
+                    }
+                    onCommitMiniplayer()
+                    collapseAnimatable.animateTo(
+                        targetValue = 1f,
+                        animationSpec = settleSpring,
+                        initialVelocity = normalizedVelocity
+                    )
+                    collapseAnimatable.snapTo(1f)
+                } else {
+                    collapseAnimatable.animateTo(
+                        targetValue = 0f,
+                        animationSpec = returnSpring,
+                        initialVelocity = normalizedVelocity
+                    )
+                    collapseAnimatable.snapTo(0f)
+                }
+            } finally {
+                isDraggingCollapse = false
             }
         }
     }
@@ -283,23 +337,30 @@ class PlayerTransitionController(
     fun cancelCollapseDrag(isCurrentlyMiniplayer: Boolean) {
         if (!isDraggingCollapse) return
         val endFraction = activeDragCollapse.coerceIn(0f, 1f)
-        isDraggingCollapse = false
         val target = if (isCurrentlyMiniplayer) 1f else 0f
-        scope.launch {
-            collapseAnimatable.snapTo(endFraction)
-            collapseAnimatable.animateTo(
-                targetValue = target,
-                animationSpec = returnSpring
-            )
+        collapseJob?.cancel()
+        collapseJob = scope.launch {
+            try {
+                collapseAnimatable.snapTo(endFraction)
+                isDraggingCollapse = false
+                collapseAnimatable.animateTo(
+                    targetValue = target,
+                    animationSpec = returnSpring
+                )
+                collapseAnimatable.snapTo(target)
+            } finally {
+                isDraggingCollapse = false
+            }
         }
     }
 
     fun startFullscreenDrag(currentlyFullscreen: Boolean) {
+        fullscreenJob?.cancel()
         fullscreenDragStartedInFullscreen = currentlyFullscreen
         fullscreenDragTravelPx = 0f
         activeDragFullscreen = fullscreenAnimatable.value.coerceIn(0f, 1f)
         isDraggingFullscreen = true
-        scope.launch { fullscreenAnimatable.stop() }
+        fullscreenJob = scope.launch { fullscreenAnimatable.stop() }
     }
 
     fun dragFullscreenBy(
@@ -311,15 +372,15 @@ class PlayerTransitionController(
         fullscreenDragTravelPx += deltaY
         val safeRange = dragRangePx.coerceAtLeast(180f)
         val next = if (!fullscreenDragStartedInFullscreen) {
-            // Upward swipe on Watch Page lifts preview up to 0.45f
-            (-fullscreenDragTravelPx / safeRange).coerceIn(0f, 0.45f)
+            // Upward swipe on Watch Page lifts preview up to 0.65f
+            (-fullscreenDragTravelPx / safeRange).coerceIn(0f, 0.65f)
         } else {
             val signedExitTravel = if (isPortraitFullscreen && fullscreenDragTravelPx < 0f) {
                 -fullscreenDragTravelPx
             } else {
                 fullscreenDragTravelPx
             }
-            (1f - signedExitTravel / safeRange).coerceIn(0.55f, 1f)
+            (1f - signedExitTravel / safeRange).coerceIn(0.35f, 1f)
         }
         activeDragFullscreen = next
     }
@@ -336,7 +397,6 @@ class PlayerTransitionController(
         val endFraction = activeDragFullscreen.coerceIn(0f, 1f)
         val travel = fullscreenDragTravelPx
         val startedFullscreen = fullscreenDragStartedInFullscreen
-        isDraggingFullscreen = false
 
         val safeRange = dragRangePx.coerceAtLeast(180f)
         val rawNormVel = if (!startedFullscreen) {
@@ -362,38 +422,48 @@ class PlayerTransitionController(
             )
         }
 
-        scope.launch {
-            fullscreenAnimatable.snapTo(endFraction)
-            if (!startedFullscreen) {
-                if (shouldToggle) {
-                    onCommitEnterFullscreen()
-                    fullscreenAnimatable.animateTo(
-                        targetValue = 1f,
-                        animationSpec = settleSpring,
-                        initialVelocity = rawNormVel
-                    )
+        fullscreenJob?.cancel()
+        fullscreenJob = scope.launch {
+            try {
+                fullscreenAnimatable.snapTo(endFraction)
+                isDraggingFullscreen = false
+                if (!startedFullscreen) {
+                    if (shouldToggle) {
+                        onCommitEnterFullscreen()
+                        fullscreenAnimatable.animateTo(
+                            targetValue = 1f,
+                            animationSpec = settleSpring,
+                            initialVelocity = rawNormVel
+                        )
+                        fullscreenAnimatable.snapTo(1f)
+                    } else {
+                        fullscreenAnimatable.animateTo(
+                            targetValue = 0f,
+                            animationSpec = returnSpring,
+                            initialVelocity = rawNormVel
+                        )
+                        fullscreenAnimatable.snapTo(0f)
+                    }
                 } else {
-                    fullscreenAnimatable.animateTo(
-                        targetValue = 0f,
-                        animationSpec = returnSpring,
-                        initialVelocity = rawNormVel
-                    )
+                    if (shouldToggle) {
+                        onCommitExitFullscreen()
+                        fullscreenAnimatable.animateTo(
+                            targetValue = 0f,
+                            animationSpec = settleSpring,
+                            initialVelocity = rawNormVel
+                        )
+                        fullscreenAnimatable.snapTo(0f)
+                    } else {
+                        fullscreenAnimatable.animateTo(
+                            targetValue = 1f,
+                            animationSpec = returnSpring,
+                            initialVelocity = rawNormVel
+                        )
+                        fullscreenAnimatable.snapTo(1f)
+                    }
                 }
-            } else {
-                if (shouldToggle) {
-                    onCommitExitFullscreen()
-                    fullscreenAnimatable.animateTo(
-                        targetValue = 0f,
-                        animationSpec = settleSpring,
-                        initialVelocity = rawNormVel
-                    )
-                } else {
-                    fullscreenAnimatable.animateTo(
-                        targetValue = 1f,
-                        animationSpec = returnSpring,
-                        initialVelocity = rawNormVel
-                    )
-                }
+            } finally {
+                isDraggingFullscreen = false
             }
         }
     }
@@ -401,14 +471,20 @@ class PlayerTransitionController(
     fun cancelFullscreenDrag(currentlyFullscreen: Boolean) {
         if (!isDraggingFullscreen) return
         val endFraction = activeDragFullscreen.coerceIn(0f, 1f)
-        isDraggingFullscreen = false
         val target = if (currentlyFullscreen) 1f else 0f
-        scope.launch {
-            fullscreenAnimatable.snapTo(endFraction)
-            fullscreenAnimatable.animateTo(
-                targetValue = target,
-                animationSpec = returnSpring
-            )
+        fullscreenJob?.cancel()
+        fullscreenJob = scope.launch {
+            try {
+                fullscreenAnimatable.snapTo(endFraction)
+                isDraggingFullscreen = false
+                fullscreenAnimatable.animateTo(
+                    targetValue = target,
+                    animationSpec = returnSpring
+                )
+                fullscreenAnimatable.snapTo(target)
+            } finally {
+                isDraggingFullscreen = false
+            }
         }
     }
 }

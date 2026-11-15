@@ -98,6 +98,7 @@ fun BelowPlayerContent(
                     scope = scope,
                     db = db,
                     isSubscribedInitial = isSubscribedInitial,
+                    sharedViewModel = sharedViewModel,
                     onSeekToSeconds = { sec ->
                         mediaPlayer?.seekTo(sec * 1000L)
                     }

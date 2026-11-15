@@ -2,10 +2,19 @@ package com.videhub.viewmodel
 
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.media3.session.MediaController
 import androidx.media3.common.Player
 import com.google.common.util.concurrent.ListenableFuture
+import com.videhub.data.AppDatabase
 import com.videhub.data.entity.ChannelEntity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.InfoItem
 
 class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel() {
@@ -108,9 +117,110 @@ class MainViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     val subscriptionsPagingSourceMap = mutableMapOf<String, com.videhub.extractor.ListExtractorPagingSource?>()
     val subscriptionsScrollStateMap = mutableMapOf<String, Pair<Int, Int>>()
     
-    // Subscriptions Channels cache
+    // Subscriptions Channels cache & reactive StateFlow for instant zero-flash UI across all screens
     var subscribedChannelsCache: List<com.videhub.data.entity.ChannelEntity> = emptyList()
     var isInitialSubLoadingCache: Boolean = true
+
+    private val _subscribedChannelsFlow = MutableStateFlow<List<ChannelEntity>>(emptyList())
+    val subscribedChannelsFlow: StateFlow<List<ChannelEntity>> = _subscribedChannelsFlow.asStateFlow()
+
+    private val _subscriptionsLoadedFlow = MutableStateFlow(false)
+    val subscriptionsLoadedFlow: StateFlow<Boolean> = _subscriptionsLoadedFlow.asStateFlow()
+
+    private var subscriptionsObserverJob: Job? = null
+
+    fun ensureSubscriptionsLoaded(context: android.content.Context) {
+        if (subscriptionsObserverJob != null) return
+        val appCtx = context.applicationContext
+        subscriptionsObserverJob = viewModelScope.launch {
+            val db = AppDatabase.getDatabase(appCtx)
+            db.channelDao().getAll().collect { list ->
+                _subscribedChannelsFlow.value = list
+                subscribedChannelsCache = list
+                _subscriptionsLoadedFlow.value = true
+                isInitialSubLoadingCache = false
+            }
+        }
+    }
+
+    private fun normalizeChannelKey(raw: String?): String {
+        if (raw.isNullOrBlank()) return ""
+        var key = raw.trim()
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .removePrefix("www.")
+            .removePrefix("m.")
+            .trimEnd('/')
+            .lowercase()
+        if (key.startsWith("youtube.com/channel/")) {
+            key = key.removePrefix("youtube.com/channel/")
+        } else if (key.startsWith("youtube.com/@")) {
+            key = key.removePrefix("youtube.com/")
+        }
+        return key
+    }
+
+    fun isChannelSubscribed(
+        channelId: String?,
+        channelName: String? = null,
+        secondaryChannelId: String? = null
+    ): Boolean {
+        val list = _subscribedChannelsFlow.value.ifEmpty { subscribedChannelsCache }
+        if (list.isEmpty()) return false
+        val key1 = normalizeChannelKey(channelId)
+        val key2 = normalizeChannelKey(secondaryChannelId)
+        val trimmedName = channelName?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+
+        return list.any { ch ->
+            val storedKey = normalizeChannelKey(ch.channelId)
+            (key1.isNotEmpty() && (storedKey == key1 || ch.channelId == channelId)) ||
+                (key2.isNotEmpty() && (storedKey == key2 || ch.channelId == secondaryChannelId)) ||
+                (trimmedName != null && ch.name.trim().lowercase() == trimmedName)
+        }
+    }
+
+    suspend fun toggleChannelSubscription(
+        context: android.content.Context,
+        channelId: String,
+        channelName: String,
+        avatarUrl: String?,
+        currentlySubscribed: Boolean,
+        secondaryChannelId: String? = null
+    ): Boolean {
+        val db = AppDatabase.getDatabase(context.applicationContext)
+        return withContext(Dispatchers.IO) {
+            if (currentlySubscribed) {
+                val key1 = normalizeChannelKey(channelId)
+                val key2 = normalizeChannelKey(secondaryChannelId)
+                val trimmedName = channelName.trim().lowercase()
+                val matches = db.channelDao().getAllOnce().filter { ch ->
+                    val storedKey = normalizeChannelKey(ch.channelId)
+                    (key1.isNotEmpty() && storedKey == key1) ||
+                        (key2.isNotEmpty() && storedKey == key2) ||
+                        (trimmedName.isNotBlank() && ch.name.trim().lowercase() == trimmedName)
+                }
+                if (matches.isEmpty()) {
+                    db.channelDao().deleteById(channelId)
+                } else {
+                    matches.forEach { db.channelDao().deleteById(it.channelId) }
+                }
+                false
+            } else {
+                val candidateAvatar = avatarUrl?.takeIf { !com.videhub.utils.AvatarHelper.isVideoThumbnail(it) }
+                val finalAvatar = candidateAvatar
+                    ?: com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(channelId)
+                    ?: ""
+                db.channelDao().insert(
+                    ChannelEntity(
+                        channelId = channelId,
+                        name = channelName,
+                        thumbnailUrl = finalAvatar
+                    )
+                )
+                true
+            }
+        }
+    }
 
     // Global state to check if we've already initialized
     var isAppInitialized = false

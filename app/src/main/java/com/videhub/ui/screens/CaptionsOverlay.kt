@@ -129,8 +129,8 @@ fun BoxScope.CaptionsOverlay(
                 }
             }
 
-            // ✅ Case 2: Only if no custom track is chosen and no custom captions exist, fall back to ExoPlayer cues
-            selectedTrack == null && activeCaptions.isNotEmpty() -> {
+            // ✅ Case 2: If no manually parsed captions exist yet, fall back to ExoPlayer text cues
+            activeCaptions.isNotEmpty() -> {
                 val captionText = activeCaptions
                     .mapNotNull { it?.toString() }
                     .map { com.videhub.audio.LyricsManager.cleanLyricsText(it) }

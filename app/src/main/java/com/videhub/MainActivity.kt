@@ -427,6 +427,7 @@ fun MainScreen() {
 
 
     LaunchedEffect(Unit) {
+        sharedViewModel.ensureSubscriptionsLoaded(context)
         sharedViewModel.getOrCreateMediaController(context)
         val player = com.videhub.service.MediaSessionManager.getOrCreatePlayer(context)
         mediaPlayer = player

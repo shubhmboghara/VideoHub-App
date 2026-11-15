@@ -72,4 +72,7 @@ interface PlaylistDao {
 
     @Query("DELETE FROM playlists WHERE id NOT IN (SELECT MIN(id) FROM playlists GROUP BY LOWER(TRIM(name)))")
     suspend fun deduplicatePlaylistsKeepOldest()
+
+    @Query("DELETE FROM playlists")
+    suspend fun clearAllPlaylists()
 }

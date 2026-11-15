@@ -24,4 +24,7 @@ interface LikedVideoDao {
 
     @Query("SELECT EXISTS(SELECT 1 FROM liked_videos WHERE videoId = :videoId)")
     suspend fun isLiked(videoId: String): Boolean
+
+    @Query("DELETE FROM liked_videos")
+    suspend fun clearAll()
 }
