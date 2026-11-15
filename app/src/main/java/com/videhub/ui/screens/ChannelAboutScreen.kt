@@ -262,6 +262,89 @@ fun ChannelAboutScreen(
                 }
             }
 
+            // ── Links (Social & External Links) ──────────────────────
+            val channelSocialLinks = remember(currentAbout?.socialLinks, nonNullInfo.url) {
+                val mainChannelClean = (nonNullInfo.url ?: "").removePrefix("https://").removePrefix("http://").removeSuffix("/")
+                (currentAbout?.socialLinks ?: emptyList()).filter { raw ->
+                    val clean = raw.removePrefix("https://").removePrefix("http://").removeSuffix("/")
+                    clean.isNotBlank() && !clean.equals(mainChannelClean, ignoreCase = true)
+                }.distinct()
+            }
+            if (channelSocialLinks.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        text = "Links",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                    channelSocialLinks.forEach { linkUrl ->
+                        val lowerUrl = linkUrl.lowercase()
+                        val displayLink = linkUrl.removePrefix("https://").removePrefix("http://").removePrefix("www.").removeSuffix("/")
+                        val platformLabel = when {
+                            lowerUrl.contains("instagram.com") -> "Instagram"
+                            lowerUrl.contains("twitter.com") || lowerUrl.contains("x.com") -> "X (Twitter)"
+                            lowerUrl.contains("github.com") -> "GitHub"
+                            lowerUrl.contains("linkedin.com") -> "LinkedIn"
+                            lowerUrl.contains("facebook.com") -> "Facebook"
+                            lowerUrl.contains("t.me") || lowerUrl.contains("telegram.") -> "Telegram"
+                            lowerUrl.contains("discord.gg") || lowerUrl.contains("discord.com") -> "Discord"
+                            else -> "Website"
+                        }
+                        val customDrawableRes = when {
+                            lowerUrl.contains("instagram.com") -> com.videhub.R.drawable.ic_instagram_logo
+                            lowerUrl.contains("twitter.com") || lowerUrl.contains("x.com") -> com.videhub.R.drawable.ic_x_logo
+                            lowerUrl.contains("github.com") -> com.videhub.R.drawable.ic_github_logo
+                            lowerUrl.contains("linkedin.com") -> com.videhub.R.drawable.ic_linkedin_logo
+                            else -> null
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { openUrlSafely(context, uriHandler, linkUrl) }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            if (customDrawableRes != null) {
+                                val needsTint = customDrawableRes == com.videhub.R.drawable.ic_x_logo ||
+                                    customDrawableRes == com.videhub.R.drawable.ic_github_logo
+                                androidx.compose.foundation.Image(
+                                    painter = androidx.compose.ui.res.painterResource(id = customDrawableRes),
+                                    contentDescription = platformLabel,
+                                    colorFilter = if (needsTint) {
+                                        androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.onSurface)
+                                    } else null,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Language,
+                                    contentDescription = platformLabel,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = platformLabel,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = displayLink,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // ── More info (Image 7) ──────────────────────────────────
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(
@@ -271,13 +354,15 @@ fun ChannelAboutScreen(
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
 
-                // Channel URL info row (YouTube style, non-external)
+                // Channel URL info row (YouTube style)
                 val channelUrl = nonNullInfo.url ?: ""
                 if (channelUrl.isNotBlank()) {
                     val displayUrl = channelUrl.removePrefix("https://").removePrefix("http://")
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { openUrlSafely(context, uriHandler, channelUrl) }
                     ) {
                         Icon(
                             imageVector = Icons.Default.Link,

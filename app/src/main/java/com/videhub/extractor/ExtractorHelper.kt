@@ -535,7 +535,29 @@ object ExtractorHelper {
                                 link = try { java.net.URLDecoder.decode(qMatch.groupValues[1], "UTF-8") } catch(e: Exception) { qMatch.groupValues[1] }
                             }
                         }
-                        socialLinks.add(link)
+                        val lower = link.lowercase()
+                        val isInternalFooter = lower.contains("policies.google.com") ||
+                            lower.contains("support.google.com") ||
+                            lower.contains("accounts.google.com") ||
+                            lower.contains("youtube.com/t/") ||
+                            lower.contains("youtube.com/howyoutubeworks") ||
+                            lower.contains("youtube.com/about")
+                        if (!isInternalFooter) {
+                            socialLinks.add(link)
+                        }
+                    }
+
+                    val channelLinkModelRegex = """"channelExternalLinkViewModel":\{.*?"link":\{"content":"([^"]+)"""".toRegex()
+                    channelLinkModelRegex.findAll(json).forEach { match ->
+                        val rawLink = match.groupValues[1].replace("\\u0026", "&").trim()
+                        if (rawLink.isNotBlank()) {
+                            val fullLink = if (rawLink.startsWith("http://") || rawLink.startsWith("https://")) {
+                                rawLink
+                            } else {
+                                "https://$rawLink"
+                            }
+                            socialLinks.add(fullLink)
+                        }
                     }
                     
                     result = ChannelAboutInfo(
