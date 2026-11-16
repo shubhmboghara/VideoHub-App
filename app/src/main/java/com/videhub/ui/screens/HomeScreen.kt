@@ -111,6 +111,7 @@ fun HomeScreen(
     val customTabsString by com.videhub.data.SettingsManager.getCustomTabs(context).collectAsStateWithLifecycle(initialValue = "Music,Gaming,News,Sports")
     val channels by db.channelDao().getAll().collectAsStateWithLifecycle(initialValue = emptyList())
     val channelMap = remember(channels) { channels.associateBy { it.channelId } }
+    val channelByNameMap = remember(channels) { channels.associateBy { it.name.trim().lowercase() } }
     val tabs = remember(customTabsString) {
         val list = mutableStateListOf("All")
         if (customTabsString.isNotEmpty()) {
@@ -304,7 +305,7 @@ fun HomeScreen(
             } catch (e: Exception) {
                 if (e !is kotlinx.coroutines.CancellationException) {
                     android.util.Log.e("HomeScreen", "Error loading tab", e)
-                    onError("Error: ${e.message}")
+                    onError(com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(e, "Could not load videos. Please try again."))
                 } else {
                     throw e
                 }
@@ -312,6 +313,15 @@ fun HomeScreen(
                 isLoading = false
                 isRefreshing = false
             }
+        }
+    }
+
+    LaunchedEffect(isOnline) {
+        if (isOnline && videos.isEmpty() && errorText != null && !isLoading) {
+            errorText = null
+            hasCompletedEmptyLoad = false
+            isLoading = true
+            retryTrigger++
         }
     }
 
@@ -367,7 +377,7 @@ fun HomeScreen(
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         if (sharedViewModel.homeVideosCacheMap[0].isNullOrEmpty()) {
                             android.util.Log.e("HomeScreen", "Error loading All tab", e)
-                            onError("Error: ${e.message}")
+                            onError(com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(e, "Could not load videos. Please try again."))
                         }
                     }
                 }
@@ -393,7 +403,7 @@ fun HomeScreen(
             throw e
         } catch (e: Exception) {
             android.util.Log.e("HomeScreen", "Error loading tab", e)
-            onError("Error: ${e.message}")
+            onError(com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(e, "Could not load videos. Please try again."))
         } finally {
             isLoading = false
         }
@@ -703,19 +713,17 @@ fun HomeScreen(
                     shimmerActive -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(5, key = { "home_shimmer_$it" }) { VideoCardShimmer() }
                     }
-                    hasError -> Column(
-                        modifier = Modifier.fillMaxWidth().padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(errorText ?: "Could not load content. Please try again.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(16.dp))
-                        Button(onClick = {
+                    hasError -> com.videhub.ui.components.NetworkErrorState(
+                        errorMessage = errorText,
+                        isOffline = !isOnline,
+                        onRetry = {
                             errorText = null
                             hasCompletedEmptyLoad = false
                             isLoading = true
                             retryTrigger++
-                        }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) { Text("Retry") }
-                    }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
                     videos.isEmpty() && hasCompletedEmptyLoad -> com.videhub.ui.components.EmptyState(
                         icon = Icons.Default.Home,
                         title = "No videos found",
@@ -770,6 +778,7 @@ fun HomeScreen(
                                 )
                             }
                             is com.videhub.data.entity.HistoryEntity -> {
+                                val matchedChannel = channelByNameMap[video.channelName.trim().lowercase()]
                                 VideoCard(
                                     title = video.title,
                                     channelName = video.channelName,
@@ -777,13 +786,15 @@ fun HomeScreen(
                                     url = video.videoId,
                                     duration = -1L,
                                     viewCount = video.viewCount,
-                                    channelAvatarUrl = null,
+                                    channelAvatarUrl = matchedChannel?.thumbnailUrl,
                                     uploadDate = video.uploadDate,
+                                    channelUrl = matchedChannel?.channelId ?: "",
                                     onClick = onVideoClick,
                                     onChannelClick = onChannelClick
                                 )
                             }
                             is com.videhub.data.entity.WatchLaterEntity -> {
+                                val matchedChannel = channelByNameMap[video.channelName.trim().lowercase()]
                                 VideoCard(
                                     title = video.title,
                                     channelName = video.channelName,
@@ -791,13 +802,15 @@ fun HomeScreen(
                                     url = video.videoId,
                                     duration = -1L,
                                     viewCount = -1L,
-                                    channelAvatarUrl = null,
+                                    channelAvatarUrl = matchedChannel?.thumbnailUrl,
                                     uploadDate = "",
+                                    channelUrl = matchedChannel?.channelId ?: "",
                                     onClick = onVideoClick,
                                     onChannelClick = onChannelClick
                                 )
                             }
                             is com.videhub.data.entity.LikedVideoEntity -> {
+                                val matchedChannel = channelByNameMap[video.channelName.trim().lowercase()]
                                 VideoCard(
                                     title = video.title,
                                     channelName = video.channelName,
@@ -805,13 +818,15 @@ fun HomeScreen(
                                     url = video.videoId,
                                     duration = -1L,
                                     viewCount = video.viewCount,
-                                    channelAvatarUrl = null,
+                                    channelAvatarUrl = matchedChannel?.thumbnailUrl,
                                     uploadDate = video.uploadDate,
+                                    channelUrl = matchedChannel?.channelId ?: "",
                                     onClick = onVideoClick,
                                     onChannelClick = onChannelClick
                                 )
                             }
                             is com.videhub.data.entity.DownloadedVideoEntity -> {
+                                val matchedChannel = channelByNameMap[video.channelName.trim().lowercase()]
                                 VideoCard(
                                     title = video.title,
                                     channelName = video.channelName,
@@ -819,8 +834,9 @@ fun HomeScreen(
                                     url = video.videoId,
                                     duration = -1L,
                                     viewCount = video.viewCount,
-                                    channelAvatarUrl = null,
+                                    channelAvatarUrl = matchedChannel?.thumbnailUrl,
                                     uploadDate = video.uploadDate,
+                                    channelUrl = matchedChannel?.channelId ?: "",
                                     onClick = { _: String, _: String, _: String ->
                                         val localUri = android.net.Uri.fromFile(java.io.File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), video.fileName)).toString()
                                         onVideoClick(localUri, video.title, video.thumbnailUrl)
@@ -829,6 +845,7 @@ fun HomeScreen(
                                 )
                             }
                             is com.videhub.data.entity.PlaylistVideoEntity -> {
+                                val matchedChannel = channelByNameMap[video.channelName.trim().lowercase()]
                                 VideoCard(
                                     title = video.title,
                                     channelName = video.channelName,
@@ -836,8 +853,9 @@ fun HomeScreen(
                                     url = video.videoId,
                                     duration = -1L,
                                     viewCount = video.viewCount,
-                                    channelAvatarUrl = null,
+                                    channelAvatarUrl = matchedChannel?.thumbnailUrl,
                                     uploadDate = video.uploadDate,
+                                    channelUrl = matchedChannel?.channelId ?: "",
                                     onClick = onVideoClick,
                                     onChannelClick = onChannelClick,
                                     modifier = Modifier.animateItem()

@@ -86,7 +86,10 @@ fun ChannelAboutScreen(
                 sharedViewModel.currentChannelId = effectiveChannelId
             } catch (e: Exception) {
                 if (info == null) {
-                    errorMessage = e.message ?: "Failed to load channel info"
+                    errorMessage = com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(
+                        throwable = e,
+                        fallback = "Could not load channel info. Please try again."
+                    )
                 }
             } finally {
                 isLoading = false
@@ -186,23 +189,11 @@ fun ChannelAboutScreen(
                         .verticalScroll(rememberScrollState()),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp)
-                    ) {
-                        Text(
-                            text = errorMessage ?: "Channel info not available.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                        if (!effectiveChannelId.isNullOrBlank()) {
-                            Spacer(Modifier.height(12.dp))
-                            Button(onClick = { retryTrigger++ }) {
-                                Text("Retry")
-                            }
-                        }
-                    }
+                    com.videhub.ui.components.NetworkErrorState(
+                        errorMessage = errorMessage ?: "Channel info not available.",
+                        isOffline = !com.videhub.utils.NetworkUtils.isNetworkAvailable(context),
+                        onRetry = if (!effectiveChannelId.isNullOrBlank()) ({ retryTrigger++ }) else null
+                    )
                 }
             } else {
                 val nonNullInfo = info!!

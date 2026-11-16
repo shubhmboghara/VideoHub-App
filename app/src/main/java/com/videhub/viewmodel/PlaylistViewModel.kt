@@ -75,7 +75,12 @@ class PlaylistViewModel : ViewModel() {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     isRefreshing = false,
-                    error = if (_uiState.value.playlistInfo == null) (e.message ?: "Failed to load playlist") else null
+                    error = if (_uiState.value.playlistInfo == null) {
+                        com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(
+                            throwable = e,
+                            fallback = "Could not load playlist. Please try again."
+                        )
+                    } else null
                 )
             }
         }

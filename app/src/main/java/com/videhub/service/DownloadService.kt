@@ -429,12 +429,13 @@ class DownloadService : Service() {
                 Log.e("DownloadService", "Error during download", e)
                 finalFile?.let { if (it.exists()) it.delete() }
                 val actualVideoId = if (videoId.isNotEmpty()) videoId else finalFileName
+                val friendlyError = com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(e, "Download failed")
                 try {
                     val db = com.videhub.data.AppDatabase.getDatabase(this@DownloadService)
                     db.downloadedVideoDao().updateVideoState(
                         videoId = actualVideoId,
                         state = "FAILED",
-                        errorMessage = e.message ?: "Download failed"
+                        errorMessage = friendlyError
                     )
                     if (playlistId != null) {
                         val plVideos = db.downloadedVideoDao().getPlaylistVideosSync(playlistId)
@@ -448,8 +449,7 @@ class DownloadService : Service() {
                         }
                     }
                 } catch (ex: Exception) {}
-                val msg = e.message ?: "Download failed: $safeTitle"
-                showError(currentNotificationId, msg, playlistId)
+                showError(currentNotificationId, friendlyError, playlistId)
             } finally {
                 downloadJobs.remove(currentNotificationId)
                 jobPlaylistMap.remove(currentNotificationId)

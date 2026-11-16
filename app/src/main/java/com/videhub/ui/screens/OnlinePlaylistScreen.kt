@@ -112,18 +112,12 @@ fun OnlinePlaylistScreen(
             if (uiState.isLoading && playlistItems.isEmpty()) {
                 com.videhub.ui.components.OnlinePlaylistShimmer()
             } else if (uiState.error != null && playlistItems.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp)
-                    ) {
-                        Text("Error: ${uiState.error}", color = MaterialTheme.colorScheme.error)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(onClick = { viewModel.loadOnlinePlaylist(context, playlistUrl, isRefresh = true) }) {
-                            Text("Retry")
-                        }
-                    }
-                }
+                com.videhub.ui.components.NetworkErrorState(
+                    errorMessage = uiState.error,
+                    isOffline = !com.videhub.utils.NetworkUtils.isNetworkAvailable(context),
+                    onRetry = { viewModel.loadOnlinePlaylist(context, playlistUrl, isRefresh = true) },
+                    modifier = Modifier.fillMaxSize()
+                )
             } else if (playlistItems.isEmpty()) {
                 com.videhub.ui.components.EmptyState(
                     icon = Icons.AutoMirrored.Filled.PlaylistPlay,

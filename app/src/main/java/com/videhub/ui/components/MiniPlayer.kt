@@ -840,7 +840,7 @@ fun MiniPlayerCardChrome(
         val badgeSize = (30.dp * sizeFactor).coerceIn(24.dp, 38.dp)
         val iconSize = (18.dp * sizeFactor).coerceIn(14.dp, 22.dp)
         val cornerPad = (6.dp * sizeFactor).coerceIn(4.dp, 10.dp)
-        val touchTargetSize = (42.dp * sizeFactor).coerceIn(34.dp, 52.dp)
+        val touchTargetSize = (46.dp * sizeFactor).coerceIn(40.dp, 54.dp)
 
         if (!isLoadingNext) {
             Box(

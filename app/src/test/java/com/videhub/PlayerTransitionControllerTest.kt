@@ -312,6 +312,20 @@ class PlayerTransitionControllerTest {
     }
 
     @Test
+    fun `expanding from settled miniplayer to watch page animates cleanly to 0f`() = runTest {
+        val clock = DeterministicFrameClock()
+        val scope = CoroutineScope(coroutineContext + clock + Job())
+        val controller = PlayerTransitionController(scope = scope, initialCollapse = 1f)
+
+        val expandJob = scope.launch { controller.syncCollapseTarget(isMiniplayer = false) }
+        advanceUntilIdle()
+        expandJob.join()
+
+        assertFalse(controller.isDraggingCollapse)
+        assertEquals(0f, controller.currentCollapseProgress, 0.001f)
+    }
+
+    @Test
     fun `landscape fullscreen downward exit drag shrinks player cleanly inside container`() {
         val landscapeBounds = PlayerGeometryBounds(
             watchX = 0f,

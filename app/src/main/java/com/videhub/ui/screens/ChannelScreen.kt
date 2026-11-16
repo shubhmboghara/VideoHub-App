@@ -212,6 +212,8 @@ fun ChannelScreen(
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
     val scope = rememberCoroutineScope()
+    val isOnline by remember { com.videhub.utils.NetworkUtils.getNetworkStatusFlow(context) }
+        .collectAsState(initial = com.videhub.utils.NetworkUtils.isNetworkAvailable(context))
 
     LaunchedEffect(Unit) {
         sharedViewModel.ensureSubscriptionsLoaded(context)
@@ -308,6 +310,21 @@ fun ChannelScreen(
     }
     var hasVerifiedLiveStatus by remember { mutableStateOf(false) }
 
+    LaunchedEffect(isOnline) {
+        if (isOnline && channelInfo == null && headerError != null && !isHeaderLoading) {
+            headerError = null
+            videoListError = null
+            liveError = null
+            playlistsError = null
+            isHeaderLoading = true
+            isVideoListLoading = true
+            isLiveLoading = true
+            headerRetryTrigger++
+            videoRetryTrigger++
+            liveRetryTrigger++
+        }
+    }
+
     LaunchedEffect(channelId, headerRetryTrigger) {
         val actualUrl = when {
             channelId.startsWith("http") -> channelId
@@ -383,10 +400,14 @@ fun ChannelScreen(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            headerError = e.message ?: "Failed to load channel"
-            videoListError = "Cannot load videos" // Cannot load videos without channel info
-            liveError = "Cannot load live streams"
-            playlistsError = "Cannot load playlists"
+            val friendlyMsg = com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(
+                throwable = e,
+                fallback = "Could not load channel. Please try again."
+            )
+            headerError = friendlyMsg
+            videoListError = friendlyMsg
+            liveError = friendlyMsg
+            playlistsError = friendlyMsg
             isVideoListLoading = false
             isLiveLoading = false
             isPlaylistsLoading = false
@@ -427,7 +448,10 @@ fun ChannelScreen(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            videoListError = e.message ?: "Failed to load videos"
+            videoListError = com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(
+                throwable = e,
+                fallback = "Could not load videos. Please try again."
+            )
         } finally {
             isVideoListLoading = false
             isRefreshing = false
@@ -463,7 +487,10 @@ fun ChannelScreen(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                liveError = e.message ?: "Failed to load live streams"
+                liveError = com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(
+                    throwable = e,
+                    fallback = "Could not load live streams. Please try again."
+                )
             } finally {
                 isLiveLoading = false
             }
@@ -489,7 +516,10 @@ fun ChannelScreen(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                playlistsError = e.message ?: "Failed to load playlists"
+                playlistsError = com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(
+                    throwable = e,
+                    fallback = "Could not load playlists. Please try again."
+                )
             } finally {
                 isPlaylistsLoading = false
             }
@@ -641,27 +671,27 @@ fun ChannelScreen(
                     if (headerLoading) {
                         ChannelHeaderShimmer()
                     } else if (hasHeaderError) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = headerError ?: "Failed to load channel info",
-                                color = MaterialTheme.colorScheme.error
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Button(onClick = {
+                        com.videhub.ui.components.NetworkErrorState(
+                            errorMessage = headerError,
+                            isOffline = !isOnline,
+                            onRetry = {
+                                headerError = null
+                                videoListError = null
+                                liveError = null
+                                playlistsError = null
+                                isHeaderLoading = true
+                                isVideoListLoading = true
+                                isLiveLoading = true
                                 headerRetryTrigger++
-                            }) {
-                                Text("Retry")
-                            }
-                        }
+                                videoRetryTrigger++
+                                liveRetryTrigger++
+                            },
+                            modifier = Modifier.fillParentMaxSize()
+                        )
                     } else if (channelInfo != null) {
                         val info = channelInfo!!
                         val bannerUrl = try { info.banners.firstOrNull()?.url } catch (e: Exception) { null }
-                        val avatarUrl = try { info.avatars.firstOrNull()?.url } catch (e: Exception) { null }
+                        val avatarUrl = try { com.videhub.utils.AvatarHelper.getBestAvatarUrl(info.avatars) } catch (e: Exception) { null }
                         val subText = com.videhub.utils.FormatHelper.formatSubscriberCount(info.subscriberCount)
                         val streamCount = try {
                             info.javaClass.getMethod("getStreamCount").invoke(info) as? Long
@@ -703,6 +733,7 @@ fun ChannelScreen(
                             descriptionSummary = descriptionSummary,
                             isSubscribed = isSubscribed,
                             hasLiveStream = isChannelCurrentlyLive,
+                            channelUrl = info.url.ifBlank { actualChannelUrl },
                             onAvatarClick = {
                                 topLiveStream?.let { liveItem ->
                                     val liveUrl = liveItem.url ?: ""
@@ -742,11 +773,13 @@ fun ChannelScreen(
                 }
 
                 // Sticky tabs: Pin Home, Videos, Live, Playlists tabs under the top bar while scrolling
-                stickyHeader {
-                    ChannelTabsSection(
-                        selectedTab = selectedTab,
-                        onTabSelected = { selectedTab = it }
-                    )
+                if (!hasHeaderError) {
+                    stickyHeader {
+                        ChannelTabsSection(
+                            selectedTab = selectedTab,
+                            onTabSelected = { selectedTab = it }
+                        )
+                    }
                 }
 
                 // Tab 0: Home Tab (Featured Live Stream + For You carousel + Videos section)
@@ -757,7 +790,7 @@ fun ChannelScreen(
                             val liveUrl = liveStream.url ?: ""
                             val liveTitle = liveStream.name ?: ""
                             val liveThumb = liveStream.thumbnails?.firstOrNull()?.url ?: ""
-                            val avatarUrl = try { channelInfo?.avatars?.firstOrNull()?.url } catch (e: Exception) { null }
+                            val avatarUrl = try { com.videhub.utils.AvatarHelper.getBestAvatarUrl(channelInfo?.avatars) } catch (e: Exception) { null }
 
                             com.videhub.ui.components.VideoCard(
                                 title = liveTitle,
@@ -876,7 +909,10 @@ fun ChannelScreen(
                                 viewCount = video.viewCount,
                                 uploadDate = video.textualUploadDate ?: "",
                                 uploaderUrl = video.uploaderUrl,
-                                uploaderAvatarUrl = try { video.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null },
+                                uploaderAvatarUrl = try {
+                                    com.videhub.utils.AvatarHelper.getBestAvatarUrl(video.uploaderAvatars)
+                                        ?: com.videhub.utils.AvatarHelper.getBestAvatarUrl(channelInfo?.avatars)
+                                } catch (e: Exception) { null },
                                 onChannelClick = {},
                                 onClick = {
                                     val url = video.url ?: ""
@@ -896,38 +932,19 @@ fun ChannelScreen(
                         items(6, key = { "channel_videos_shimmer_$it" }) {
                             com.videhub.ui.components.VideoRowShimmer()
                         }
-                    } else if (videoListError != null) {
+                    } else if (videoListError != null && !hasHeaderError) {
                         item {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                if (channelInfo == null && headerError != null) {
-                                    Text(
-                                        text = "Cannot load videos until channel loads",
-                                        color = MaterialTheme.colorScheme.error
-                                    )
-                                    Spacer(Modifier.height(8.dp))
-                                    Button(onClick = {
+                            com.videhub.ui.components.NetworkErrorState(
+                                errorMessage = videoListError,
+                                isOffline = !isOnline,
+                                onRetry = {
+                                    if (channelInfo == null) {
                                         headerRetryTrigger++
-                                    }) {
-                                        Text("Retry")
-                                    }
-                                } else {
-                                    Text(
-                                        text = videoListError ?: "Failed to load videos",
-                                        color = MaterialTheme.colorScheme.error
-                                    )
-                                    Spacer(Modifier.height(8.dp))
-                                    Button(onClick = {
+                                    } else {
                                         videoRetryTrigger++
-                                    }) {
-                                        Text("Retry")
                                     }
                                 }
-                            }
+                            )
                         }
                     } else if (!headerLoading && !hasHeaderError) {
                         if (hasVideosLoaded && channelVideos.isEmpty()) {
@@ -960,7 +977,10 @@ fun ChannelScreen(
                                     viewCount = video.viewCount,
                                     uploadDate = video.textualUploadDate ?: "",
                                     uploaderUrl = video.uploaderUrl,
-                                    uploaderAvatarUrl = try { video.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null },
+                                    uploaderAvatarUrl = try {
+                                        com.videhub.utils.AvatarHelper.getBestAvatarUrl(video.uploaderAvatars)
+                                            ?: com.videhub.utils.AvatarHelper.getBestAvatarUrl(channelInfo?.avatars)
+                                    } catch (e: Exception) { null },
                                     onChannelClick = {},
                                     onClick = {
                                         val url = video.url ?: ""
@@ -992,27 +1012,15 @@ fun ChannelScreen(
                         items(5, key = { "channel_live_shimmer_$it" }) {
                             com.videhub.ui.components.VideoRowShimmer()
                         }
-                    } else if (liveError != null) {
+                    } else if (liveError != null && !hasHeaderError) {
                         item {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = liveError ?: "Failed to load live streams",
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                Button(onClick = {
-                                    liveRetryTrigger++
-                                }) {
-                                    Text("Retry")
-                                }
-                            }
+                            com.videhub.ui.components.NetworkErrorState(
+                                errorMessage = liveError,
+                                isOffline = !isOnline,
+                                onRetry = { liveRetryTrigger++ }
+                            )
                         }
-                    } else if (hasLiveLoaded && channelLiveStreams.isEmpty()) {
+                    } else if (!hasHeaderError && hasLiveLoaded && channelLiveStreams.isEmpty()) {
                         item {
                             com.videhub.ui.components.EmptyState(
                                 icon = Icons.Default.Sensors,
@@ -1046,27 +1054,15 @@ fun ChannelScreen(
                         items(5, key = { "channel_playlists_shimmer_$it" }) {
                             com.videhub.ui.components.CompactPlaylistRowShimmer()
                         }
-                    } else if (playlistsError != null) {
+                    } else if (playlistsError != null && !hasHeaderError) {
                         item {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = playlistsError ?: "Failed to load playlists",
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                Button(onClick = {
-                                    playlistRetryTrigger++
-                                }) {
-                                    Text("Retry")
-                                }
-                            }
+                            com.videhub.ui.components.NetworkErrorState(
+                                errorMessage = playlistsError,
+                                isOffline = !isOnline,
+                                onRetry = { playlistRetryTrigger++ }
+                            )
                         }
-                    } else if (hasPlaylistsLoaded && channelPlaylists.isEmpty()) {
+                    } else if (!hasHeaderError && hasPlaylistsLoaded && channelPlaylists.isEmpty()) {
                         item {
                             com.videhub.ui.components.EmptyState(
                                 icon = Icons.AutoMirrored.Filled.PlaylistPlay,
@@ -1351,6 +1347,7 @@ fun ChannelHeaderSection(
     descriptionSummary: String,
     isSubscribed: Boolean,
     hasLiveStream: Boolean = false,
+    channelUrl: String? = null,
     onAvatarClick: () -> Unit = {},
     onSubscribeClick: () -> Unit,
     onAboutClick: () -> Unit,
@@ -1395,6 +1392,7 @@ fun ChannelHeaderSection(
                 channelName = name,
                 isLive = hasLiveStream,
                 size = 78.dp,
+                channelUrl = channelUrl,
                 onClick = onAvatarClick
             )
 

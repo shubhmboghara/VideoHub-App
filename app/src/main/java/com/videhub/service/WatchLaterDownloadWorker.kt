@@ -272,7 +272,7 @@ class WatchLaterDownloadWorker(
                 playlistDao.updatePlaylistStateAndError(
                     playlistId = WatchLaterSyncManager.WATCH_LATER_ID,
                     state = "FAILED",
-                    errorMessage = e.localizedMessage ?: "Download failed"
+                    errorMessage = com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(e, "Download failed")
                 )
                 Result.failure()
             }
@@ -561,7 +561,7 @@ class WatchLaterDownloadWorker(
             videoDao.updateVideoStateWithHeartbeat(
                 videoId = video.videoId,
                 state = "FAILED",
-                errorMessage = e.localizedMessage ?: "Failed",
+                errorMessage = com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(e, "Download failed"),
                 lastUpdatedAt = System.currentTimeMillis()
             )
             false

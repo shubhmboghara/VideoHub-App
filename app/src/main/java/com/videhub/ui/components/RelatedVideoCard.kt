@@ -32,6 +32,7 @@ fun RelatedVideoCard(
     viewCount: Long = -1,
     uploadDate: String = "",
     uploaderAvatarUrl: String? = null,
+    uploaderUrl: String? = null,
     onClick: () -> Unit,
     onMoreClick: () -> Unit,
     onChannelClick: (() -> Unit)? = null,
@@ -89,42 +90,14 @@ fun RelatedVideoCard(
             verticalAlignment = Alignment.Top
         ) {
             // Channel Avatar
-            Box(
+            ChannelAvatarImage(
+                avatarUrl = uploaderAvatarUrl,
+                channelName = uploaderName,
+                channelUrl = uploaderUrl,
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable(enabled = onChannelClick != null) { onChannelClick?.invoke() },
-                contentAlignment = Alignment.Center
-            ) {
-                if (!uploaderAvatarUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = uploaderAvatarUrl,
-                        contentDescription = uploaderName,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape)
-                    )
-                } else {
-                    val initial = uploaderName.trim().firstOrNull()?.uppercaseChar()?.toString()
-                    if (!initial.isNullOrBlank()) {
-                        Text(
-                            text = initial,
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-            }
+                    .clickable(enabled = onChannelClick != null) { onChannelClick?.invoke() }
+            )
 
             Spacer(modifier = Modifier.width(12.dp))
 

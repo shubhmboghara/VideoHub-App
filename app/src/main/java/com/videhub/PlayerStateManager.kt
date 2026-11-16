@@ -482,6 +482,54 @@ object PlayerStateManager {
         return velocityY >= 650f || (collapseFraction >= 0.30f && velocityY > -350f)
     }
 
+    /**
+     * YouTube-style floating miniplayer downward dismiss decision:
+     * - Rejects multi-finger pinch gestures.
+     * - Dismisses when pulled below resting bottom edge into dismiss zone (unless flung back up).
+     * - Dismisses when starting near the bottom resting zone and swiped/flicked downward.
+     * - Dismisses on a fast downward throw in the lower region of the screen.
+     * - Allows moving slowly from top corners down to the bottom resting spot without accidental close.
+     */
+    fun shouldDismissMiniplayerOnDragEnd(
+        endY: Float,
+        dragStartY: Float,
+        maxY: Float,
+        pipHeightPx: Float,
+        dragDeltaX: Float,
+        dragDeltaY: Float,
+        velocityX: Float,
+        velocityY: Float,
+        dismissPullThresholdPx: Float,
+        nearBottomSlopPx: Float,
+        minFlingTravelPx: Float,
+        wasPinch: Boolean = false
+    ): Boolean {
+        if (wasPinch) return false
+
+        val safeThreshold = dismissPullThresholdPx.coerceAtLeast(16f)
+        if (endY >= maxY + safeThreshold && velocityY > -350f) {
+            return true
+        }
+
+        val startedNearBottom = dragStartY >= (maxY - nearBottomSlopPx)
+        if (startedNearBottom &&
+            dragDeltaY >= minFlingTravelPx &&
+            velocityY >= 450f &&
+            velocityY > kotlin.math.abs(velocityX) * 0.65f
+        ) {
+            return true
+        }
+
+        if (velocityY >= 1050f &&
+            endY >= maxY * 0.65f &&
+            velocityY > kotlin.math.abs(velocityX)
+        ) {
+            return true
+        }
+
+        return false
+    }
+
     fun close() {
         machine.close()
         MiniPlayerState.hide()

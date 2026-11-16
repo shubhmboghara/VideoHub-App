@@ -390,7 +390,10 @@ fun ExploreScreen(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                errorText = "Search failed: ${e.localizedMessage ?: "Unknown error"}"
+                errorText = com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(
+                    throwable = e,
+                    fallback = "Could not complete search. Please try again."
+                )
             } finally {
                 isSearching = false
                 isRefreshing = false
@@ -671,43 +674,12 @@ fun ExploreScreen(
 
                 // Error State
                 errorText != null -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ErrorOutline,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(56.dp)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "Search Encountered an Issue",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = errorText ?: "Failed to fetch search results.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                        Spacer(modifier = Modifier.height(20.dp))
-                        Button(
-                            onClick = { doSearch() },
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Retry Search")
-                        }
-                    }
+                    com.videhub.ui.components.NetworkErrorState(
+                        errorMessage = errorText,
+                        isOffline = !com.videhub.utils.NetworkUtils.isNetworkAvailable(context),
+                        onRetry = { doSearch() },
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
 
                 // Live Suggestions & Search History Overlay
@@ -1242,7 +1214,8 @@ private fun ChannelResultItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            val avatar = channel.thumbnails?.firstOrNull()?.url
+            val avatar = com.videhub.utils.AvatarHelper.getBestAvatarUrl(channel.thumbnails)
+                ?: channel.thumbnails?.firstOrNull()?.url
             val liveKeys by com.videhub.utils.ChannelLiveStatusManager.liveChannelKeys.collectAsState()
             val isChannelBroadcastingLive = remember(liveKeys, channelId, channel.name) {
                 com.videhub.utils.ChannelLiveStatusManager.isChannelLive(channelId, channel.name)
@@ -1255,9 +1228,10 @@ private fun ChannelResultItem(
 
             com.videhub.ui.components.LiveAvatar(
                 avatarUrl = avatar,
-                channelName = channel.name ?: "?",
+                channelName = channel.name ?: "Channel",
                 isLive = isChannelBroadcastingLive,
                 size = 64.dp,
+                channelUrl = channelId,
                 onClick = {
                     val topLive = com.videhub.utils.ChannelLiveStatusManager.getTopLiveStream(channelId, channel.name)
                     if (isChannelBroadcastingLive && topLive != null && topLive.videoUrl.isNotBlank() && onVideoClick != null) {

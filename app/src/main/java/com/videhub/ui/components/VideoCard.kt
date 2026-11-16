@@ -105,6 +105,8 @@ fun LiveAvatar(
     channelName: String,
     isLive: Boolean,
     size: Dp = 38.dp,
+    channelUrl: String? = null,
+    isLoading: Boolean = false,
     onClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -156,22 +158,13 @@ fun LiveAvatar(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
-            if (!avatarUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = avatarUrl,
-                    contentDescription = "$channelName avatar",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Text(
-                    text = channelName.firstOrNull()?.uppercase() ?: "?",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = if (isLarge) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-            }
+            ChannelAvatarImage(
+                avatarUrl = avatarUrl,
+                channelName = channelName,
+                channelUrl = channelUrl,
+                isLoading = isLoading,
+                modifier = Modifier.fillMaxSize()
+            )
         }
 
         // Integrated "LIVE" Pill Overlay aligned at the bottom edge inside avatar container
@@ -345,7 +338,7 @@ fun VideoCard(
         url = url,
         duration = duration,
         viewCount = views,
-        channelAvatarUrl = channelAvatarUrl ?: try { item.uploaderAvatars?.firstOrNull()?.url } catch (e: Exception) { null },
+        channelAvatarUrl = channelAvatarUrl ?: try { com.videhub.utils.AvatarHelper.getBestAvatarUrl(item.uploaderAvatars) } catch (e: Exception) { null },
         uploadDate = (item as? StreamInfoItem)?.uploadDate?.toString() ?: item.textualUploadDate ?: "unknown",
         channelUrl = channelUrl,
         isLive = isLive,
@@ -511,6 +504,7 @@ fun VideoCard(
                 channelName = channel,
                 isLive = isAvatarLive,
                 size = 38.dp,
+                channelUrl = channelUrl,
                 onClick = {
                     if (isAvatarLive) {
                         // Check if registered top live stream exists
@@ -787,7 +781,7 @@ fun VideoRowItem(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (uploaderAvatarUrl != null) {
+                if (uploaderAvatarUrl != null || !uploaderUrl.isNullOrBlank()) {
                     val liveKeys by com.videhub.utils.ChannelLiveStatusManager.liveChannelKeys.collectAsState()
                     val isChannelBroadcastingLive = remember(liveKeys, uploaderUrl, uploaderName) {
                         com.videhub.utils.ChannelLiveStatusManager.isChannelLive(uploaderUrl, uploaderName)
@@ -804,6 +798,7 @@ fun VideoRowItem(
                         channelName = uploaderName,
                         isLive = isChannelBroadcastingLive,
                         size = 26.dp,
+                        channelUrl = uploaderUrl,
                         onClick = {
                             if (isChannelBroadcastingLive) {
                                 val topLive = com.videhub.utils.ChannelLiveStatusManager.getTopLiveStream(uploaderUrl, uploaderName)

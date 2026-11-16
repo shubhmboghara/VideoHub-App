@@ -55,6 +55,7 @@ fun BelowPlayerContent(
     sharedViewModel: MainViewModel,
     isMusicMode: Boolean,
     isRelatedLoading: Boolean = false,
+    onRetryStream: (() -> Unit)? = null,
     nestedScrollConnection: NestedScrollConnection? = null,
     modifier: Modifier = Modifier
 ) {
@@ -81,6 +82,15 @@ fun BelowPlayerContent(
         if (isInitialStreamLoading) {
             item(key = "player_metadata_shimmer") {
                 com.videhub.ui.components.PlayerMetadataShimmer()
+            }
+        } else if (errorMessage != null && streamInfo == null && !isLocalFile && !isOfflineFallback) {
+            item(key = "player_stream_error") {
+                com.videhub.ui.components.NetworkErrorState(
+                    errorMessage = errorMessage,
+                    isOffline = !com.videhub.utils.NetworkUtils.isNetworkAvailable(context),
+                    onRetry = onRetryStream,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         } else {
             item(key = "player_metadata") {

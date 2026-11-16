@@ -182,6 +182,105 @@ class PlayerGestureAndStateRobolectricTest {
     }
 
     @Test
+    fun `miniplayer downward dismiss gesture matches YouTube behavior without false closes`() {
+        val maxY = 1780f
+        val pipHeight = 304f
+        val pullThreshold = 90f
+        val nearBottomSlop = 220f
+        val minFlingTravel = 36f
+
+        // 1. Pull below resting bottom line (even with slight diagonal X drift) -> dismiss
+        assertTrue(
+            PlayerStateManager.shouldDismissMiniplayerOnDragEnd(
+                endY = maxY + 110f,
+                dragStartY = maxY,
+                maxY = maxY,
+                pipHeightPx = pipHeight,
+                dragDeltaX = 75f,
+                dragDeltaY = 110f,
+                velocityX = 120f,
+                velocityY = 200f,
+                dismissPullThresholdPx = pullThreshold,
+                nearBottomSlopPx = nearBottomSlop,
+                minFlingTravelPx = minFlingTravel,
+                wasPinch = false
+            )
+        )
+
+        // 2. Pull down past threshold but fling strongly back up -> cancel dismiss
+        assertFalse(
+            PlayerStateManager.shouldDismissMiniplayerOnDragEnd(
+                endY = maxY + 100f,
+                dragStartY = maxY,
+                maxY = maxY,
+                pipHeightPx = pipHeight,
+                dragDeltaX = 10f,
+                dragDeltaY = 60f,
+                velocityX = 0f,
+                velocityY = -500f,
+                dismissPullThresholdPx = pullThreshold,
+                nearBottomSlopPx = nearBottomSlop,
+                minFlingTravelPx = minFlingTravel,
+                wasPinch = false
+            )
+        )
+
+        // 3. Natural downward thumb flick starting near bottom -> dismiss even before deep pull
+        assertTrue(
+            PlayerStateManager.shouldDismissMiniplayerOnDragEnd(
+                endY = maxY + 42f,
+                dragStartY = maxY,
+                maxY = maxY,
+                pipHeightPx = pipHeight,
+                dragDeltaX = 24f,
+                dragDeltaY = 42f,
+                velocityX = 180f,
+                velocityY = 620f,
+                dismissPullThresholdPx = pullThreshold,
+                nearBottomSlopPx = nearBottomSlop,
+                minFlingTravelPx = minFlingTravel,
+                wasPinch = false
+            )
+        )
+
+        // 4. Slow reposition from top corner down to bottom resting corner -> do NOT accidentally dismiss
+        assertFalse(
+            PlayerStateManager.shouldDismissMiniplayerOnDragEnd(
+                endY = maxY,
+                dragStartY = 120f,
+                maxY = maxY,
+                pipHeightPx = pipHeight,
+                dragDeltaX = 40f,
+                dragDeltaY = 1660f,
+                velocityX = 40f,
+                velocityY = 300f,
+                dismissPullThresholdPx = pullThreshold,
+                nearBottomSlopPx = nearBottomSlop,
+                minFlingTravelPx = minFlingTravel,
+                wasPinch = false
+            )
+        )
+
+        // 5. Two-finger pinch near bottom -> never dismiss
+        assertFalse(
+            PlayerStateManager.shouldDismissMiniplayerOnDragEnd(
+                endY = maxY + 140f,
+                dragStartY = maxY,
+                maxY = maxY,
+                pipHeightPx = pipHeight,
+                dragDeltaX = 0f,
+                dragDeltaY = 140f,
+                velocityX = 0f,
+                velocityY = 700f,
+                dismissPullThresholdPx = pullThreshold,
+                nearBottomSlopPx = nearBottomSlop,
+                minFlingTravelPx = minFlingTravel,
+                wasPinch = true
+            )
+        )
+    }
+
+    @Test
     fun `close clears active media and sets CLOSED state`() {
         PlayerStateManager.openVideo("https://www.youtube.com/watch?v=cls", "Close Test", "thumb")
         PlayerStateManager.collapseToMiniplayer()

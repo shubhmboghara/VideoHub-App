@@ -109,7 +109,13 @@ class DownloadViewModel : ViewModel() {
                 activeDownloadUrls.remove(downloadKey)
             } catch (e: Exception) {
                 activeDownloadUrls.remove(videoUrl)
-                showToast(context, "Could not prepare download: ${e.message}")
+                showToast(
+                    context,
+                    com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(
+                        throwable = e,
+                        fallback = "Could not prepare download. Please try again."
+                    )
+                )
             }
         }
     }

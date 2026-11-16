@@ -132,7 +132,11 @@ fun PlaylistsScreen(
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     isGeneratingMix = false
-                    Toast.makeText(context, "Failed to generate mix: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(e, "Could not generate mix. Please try again."),
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             }
         }
@@ -436,7 +440,11 @@ fun PlaylistsScreen(
                             } catch (e: Exception) {
                                 withContext(Dispatchers.Main) {
                                     isImporting = false
-                                    Toast.makeText(context, "Error importing playlist: ${e.message}", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(
+                                        context,
+                                        com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(e, "Could not import playlist. Please try again."),
+                                        Toast.LENGTH_LONG
+                                    ).show()
                                 }
                             }
                         }

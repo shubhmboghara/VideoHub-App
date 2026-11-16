@@ -251,6 +251,8 @@ class PlayerTransitionController(
         if (collapseAnimatable.isRunning && abs(collapseAnimatable.targetValue - target) < 0.01f) {
             return
         }
+        collapseJob?.cancel()
+        collapseJob = null
         if (abs(collapseAnimatable.value - target) > 0.001f) {
             collapseAnimatable.animateTo(
                 targetValue = target,
@@ -268,6 +270,8 @@ class PlayerTransitionController(
         if (fullscreenAnimatable.isRunning && abs(fullscreenAnimatable.targetValue - target) < 0.01f) {
             return
         }
+        fullscreenJob?.cancel()
+        fullscreenJob = null
         if (abs(fullscreenAnimatable.value - target) > 0.001f) {
             fullscreenAnimatable.animateTo(
                 targetValue = target,

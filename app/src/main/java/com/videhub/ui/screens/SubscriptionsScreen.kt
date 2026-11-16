@@ -1,7 +1,6 @@
 package com.videhub.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,7 +10,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,15 +25,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.videhub.data.AppDatabase
 import com.videhub.data.entity.ChannelEntity
 import com.videhub.extractor.ExtractorHelper
+import com.videhub.ui.components.NetworkErrorState
 import com.videhub.ui.components.VideoCard
 import com.videhub.ui.components.VideoCardShimmer
+import com.videhub.utils.NetworkUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -51,6 +49,9 @@ fun SubscriptionsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val isOnline by remember { NetworkUtils.getNetworkStatusFlow(context) }
+        .collectAsState(initial = NetworkUtils.isNetworkAvailable(context))
+
     var channels by remember { mutableStateOf<List<ChannelEntity>>(sharedViewModel.subscribedChannelsCache) }
     var isInitialLoadingChannels by remember { mutableStateOf(sharedViewModel.isInitialSubLoadingCache) }
     var selectedChannelId by remember { mutableStateOf<String?>(sharedViewModel.subscriptionsSelectedChannelCache) }
@@ -74,15 +75,33 @@ fun SubscriptionsScreen(
     var hasLoadedEmptyVideos by remember(activeChannelId, videoRetryTrigger) { mutableStateOf(false) }
     var videoError by remember(activeChannelId, videoRetryTrigger) { mutableStateOf<String?>(null) }
     var isLoadingVideos by remember(activeChannelId, videoRetryTrigger) {
-        mutableStateOf(activeChannelId.isNotBlank() && cachedChannelVideos.isNullOrEmpty())
+        mutableStateOf(
+            activeChannelId.isNotBlank() &&
+                cachedChannelVideos.isNullOrEmpty() &&
+                NetworkUtils.isNetworkAvailable(context)
+        )
     }
     var isPaginating by remember { mutableStateOf(false) }
-    var pagingSource by remember(activeChannelId) { mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(sharedViewModel.subscriptionsPagingSourceMap[activeChannelId]) }
+    var pagingSource by remember(activeChannelId) {
+        mutableStateOf<com.videhub.extractor.ListExtractorPagingSource?>(
+            sharedViewModel.subscriptionsPagingSourceMap[activeChannelId]
+        )
+    }
 
     val listState = androidx.compose.foundation.lazy.rememberLazyListState(
         initialFirstVisibleItemIndex = sharedViewModel.subscriptionsScrollStateMap[activeChannelId]?.first ?: 0,
         initialFirstVisibleItemScrollOffset = sharedViewModel.subscriptionsScrollStateMap[activeChannelId]?.second ?: 0
     )
+
+    // Automatically retry when internet connection is restored
+    LaunchedEffect(isOnline) {
+        if (isOnline && activeChannelId.isNotBlank() && latestVideos.isEmpty() && (videoError != null || !isLoadingVideos)) {
+            videoError = null
+            hasLoadedEmptyVideos = false
+            isLoadingVideos = true
+            videoRetryTrigger++
+        }
+    }
 
     LaunchedEffect(activeChannelId) {
         if (activeChannelId.isNotBlank()) {
@@ -100,13 +119,20 @@ fun SubscriptionsScreen(
     DisposableEffect(activeChannelId) {
         onDispose {
             if (activeChannelId.isNotBlank()) {
-                sharedViewModel.subscriptionsScrollStateMap[activeChannelId] = Pair(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+                sharedViewModel.subscriptionsScrollStateMap[activeChannelId] =
+                    Pair(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
             }
         }
     }
 
     fun refresh() {
         if (isRefreshing || isLoadingVideos || isPaginating || activeChannelId.isBlank()) return
+        if (!NetworkUtils.isNetworkAvailable(context)) {
+            videoError = "No internet connection. Please check your network and try again."
+            isLoadingVideos = false
+            isRefreshing = false
+            return
+        }
         sharedViewModel.subscriptionsVideosCacheMap.remove(activeChannelId)
         hasLoadedEmptyVideos = false
         videoError = null
@@ -128,15 +154,6 @@ fun SubscriptionsScreen(
                 "https://www.youtube.com/@namandeshmukh",
                 "https://www.youtube.com/@nikhilsharma"
             )
-            val staleDummyThumbs = setOf(
-                "https://yt3.googleusercontent.com/ytc/AIdro_k6W08fA4gJv-P8310qGgV2DkWqH4gB4qB8=s176-c-k-c0x00ffffff-no-rj",
-                "https://yt3.googleusercontent.com/ytc/AIdro_n4Rj9q_8vF9K1Yk-Ww2kQ7W0w-1234=s176-c-k-c0x00ffffff-no-rj",
-                "https://yt3.googleusercontent.com/ytc/AIdro_mQ1234=s176-c-k-c0x00ffffff-no-rj",
-                "https://yt3.googleusercontent.com/ytc/AIdro_RomRomJi=s176-c-k-c0x00ffffff-no-rj",
-                "https://yt3.googleusercontent.com/ytc/AIdro_Naman=s176-c-k-c0x00ffffff-no-rj",
-                "https://yt3.googleusercontent.com/ytc/AIdro_Nikhil=s176-c-k-c0x00ffffff-no-rj"
-            )
-            // Delete any channel row that has one of the fake dummy URLs from previous build
             for (dummyId in staleDummyIds) {
                 db.channelDao().deleteById(dummyId)
             }
@@ -158,7 +175,6 @@ fun SubscriptionsScreen(
             isInitialLoadingChannels = false
             sharedViewModel.isInitialSubLoadingCache = false
 
-            // Automatically select the first channel in subscriptions if none selected or previous selection no longer exists
             if (list.isNotEmpty()) {
                 if (selectedChannelId == null || list.none { it.channelId == selectedChannelId }) {
                     selectedChannelId = list.first().channelId
@@ -169,22 +185,25 @@ fun SubscriptionsScreen(
         }
     }
 
-    // Check authentic live status for subscribed channels and cache real avatars
-    LaunchedEffect(channels) {
-        if (channels.isNotEmpty()) {
+    // Check authentic live status for subscribed channels and cache real avatars only when online
+    LaunchedEffect(channels, isOnline) {
+        if (isOnline && channels.isNotEmpty()) {
             withContext(Dispatchers.IO) {
                 val db = AppDatabase.getDatabase(context)
                 for (channel in channels) {
-                    com.videhub.utils.ChannelLiveStatusManager.checkChannelLiveStatus(channel.channelId, channel.name)
-                    if (channel.thumbnailUrl.isNullOrBlank() ||
-                        channel.thumbnailUrl == "none" ||
-                        com.videhub.utils.AvatarHelper.isVideoThumbnail(channel.thumbnailUrl)
-                    ) {
-                        val realAvatar = com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(channel.channelId)
-                        if (!realAvatar.isNullOrBlank() && !com.videhub.utils.AvatarHelper.isVideoThumbnail(realAvatar)) {
-                            db.channelDao().insert(channel.copy(thumbnailUrl = realAvatar))
+                    if (!NetworkUtils.isNetworkAvailable(context)) break
+                    try {
+                        com.videhub.utils.ChannelLiveStatusManager.checkChannelLiveStatus(channel.channelId, channel.name)
+                        if (channel.thumbnailUrl.isNullOrBlank() ||
+                            channel.thumbnailUrl == "none" ||
+                            com.videhub.utils.AvatarHelper.isVideoThumbnail(channel.thumbnailUrl)
+                        ) {
+                            val realAvatar = com.videhub.utils.AvatarHelper.resolveRealChannelAvatar(channel.channelId)
+                            if (!realAvatar.isNullOrBlank() && !com.videhub.utils.AvatarHelper.isVideoThumbnail(realAvatar)) {
+                                db.channelDao().insert(channel.copy(thumbnailUrl = realAvatar))
+                            }
                         }
-                    }
+                    } catch (_: Exception) {}
                 }
             }
         }
@@ -203,6 +222,15 @@ fun SubscriptionsScreen(
             isLoadingVideos = false
             hasLoadedEmptyVideos = false
             videoError = null
+            return@LaunchedEffect
+        }
+
+        if (!NetworkUtils.isNetworkAvailable(context)) {
+            if (currentCached.isNullOrEmpty()) {
+                videoError = "No internet connection. Please check your network and try again."
+            }
+            isLoadingVideos = false
+            isRefreshing = false
             return@LaunchedEffect
         }
 
@@ -292,7 +320,10 @@ fun SubscriptionsScreen(
             throw e
         } catch (e: Exception) {
             if (sharedViewModel.subscriptionsVideosCacheMap[activeChannelId].isNullOrEmpty()) {
-                videoError = e.message ?: "Failed to load videos"
+                videoError = NetworkUtils.getFriendlyErrorMessage(
+                    throwable = e,
+                    fallback = "Could not load channel videos. Please try again."
+                )
             }
         } finally {
             isLoadingVideos = false
@@ -301,7 +332,7 @@ fun SubscriptionsScreen(
     }
 
     fun loadNextPage() {
-        if (isPaginating || pagingSource?.hasMore != true) return
+        if (isPaginating || pagingSource?.hasMore != true || !isOnline) return
         scope.launch {
             isPaginating = true
             try {
@@ -318,6 +349,10 @@ fun SubscriptionsScreen(
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
 
+    // Determine whether Subscriptions should show the full-screen offline / network error state
+    // (hiding the subscribed channels header strip and Visit channel pill when offline or when network fails)
+    val isNetworkOrOfflineError = !isOnline || (videoError != null && latestVideos.isEmpty())
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -331,8 +366,15 @@ fun SubscriptionsScreen(
             scrollBehavior = scrollBehavior
         )
 
-        val isChannelVideosLoading = isLoadingVideos || isRefreshing || (activeChannelId.isNotBlank() && cachedChannelVideos.isNullOrEmpty() && !hasLoadedEmptyVideos && videoError == null)
-        val showFullSubscriptionsSkeleton = isInitialLoadingChannels || (channels.isNotEmpty() && isChannelVideosLoading && sharedViewModel.subscriptionsVideosCacheMap.isEmpty())
+        val isChannelVideosLoading = isOnline && (
+            isLoadingVideos ||
+                isRefreshing ||
+                (activeChannelId.isNotBlank() && cachedChannelVideos.isNullOrEmpty() && !hasLoadedEmptyVideos && videoError == null)
+        )
+        val showFullSubscriptionsSkeleton = !isNetworkOrOfflineError && (
+            isInitialLoadingChannels ||
+                (channels.isNotEmpty() && isChannelVideosLoading && sharedViewModel.subscriptionsVideosCacheMap.isEmpty())
+        )
 
         Box(modifier = Modifier.weight(1f)) {
             if (showFullSubscriptionsSkeleton) {
@@ -398,221 +440,215 @@ fun SubscriptionsScreen(
                     onRefresh = { refresh() },
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 80.dp)
-                    ) {
-                        if (channels.isNotEmpty()) {
-                            // ── 1. Top Subscribed Channel Avatar Strip (Exact YouTube replica) ────
-                            item(key = "subscriptions_channel_carousel") {
-                                val liveKeys by com.videhub.utils.ChannelLiveStatusManager.liveChannelKeys.collectAsState()
+                    if (isNetworkOrOfflineError) {
+                        NetworkErrorState(
+                            errorMessage = videoError,
+                            isOffline = !isOnline,
+                            onRetry = {
+                                if (NetworkUtils.isNetworkAvailable(context)) {
+                                    videoError = null
+                                    hasLoadedEmptyVideos = false
+                                    isLoadingVideos = true
+                                    videoRetryTrigger++
+                                } else {
+                                    videoError = "No internet connection. Please check your network and try again."
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 80.dp)
+                        ) {
+                            if (channels.isNotEmpty()) {
+                                // ── 1. Top Subscribed Channel Avatar Strip (Exact YouTube replica) ────
+                                item(key = "subscriptions_channel_carousel") {
+                                    val liveKeys by com.videhub.utils.ChannelLiveStatusManager.liveChannelKeys.collectAsState()
 
-                                LazyRow(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 12.dp, bottom = 6.dp),
-                                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    itemsIndexed(
-                                        channels,
-                                        key = { index, channel -> "${channel.channelId}_$index" }
-                                    ) { _, channel ->
-                                        val isLive = remember(liveKeys, channel.channelId, channel.name) {
-                                            com.videhub.utils.ChannelLiveStatusManager.isChannelLive(channel.channelId, channel.name)
-                                        }
-                                        val isSelected = activeChannelId == channel.channelId
-
-                                        YouTubeChannelAvatarItem(
-                                            channel = channel,
-                                            isSelected = isSelected,
-                                            isLive = isLive,
-                                            onClick = {
-                                                selectedChannelId = channel.channelId
+                                    LazyRow(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 12.dp, bottom = 6.dp),
+                                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        itemsIndexed(
+                                            channels,
+                                            key = { index, channel -> "${channel.channelId}_$index" }
+                                        ) { _, channel ->
+                                            val isLive = remember(liveKeys, channel.channelId, channel.name) {
+                                                com.videhub.utils.ChannelLiveStatusManager.isChannelLive(channel.channelId, channel.name)
                                             }
+                                            val isSelected = activeChannelId == channel.channelId
+
+                                            YouTubeChannelAvatarItem(
+                                                channel = channel,
+                                                isSelected = isSelected,
+                                                isLive = isLive,
+                                                isOnline = isOnline,
+                                                onClick = {
+                                                    selectedChannelId = channel.channelId
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // ── 2. "Visit channel" Pill Button Row ──
+                                item(key = "visit_channel_button_row") {
+                                    val targetChannel = selectedChannel ?: channels.firstOrNull()
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(end = 12.dp, top = 8.dp, bottom = 14.dp),
+                                        horizontalArrangement = Arrangement.End,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Surface(
+                                            shape = RoundedCornerShape(50),
+                                            color = Color(0xFF272727),
+                                            modifier = Modifier
+                                                .height(38.dp)
+                                                .clickable {
+                                                    targetChannel?.let { onChannelClick(it.channelId) }
+                                                }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 16.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Icon(
+                                                    painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_account_circle_outlined),
+                                                    contentDescription = "Visit channel",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Text(
+                                                    text = "Visit channel",
+                                                    color = Color.White,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ── 3. Full-Width Edge-to-Edge 16:9 Video Cards ────────────────
+                            if (isChannelVideosLoading) {
+                                items(4, key = { "sub_shimmer_$it" }) {
+                                    VideoCardShimmer()
+                                }
+                            } else if (channels.isEmpty()) {
+                                item(key = "no_subscribed_channels") {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 32.dp, vertical = 64.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Subscriptions,
+                                            contentDescription = null,
+                                            tint = Color(0xFF717171),
+                                            modifier = Modifier.size(64.dp)
+                                        )
+                                        Spacer(Modifier.height(16.dp))
+                                        Text(
+                                            text = "Don't miss new videos",
+                                            color = Color.White,
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Spacer(Modifier.height(8.dp))
+                                        Text(
+                                            text = "Subscribe to your favorite channels to see their latest videos and live streams here.",
+                                            color = Color(0xFFAAAAAA),
+                                            fontSize = 13.5.sp,
+                                            textAlign = TextAlign.Center,
+                                            lineHeight = 18.sp
+                                        )
+                                        Spacer(Modifier.height(24.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(50),
+                                            color = Color.White,
+                                            modifier = Modifier
+                                                .height(40.dp)
+                                                .clickable { onSearchClick() }
+                                        ) {
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier.padding(horizontal = 20.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Discover channels",
+                                                    color = Color.Black,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if (latestVideos.isEmpty() && hasLoadedEmptyVideos) {
+                                item(key = "empty_subscriptions_videos") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(40.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "No videos available for this channel.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color(0xFFAAAAAA)
                                         )
                                     }
                                 }
-                            }
+                            } else {
+                                items(
+                                    count = latestVideos.size,
+                                    key = { index -> "${latestVideos[index].url ?: index.toString()}_$index" }
+                                ) { index ->
+                                    val video = latestVideos[index]
 
-                            // ── 2. "Visit channel" Pill Button Row (Right Aligned as shown in screenshot) ──
-                            item(key = "visit_channel_button_row") {
-                                val targetChannel = selectedChannel ?: channels.firstOrNull()
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(end = 12.dp, top = 8.dp, bottom = 14.dp),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(50),
-                                        color = Color(0xFF272727), // YouTube dark grey pill button
-                                        modifier = Modifier
-                                            .height(38.dp)
-                                            .clickable {
-                                                targetChannel?.let { onChannelClick(it.channelId) }
-                                            }
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 16.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Icon(
-                                                painter = androidx.compose.ui.res.painterResource(id = com.videhub.R.drawable.ic_account_circle_outlined),
-                                                contentDescription = "Visit channel",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                            Text(
-                                                text = "Visit channel",
-                                                color = Color.White,
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.Medium
-                                            )
+                                    if (index == latestVideos.size - 1 && !isPaginating && pagingSource?.hasMore == true) {
+                                        LaunchedEffect(Unit) {
+                                            loadNextPage()
                                         }
                                     }
-                                }
-                            }
-                        }
 
-                        // ── 3. Full-Width Edge-to-Edge 16:9 Video Cards ────────────────
-                        if (isChannelVideosLoading) {
-                            items(4, key = { "sub_shimmer_$it" }) {
-                                VideoCardShimmer()
-                            }
-                        } else if (channels.isEmpty()) {
-                            item(key = "no_subscribed_channels") {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 32.dp, vertical = 64.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Subscriptions,
-                                        contentDescription = null,
-                                        tint = Color(0xFF717171),
-                                        modifier = Modifier.size(64.dp)
-                                    )
-                                    Spacer(Modifier.height(16.dp))
-                                    Text(
-                                        text = "Don't miss new videos",
-                                        color = Color.White,
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(
-                                        text = "Subscribe to your favorite channels to see their latest videos and live streams here.",
-                                        color = Color(0xFFAAAAAA),
-                                        fontSize = 13.5.sp,
-                                        textAlign = TextAlign.Center,
-                                        lineHeight = 18.sp
-                                    )
-                                    Spacer(Modifier.height(24.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(50),
-                                        color = Color.White,
-                                        modifier = Modifier
-                                            .height(40.dp)
-                                            .clickable { onSearchClick() }
-                                    ) {
-                                        Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier.padding(horizontal = 20.dp)
-                                        ) {
-                                            Text(
-                                                text = "Discover channels",
-                                                color = Color.Black,
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
+                                    VideoCard(
+                                        item = video,
+                                        onClick = onVideoClick,
+                                        onChannelClick = onChannelClick,
+                                        channelAvatarUrl = selectedChannel?.thumbnailUrl?.takeIf {
+                                            it.isNotBlank() && it != "none" && !com.videhub.utils.AvatarHelper.isVideoThumbnail(it)
                                         }
-                                    }
-                                }
-                            }
-                        } else if (videoError != null && latestVideos.isEmpty()) {
-                            item(key = "error_subscriptions_videos") {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(40.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(
-                                        text = videoError ?: "Could not load videos.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color(0xFFAAAAAA),
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Spacer(Modifier.height(12.dp))
-                                    Button(onClick = {
-                                        videoError = null
-                                        hasLoadedEmptyVideos = false
-                                        isLoadingVideos = true
-                                        videoRetryTrigger++
-                                    }) {
-                                        Text("Retry")
-                                    }
-                                }
-                            }
-                        } else if (latestVideos.isEmpty() && hasLoadedEmptyVideos) {
-                            item(key = "empty_subscriptions_videos") {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(40.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "No videos available for this channel.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color(0xFFAAAAAA)
                                     )
                                 }
                             }
-                        } else {
-                            items(
-                                count = latestVideos.size,
-                                key = { index -> "${latestVideos[index].url ?: index.toString()}_$index" }
-                            ) { index ->
-                                val video = latestVideos[index]
 
-                                if (index == latestVideos.size - 1 && !isPaginating && pagingSource?.hasMore == true) {
-                                    LaunchedEffect(Unit) {
-                                        loadNextPage()
+                            if (isPaginating) {
+                                item(key = "sub_paginating_indicator") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            color = Color(0xFFAAAAAA)
+                                        )
                                     }
-                                }
-
-                                VideoCard(
-                                    item = video,
-                                    onClick = onVideoClick,
-                                    onChannelClick = onChannelClick,
-                                    channelAvatarUrl = selectedChannel?.thumbnailUrl?.takeIf {
-                                        it.isNotBlank() && it != "none" && !com.videhub.utils.AvatarHelper.isVideoThumbnail(it)
-                                    }
-                                )
-                            }
-                        }
-
-                        if (isPaginating) {
-                            item(key = "sub_paginating_indicator") {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        color = Color(0xFFAAAAAA)
-                                    )
                                 }
                             }
                         }
@@ -623,20 +659,12 @@ fun SubscriptionsScreen(
     }
 }
 
-/**
- * Exact replica of the YouTube Channel Avatar Item shown in user's screenshot:
- * - 60dp circular avatar
- * - When selected: crisp white outer ring with dark gap
- * - When live: red circular dot indicator at bottom right
- * - Clean truncated labels for any dynamic channel name
- * - Selected label is Bold White (#FFFFFF), Unselected is #E0E0E0
- */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun YouTubeChannelAvatarItem(
     channel: ChannelEntity,
     isSelected: Boolean,
     isLive: Boolean,
+    isOnline: Boolean,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -649,12 +677,11 @@ private fun YouTubeChannelAvatarItem(
         mutableStateOf(if (hasValidAvatar) channel.thumbnailUrl else null)
     }
     var isResolvingAvatar by remember(channel.channelId, hasValidAvatar) {
-        mutableStateOf(!hasValidAvatar)
+        mutableStateOf(!hasValidAvatar && isOnline)
     }
 
-    // If avatar URL is missing or fails to load, resolve authentic channel avatar in background
-    LaunchedEffect(channel.channelId, resolvedAvatarUrl) {
-        if (resolvedAvatarUrl.isNullOrBlank()) {
+    LaunchedEffect(channel.channelId, resolvedAvatarUrl, isOnline) {
+        if (resolvedAvatarUrl.isNullOrBlank() && isOnline) {
             isResolvingAvatar = true
             try {
                 val realAvatar = withContext(Dispatchers.IO) {
@@ -666,6 +693,7 @@ private fun YouTubeChannelAvatarItem(
                         AppDatabase.getDatabase(context).channelDao().insert(channel.copy(thumbnailUrl = realAvatar))
                     }
                 }
+            } catch (_: Exception) {
             } finally {
                 isResolvingAvatar = false
             }
@@ -688,7 +716,6 @@ private fun YouTubeChannelAvatarItem(
             modifier = Modifier.size(avatarSize),
             contentAlignment = Alignment.Center
         ) {
-            // Avatar Circle with Ring (shown when selected or when live, matching reference screenshot)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -714,40 +741,19 @@ private fun YouTubeChannelAvatarItem(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                         loading = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(com.videhub.ui.components.shimmerBrush())
-                            )
+                            com.videhub.ui.components.AvatarSkeletonBox()
                         },
                         error = {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = channel.name.firstOrNull()?.uppercase() ?: "?",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp
-                                )
-                            }
+                            com.videhub.ui.components.AvatarNeutralFallback()
                         }
                     )
                 } else if (isResolvingAvatar) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(com.videhub.ui.components.shimmerBrush())
-                    )
+                    com.videhub.ui.components.AvatarSkeletonBox()
                 } else {
-                    Text(
-                        text = channel.name.firstOrNull()?.uppercase() ?: "?",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
+                    com.videhub.ui.components.AvatarNeutralFallback()
                 }
             }
 
-            // Red live dot indicator at bottom right if channel is currently live
             if (isLive) {
                 Box(
                     modifier = Modifier

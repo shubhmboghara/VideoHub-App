@@ -318,7 +318,7 @@ class DownloadWorker(
         } catch (e: Exception) {
             Log.e(TAG, "Error downloading $videoId (attempt $runAttemptCount): ${e.message}", e)
             val now = System.currentTimeMillis()
-            val isNetworkError = e is SocketException || e is SocketTimeoutException || e is IOException
+            val isNetworkError = com.videhub.utils.NetworkUtils.isNetworkError(e) || e is SocketException || e is SocketTimeoutException || e is IOException
 
             if (isNetworkError && runAttemptCount < MAX_RETRIES) {
                 // Retry with exponential backoff: keep state DOWNLOADING with current bytes
@@ -333,7 +333,7 @@ class DownloadWorker(
                 Result.retry()
             } else {
                 // Max retries exceeded or fatal error: mark FAILED
-                val errorMsg = e.message ?: "Download failed"
+                val errorMsg = com.videhub.utils.NetworkUtils.getFriendlyErrorMessage(e, "Download failed")
                 db.downloadedVideoDao().updateVideoStateWithHeartbeat(
                     videoId = videoId,
                     state = "FAILED",

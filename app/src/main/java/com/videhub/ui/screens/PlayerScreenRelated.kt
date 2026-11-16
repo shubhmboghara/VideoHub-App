@@ -59,6 +59,7 @@ fun LazyListScope.relatedVideosSection(
                 viewCount = video.viewCount ?: 0,
                 uploadDate = video.textualUploadDate ?: "",
                 uploaderAvatarUrl = try { com.videhub.utils.AvatarHelper.getBestAvatarUrl(video.uploaderAvatars) } catch (e: Exception) { null },
+                uploaderUrl = video.uploaderUrl,
                 onChannelClick = {
                     val uploaderUrl = video.uploaderUrl
                     if (!uploaderUrl.isNullOrBlank()) {

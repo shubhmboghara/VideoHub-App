@@ -312,39 +312,13 @@ fun PlayerScreenMetadata(
                                 .padding(vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (!avatarUrl.isNullOrBlank()) {
-                                    coil.compose.AsyncImage(
-                                        model = avatarUrl,
-                                        contentDescription = "Channel Avatar",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else {
-                                    val initial = channelName.trim().firstOrNull()?.uppercaseChar()?.toString()
-                                    if (!initial.isNullOrBlank()) {
-                                        Text(
-                                            text = initial,
-                                            style = MaterialTheme.typography.labelLarge,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Default.Person,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                            }
+                            com.videhub.ui.components.ChannelAvatarImage(
+                                avatarUrl = avatarUrl,
+                                channelName = effectiveChannelName,
+                                channelUrl = effectiveChannelId,
+                                isLoading = streamInfo == null && !isLocalFile,
+                                modifier = Modifier.size(34.dp)
+                            )
 
                             Spacer(Modifier.width(10.dp))
 
