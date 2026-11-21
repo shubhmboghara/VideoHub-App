@@ -365,25 +365,41 @@ fun ChannelScreen(
         try {
             val (info, aboutInfo, liveStreams) = kotlinx.coroutines.coroutineScope {
                 val infoDeferred = async(Dispatchers.IO) { ExtractorHelper.getChannelInfo(actualUrl) }
-                val aboutDeferred = async(Dispatchers.IO) { ExtractorHelper.getChannelAboutInfo(actualUrl) }
-                val liveDeferred = async(Dispatchers.IO) { ExtractorHelper.getChannelLiveStreams(actualUrl) }
+                val aboutDeferred = async(Dispatchers.IO) {
+                    try {
+                        ExtractorHelper.getChannelAboutInfo(actualUrl)
+                    } catch (_: Exception) {
+                        com.videhub.extractor.ChannelAboutInfo()
+                    }
+                }
+                val liveDeferred = async(Dispatchers.IO) {
+                    try {
+                        ExtractorHelper.getChannelLiveStreams(actualUrl)
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                }
                 Triple(infoDeferred.await(), aboutDeferred.await(), liveDeferred.await())
             }
             val activeVerified = withContext(Dispatchers.IO) {
-                val verified = com.videhub.utils.ChannelLiveStatusManager.verifyAndSetChannelLiveStreams(
-                    channelUrl = actualUrl,
-                    secondaryChannelUrl = info.url,
-                    channelName = info.name,
-                    streams = liveStreams
-                )
-                if (verified == null) {
-                    com.videhub.utils.ChannelLiveStatusManager.unregisterLiveStream(
-                        channelUrl = channelId,
+                try {
+                    val verified = com.videhub.utils.ChannelLiveStatusManager.verifyAndSetChannelLiveStreams(
+                        channelUrl = actualUrl,
+                        secondaryChannelUrl = info.url,
                         channelName = info.name,
-                        secondaryChannelUrl = info.url
+                        streams = liveStreams
                     )
+                    if (verified == null) {
+                        com.videhub.utils.ChannelLiveStatusManager.unregisterLiveStream(
+                            channelUrl = channelId,
+                            channelName = info.name,
+                            secondaryChannelUrl = info.url
+                        )
+                    }
+                    verified
+                } catch (_: Exception) {
+                    null
                 }
-                verified
             }
             channelInfo = info
             channelAboutInfo = aboutInfo
@@ -440,7 +456,8 @@ fun ChannelScreen(
             val videos = withContext(Dispatchers.IO) {
                 val source = ExtractorHelper.getChannelPagingSource(channelInfo!!)
                 pagingSource = source
-                source?.loadInitial()?.filterIsInstance<StreamInfoItem>() ?: emptyList()
+                val raw = source?.loadInitial()?.filterIsInstance<StreamInfoItem>() ?: emptyList()
+                com.videhub.utils.ChannelLiveStatusManager.filterPlayableVideos(raw)
             }
             channelVideos = videos
             sharedViewModel.channelVideosCache = videos
@@ -532,7 +549,9 @@ fun ChannelScreen(
             isPaginating = true
             try {
                 val items = pagingSource?.loadNextPage()?.filterIsInstance<StreamInfoItem>() ?: emptyList()
-                channelVideos = channelVideos + items
+                val playableItems = com.videhub.utils.ChannelLiveStatusManager.filterPlayableVideos(items)
+                channelVideos = channelVideos + playableItems
+                sharedViewModel.channelVideosCache = channelVideos
             } catch (e: Exception) {}
             isPaginating = false
         }
@@ -549,6 +568,7 @@ fun ChannelScreen(
     val regularHomeVideos = remember(channelVideos, endedLiveUrls, topLiveStream) {
         channelVideos.filterNot { item ->
             com.videhub.utils.ChannelLiveStatusManager.isEndedOrPastLiveStream(item) ||
+            com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(item) ||
             (item.url != null && item.url in endedLiveUrls) ||
             (topLiveStream != null && item.url == topLiveStream.url)
         }
@@ -1037,9 +1057,17 @@ fun ChannelScreen(
                             ChannelLiveStreamItem(
                                 video = stream,
                                 onClick = {
-                                    val url = stream.url ?: ""
-                                    if (url.isNotBlank()) {
-                                        onVideoClick(url, stream.name ?: "", stream.thumbnails?.firstOrNull()?.url ?: "")
+                                    if (com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(stream)) {
+                                        Toast.makeText(
+                                            context,
+                                            "This scheduled video hasn't premiered yet.",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        val url = stream.url ?: ""
+                                        if (url.isNotBlank()) {
+                                            onVideoClick(url, stream.name ?: "", stream.thumbnails?.firstOrNull()?.url ?: "")
+                                        }
                                     }
                                 }
                             )
@@ -1209,9 +1237,7 @@ fun ChannelLiveStreamItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isUpcoming = video.textualUploadDate?.contains("Scheduled", ignoreCase = true) == true ||
-            video.textualUploadDate?.contains("Premieres", ignoreCase = true) == true ||
-            video.streamType?.name?.contains("UPCOMING", ignoreCase = true) == true
+    val isUpcoming = com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(video)
 
     val isRunningLive = !isUpcoming && com.videhub.utils.ChannelLiveStatusManager.isStreamCurrentlyLive(video)
 

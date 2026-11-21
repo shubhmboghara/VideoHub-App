@@ -339,7 +339,7 @@ fun VideoCard(
         duration = duration,
         viewCount = views,
         channelAvatarUrl = channelAvatarUrl ?: try { com.videhub.utils.AvatarHelper.getBestAvatarUrl(item.uploaderAvatars) } catch (e: Exception) { null },
-        uploadDate = (item as? StreamInfoItem)?.uploadDate?.toString() ?: item.textualUploadDate ?: "unknown",
+        uploadDate = item.textualUploadDate ?: "",
         channelUrl = channelUrl,
         isLive = isLive,
         onClick = onClick,

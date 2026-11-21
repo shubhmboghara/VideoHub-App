@@ -56,12 +56,12 @@ fun ExoPlayerView(
         AndroidView(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offsetX,
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offsetX
                     translationY = offsetY
-                ),
+                },
             factory = { ctx ->
                 (android.view.LayoutInflater.from(ctx)
                     .inflate(com.videhub.R.layout.video_player_view, null, false) as PlayerView).apply {

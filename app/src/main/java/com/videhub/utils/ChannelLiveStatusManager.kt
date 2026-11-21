@@ -119,10 +119,100 @@ object ChannelLiveStatusManager {
     )
 
     /**
+     * Strictly determines whether a StreamInfoItem is an unreleased scheduled video,
+     * upcoming Premiere, or scheduled live event that cannot be played yet.
+     */
+    fun isScheduledOrUpcomingVideo(item: StreamInfoItem): Boolean {
+        val uploadText = item.textualUploadDate ?: ""
+        val descText = item.shortDescription ?: ""
+        if (uploadText.contains("Scheduled", ignoreCase = true) ||
+            uploadText.contains("Premieres", ignoreCase = true) ||
+            uploadText.contains("Premiere", ignoreCase = true) ||
+            uploadText.contains("Upcoming", ignoreCase = true) ||
+            uploadText.contains("Notify me", ignoreCase = true) ||
+            descText.contains("Premieres", ignoreCase = true) ||
+            descText.contains("Scheduled for", ignoreCase = true)
+        ) {
+            return true
+        }
+
+        if (item.streamType?.name?.contains("UPCOMING", ignoreCase = true) == true) {
+            return true
+        }
+
+        // Future upload/premiere timestamp
+        val parsedDate = try { item.uploadDate?.offsetDateTime() } catch (_: Exception) { null }
+        if (parsedDate != null && parsedDate.isAfter(java.time.OffsetDateTime.now().plusMinutes(2))) {
+            return true
+        }
+
+        // On YouTube, NewPipeExtractor extracts scheduled Premieres with duration == -1L,
+        // textualUploadDate == null, viewCount == -1L, and streamType == VIDEO_STREAM (or LIVE_STREAM with viewCount < 0).
+        if (!item.isShortFormContent && item.duration <= 0L) {
+            val isLiveType = item.streamType == StreamType.LIVE_STREAM ||
+                    item.streamType == StreamType.AUDIO_LIVE_STREAM
+            if (!isLiveType) {
+                // A regular VIDEO_STREAM (or NONE) with no duration (<= 0) is an unreleased scheduled Premiere
+                return true
+            } else if (item.viewCount < 0L) {
+                // An active live stream on YouTube has concurrent viewers (viewCount >= 0);
+                // an upcoming scheduled live stream or premiere has viewCount == -1L.
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /**
+     * Checks if a full StreamInfo represents an unreleased scheduled/upcoming Premiere or live event.
+     */
+    fun isScheduledOrUpcomingStreamInfo(info: org.schabi.newpipe.extractor.stream.StreamInfo): Boolean {
+        val uploadText = info.textualUploadDate ?: ""
+        if (uploadText.contains("Scheduled", ignoreCase = true) ||
+            uploadText.contains("Premieres", ignoreCase = true) ||
+            uploadText.contains("Premiere", ignoreCase = true) ||
+            uploadText.contains("Upcoming", ignoreCase = true)
+        ) {
+            return true
+        }
+        val parsedDate = try { info.uploadDate?.offsetDateTime() } catch (_: Exception) { null }
+        if (parsedDate != null && parsedDate.isAfter(java.time.OffsetDateTime.now().plusMinutes(2))) {
+            return true
+        }
+        val hasPlayableStream = !info.videoStreams.isNullOrEmpty() ||
+                !info.videoOnlyStreams.isNullOrEmpty() ||
+                !info.audioStreams.isNullOrEmpty() ||
+                !info.hlsUrl.isNullOrBlank() ||
+                !info.dashMpdUrl.isNullOrBlank()
+        if (!hasPlayableStream && info.duration <= 0L) {
+            return true
+        }
+        return false
+    }
+
+    /**
+     * Filters out scheduled/upcoming unplayable videos from a list of StreamInfoItems.
+     */
+    fun filterPlayableVideos(items: List<StreamInfoItem>): List<StreamInfoItem> {
+        return items.filterNot { isScheduledOrUpcomingVideo(it) }
+    }
+
+    /**
+     * Filters out scheduled/upcoming unplayable StreamInfoItems from a mixed InfoItem list.
+     */
+    fun filterPlayableInfoItems(items: List<org.schabi.newpipe.extractor.InfoItem>): List<org.schabi.newpipe.extractor.InfoItem> {
+        return items.filterNot { it is StreamInfoItem && isScheduledOrUpcomingVideo(it) }
+    }
+
+    /**
      * Strictly determines whether a StreamInfoItem is a candidate active live stream,
      * excluding ended streams ("Streamed ..."), upcoming/scheduled streams, and normal videos.
      */
     fun isStreamCurrentlyLive(item: StreamInfoItem): Boolean {
+        if (isScheduledOrUpcomingVideo(item)) {
+            return false
+        }
         val uploadText = item.textualUploadDate ?: ""
         if (uploadText.contains("Streamed", ignoreCase = true) ||
             uploadText.contains("Scheduled", ignoreCase = true) ||
@@ -132,15 +222,14 @@ object ChannelLiveStatusManager {
         ) {
             return false
         }
-        // Reject future scheduled streams
-        val parsedDate = try { item.uploadDate?.offsetDateTime() } catch (_: Exception) { null }
-        if (parsedDate != null && parsedDate.isAfter(java.time.OffsetDateTime.now().plusMinutes(2))) {
-            return false
-        }
         if (item.duration > 0L) {
             return false
         }
         if (item.isShortFormContent) {
+            return false
+        }
+        // Active live streams report concurrent watcher count (>= 0)
+        if (item.viewCount < 0L) {
             return false
         }
         return item.streamType == StreamType.LIVE_STREAM ||
@@ -149,9 +238,12 @@ object ChannelLiveStatusManager {
 
     /**
      * Returns true if the item is an ended/past live stream or scheduled upcoming stream
-     * that should not be shown on the Channel Home tab.
+     * that should not be shown on the Channel Home tab or Subscriptions feed.
      */
     fun isEndedOrPastLiveStream(item: StreamInfoItem): Boolean {
+        if (isScheduledOrUpcomingVideo(item)) {
+            return true
+        }
         if (item.streamType == StreamType.POST_LIVE_STREAM ||
             item.streamType == StreamType.POST_LIVE_AUDIO_STREAM
         ) {

@@ -175,11 +175,6 @@ object ExtractorHelper {
                         val response = client.newCall(okRequest).execute()
                         val body = response.body?.string() ?: ""
 
-                        // If YouTube still blocks, auto-rotate proxy and retry once
-                        if (response.code == 429 || body.contains("LOGIN_REQUIRED") || body.contains("Sign in to confirm")) {
-                            return retryWithNewProxy(request)
-                        }
-
                         return DownloaderResponse(
                             response.code,
                             response.message,
@@ -188,45 +183,24 @@ object ExtractorHelper {
                             response.request.url.toString()
                         )
                     } catch (e: Exception) {
+                        // If a custom user-enabled proxy failed, fall back to direct connection once
+                        if (ProxyManager.isProxyEnabled()) {
+                            try {
+                                val directClient = ProxyManager.buildClient(null)
+                                val directResponse = directClient.newCall(okRequest).execute()
+                                val directBody = directResponse.body?.string() ?: ""
+                                return DownloaderResponse(
+                                    directResponse.code,
+                                    directResponse.message,
+                                    directResponse.headers.toMultimap(),
+                                    directBody,
+                                    directResponse.request.url.toString()
+                                )
+                            } catch (_: Exception) {}
+                        }
+                        if (e is IOException) throw e
                         throw IOException(e)
                     }
-                }
-
-                // Auto-rotate to next free proxy on block
-                private fun retryWithNewProxy(request: DownloaderRequest): DownloaderResponse {
-                    val rotatingClient = ProxyManager.buildAutoRotatingClient()
-                    val url = request.url()
-                    val retryRequest = Request.Builder()
-                        .url(url)
-                        .apply {
-                            var contentType = "application/json; charset=utf-8"
-                            request.headers()?.forEach { (key, values) ->
-                                if (key.equals("Content-Type", ignoreCase = true)) contentType = values.firstOrNull() ?: contentType
-                                values.forEach { value -> addHeader(key, value) }
-                            }
-                            
-                            val method = request.httpMethod()
-                            val data = request.dataToSend()
-                            if (data != null) {
-                                val mediaType = contentType.toMediaType()
-                                method(method, data.toRequestBody(mediaType))
-                            } else if (method.equals("POST", ignoreCase = true)) {
-                                method(method, ByteArray(0).toRequestBody(null))
-                            } else {
-                                method(method, null)
-                            }
-                        }
-                        .build()
-
-                    val response = rotatingClient.newCall(retryRequest).execute()
-                    val body = response.body?.string() ?: ""
-                    return DownloaderResponse(
-                        response.code,
-                        response.message,
-                        response.headers.toMultimap(),
-                        body,
-                        response.request.url.toString()
-                    )
                 }
             },
             org.schabi.newpipe.extractor.localization.Localization(currentLanguage, currentCountry)
@@ -251,6 +225,10 @@ object ExtractorHelper {
                     pagesLoaded++
                 } catch (_: Exception) { break }
             }
+            firstPage.relatedItems?.removeAll { item ->
+                item is org.schabi.newpipe.extractor.stream.StreamInfoItem &&
+                        com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(item)
+            }
             firstPage
         }
 
@@ -264,6 +242,10 @@ object ExtractorHelper {
                     val more = SearchInfo.getMoreItems(ServiceList.YouTube, handler, info.nextPage)
                     info.relatedItems.addAll(more.items ?: emptyList())
                 } catch (_: Exception) {}
+            }
+            info.relatedItems?.removeAll { item ->
+                item is org.schabi.newpipe.extractor.stream.StreamInfoItem &&
+                        com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(item)
             }
             val channels = info.relatedItems
                 .filterIsInstance<org.schabi.newpipe.extractor.channel.ChannelInfoItem>()
@@ -348,7 +330,7 @@ object ExtractorHelper {
                 // Ignore pagination errors
             }
             
-            items
+            com.videhub.utils.ChannelLiveStatusManager.filterPlayableInfoItems(items)
         } catch (e: Exception) {
             emptyList()
         }
@@ -647,7 +629,7 @@ object ExtractorHelper {
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        return@withContext items
+        return@withContext com.videhub.utils.ChannelLiveStatusManager.filterPlayableVideos(items)
     }
 
     suspend fun getChannelVideos(info: ChannelInfo, maxPages: Int = 10): List<org.schabi.newpipe.extractor.InfoItem> = withContext(Dispatchers.IO) {
@@ -678,7 +660,7 @@ object ExtractorHelper {
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        items
+        com.videhub.utils.ChannelLiveStatusManager.filterPlayableInfoItems(items)
     }
 
     suspend fun getChannelPlaylists(
@@ -811,11 +793,11 @@ object ExtractorHelper {
             } catch (e: Exception) {
                 // Ignore extra failure
             }
-            items.distinctBy { it.url ?: "" }
+            com.videhub.utils.ChannelLiveStatusManager.filterPlayableInfoItems(items.distinctBy { it.url ?: "" })
         } catch (e: Exception) {
             try {
                 val fallback = searchYouTube("trending videos", pages = 2)
-                fallback.relatedItems ?: emptyList()
+                com.videhub.utils.ChannelLiveStatusManager.filterPlayableInfoItems(fallback.relatedItems ?: emptyList())
             } catch (inner: Exception) {
                 emptyList()
             }
@@ -834,7 +816,22 @@ class ListExtractorPagingSource(
         listExtractor.fetchPage()
         currentPage = listExtractor.initialPage?.nextPage
         hasMore = listExtractor.initialPage?.hasNextPage() ?: false
-        listExtractor.initialPage?.items ?: emptyList()
+        val rawInitial = listExtractor.initialPage?.items ?: emptyList()
+        val filtered = com.videhub.utils.ChannelLiveStatusManager.filterPlayableInfoItems(rawInitial).toMutableList()
+        // If the first page was mostly scheduled/upcoming videos, automatically fetch up to 2 more pages so published videos appear immediately
+        var extraPagesLoaded = 0
+        while (filtered.size < 6 && hasMore && currentPage != null && extraPagesLoaded < 2) {
+            try {
+                val next = listExtractor.getPage(currentPage)
+                currentPage = next?.nextPage
+                hasMore = next?.hasNextPage() ?: false
+                filtered.addAll(com.videhub.utils.ChannelLiveStatusManager.filterPlayableInfoItems(next?.items ?: emptyList()))
+                extraPagesLoaded++
+            } catch (_: Exception) {
+                break
+            }
+        }
+        filtered
     }
     
     suspend fun loadNextPage(): List<org.schabi.newpipe.extractor.InfoItem> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -843,7 +840,7 @@ class ListExtractorPagingSource(
             val page = listExtractor.getPage(current)
             currentPage = page?.nextPage
             hasMore = page?.hasNextPage() ?: false
-            page?.items ?: emptyList()
+            com.videhub.utils.ChannelLiveStatusManager.filterPlayableInfoItems(page?.items ?: emptyList())
         } catch (e: Exception) {
             hasMore = false
             emptyList()

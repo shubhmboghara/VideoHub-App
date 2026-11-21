@@ -83,7 +83,7 @@ fun ModernPlayerControls(
     videoScale: Float = 1f,
     relatedVideos: List<StreamInfoItem> = emptyList(),
     onVideoSelect: (String, String, String) -> Unit = { _, _, _ -> },
-    onScaleChange: (Float, Offset) -> Unit = { _, _ -> },
+    onScaleChange: (zoomChange: Float, panChange: Offset, centroid: Offset, viewWidth: Float, viewHeight: Float) -> Unit = { _, _, _, _, _ -> },
     onPinchStateChanged: (Boolean) -> Unit = {},
     onResetZoom: () -> Unit = {},
     onToggleFullscreen: () -> Unit,
@@ -112,6 +112,7 @@ fun ModernPlayerControls(
     val currentIsPortrait by rememberUpdatedState(isPortrait)
     val currentIsVisible by rememberUpdatedState(isVisible)
     val currentPlaybackSpeed by rememberUpdatedState(currentSpeed)
+    val currentVideoScale by rememberUpdatedState(videoScale)
     val currentOnEnterFullscreen by rememberUpdatedState(onEnterFullscreen)
     val currentOnExitFullscreen by rememberUpdatedState(onExitFullscreen)
     val currentOnMinimize by rememberUpdatedState(onMinimize)
@@ -360,13 +361,16 @@ fun ModernPlayerControls(
                                     }
                                     gestureMode = "NONE"
                                 }
-                                twoFingerCenterX = pressedChanges.map { it.position.x }.average().toFloat()
+                                val avgX = pressedChanges.map { it.position.x }.average().toFloat()
+                                val avgY = pressedChanges.map { it.position.y }.average().toFloat()
+                                twoFingerCenterX = avgX
+                                val centroid = Offset(avgX, avgY)
                                 val zoom = event.calculateZoom()
                                 val pan = event.calculatePan()
                                 multiTouchTotalMove += pan.getDistance() + abs(zoom - 1f) * 200f
 
-                                if (abs(zoom - 1f) > 0.004f || pan.getDistance() > 1.5f) {
-                                    currentOnScaleChange(zoom, pan)
+                                if (abs(zoom - 1f) > 0.002f || pan.getDistance() > 0.8f) {
+                                    currentOnScaleChange(zoom, pan, centroid, viewWidth, viewHeight)
                                     showZoomToast = true
                                     hideZoomToastJob?.cancel()
                                     hideZoomToastJob = coroutineScope.launch {
@@ -400,9 +404,22 @@ fun ModernPlayerControls(
                                 totalWindowPanX += deltaWindow.x
                                 totalWindowPanY += deltaWindow.y
 
-                                if (gestureMode == "NONE" && inSafeVerticalRegion) {
+                                if (gestureMode == "NONE") {
                                     val dist = hypot(totalWindowPanX, totalWindowPanY)
-                                    if (dist > touchSlop) {
+                                    // When zoomed in (> 1.02x), 1-finger drag pans/scrolls around the zoomed video just like YouTube
+                                    if (currentVideoScale > 1.02f && dist > touchSlop * 0.6f) {
+                                        gestureMode = "ZOOM_PAN"
+                                        currentOnPinchStateChanged(true)
+                                        event.changes.forEach { it.consume() }
+                                        currentOnScaleChange(
+                                            1f,
+                                            Offset(totalWindowPanX, totalWindowPanY),
+                                            change.position,
+                                            viewWidth,
+                                            viewHeight
+                                        )
+                                        continue
+                                    } else if (inSafeVerticalRegion && dist > touchSlop) {
                                         if (abs(totalWindowPanX) >= abs(totalWindowPanY) * 1.25f &&
                                             totalTime > 0L &&
                                             inSafeHorizontalRegion
@@ -438,6 +455,16 @@ fun ModernPlayerControls(
                                             }
                                         }
                                     }
+                                } else if (gestureMode == "ZOOM_PAN") {
+                                    event.changes.forEach { it.consume() }
+                                    currentOnScaleChange(
+                                        1f,
+                                        deltaWindow,
+                                        change.position,
+                                        viewWidth,
+                                        viewHeight
+                                    )
+                                    continue
                                 } else if (gestureMode == "VERT_COLLAPSE") {
                                     event.changes.forEach { it.consume() }
                                     currentOnCollapseDragDelta(deltaWindow.y)
@@ -469,7 +496,7 @@ fun ModernPlayerControls(
                             }
                         } while (event.changes.any { it.pressed })
 
-                        if (isMultiTouch) {
+                        if (isMultiTouch || gestureMode == "ZOOM_PAN") {
                             currentOnPinchStateChanged(false)
                         }
 
@@ -527,7 +554,7 @@ fun ModernPlayerControls(
                         }
                     } finally {
                         if (!finishedNormally) {
-                            if (isMultiTouch) {
+                            if (isMultiTouch || gestureMode == "ZOOM_PAN") {
                                 currentOnPinchStateChanged(false)
                             }
                             if (collapseDragStarted) {

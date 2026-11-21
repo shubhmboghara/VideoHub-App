@@ -208,7 +208,12 @@ object BackgroundAutoplayHandler {
         // TIER 1: Evaluate Direct Related Videos from Extractor
         val directCandidates = (streamInfo?.relatedItems ?: relatedItemsCache)
             .filterIsInstance<StreamInfoItem>()
-            .filter { it.url != currentUrl && it.url !in alreadyQueued && !isRecentlyPlayed(it.url) }
+            .filter {
+                it.url != currentUrl &&
+                        it.url !in alreadyQueued &&
+                        !isRecentlyPlayed(it.url) &&
+                        !com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(it)
+            }
 
         if (directCandidates.isNotEmpty()) {
             val scoredDirect = directCandidates.map { it to scoreCandidate(it) }
@@ -226,7 +231,10 @@ object BackgroundAutoplayHandler {
             try {
                 val channelVideos = com.videhub.extractor.ExtractorHelper.getChannelVideosSorted(currentUploaderUrl, "latest", 2)
                 val unplayedChannelVideos = channelVideos.filter {
-                    it.url != currentUrl && it.url !in alreadyQueued && !isRecentlyPlayed(it.url)
+                    it.url != currentUrl &&
+                            it.url !in alreadyQueued &&
+                            !isRecentlyPlayed(it.url) &&
+                            !com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(it)
                 }
                 if (unplayedChannelVideos.isNotEmpty()) {
                     val scoredChannel = unplayedChannelVideos.map { it to scoreCandidate(it) }
@@ -254,7 +262,12 @@ object BackgroundAutoplayHandler {
             if (searchQuery.isNotBlank()) {
                 val searchResults = com.videhub.extractor.ExtractorHelper.getMoreSearchItems(searchQuery)
                     .filterIsInstance<StreamInfoItem>()
-                    .filter { it.url != currentUrl && it.url !in alreadyQueued && !isRecentlyPlayed(it.url) }
+                    .filter {
+                        it.url != currentUrl &&
+                                it.url !in alreadyQueued &&
+                                !isRecentlyPlayed(it.url) &&
+                                !com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(it)
+                    }
 
                 if (searchResults.isNotEmpty()) {
                     val scoredSearch = searchResults.map { it to scoreCandidate(it) }
@@ -270,7 +283,11 @@ object BackgroundAutoplayHandler {
         // TIER 4: Generic Recommendations Fallback
         val fallbackPool = (streamInfo?.relatedItems ?: relatedItemsCache)
             .filterIsInstance<StreamInfoItem>()
-            .filter { it.url != currentUrl && it.url !in alreadyQueued }
+            .filter {
+                it.url != currentUrl &&
+                        it.url !in alreadyQueued &&
+                        !com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(it)
+            }
 
         if (fallbackPool.isNotEmpty()) {
             val unplayedFallback = fallbackPool.filter { !isRecentlyPlayed(it.url) }

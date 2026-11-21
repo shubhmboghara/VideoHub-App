@@ -234,6 +234,20 @@ fun MiniPlayer(
                 .border(width = 0.75.dp, color = Color.White.copy(alpha = 0.14f), shape = cardShape)
                 .onGloballyPositioned { cardCoords = it }
                 .pointerInput(screenWidthPx, screenHeightPx, minScale, maxScale) {
+                    fun resolveMiniX(): Float =
+                        if (pipOffsetX.value <= 0f && MiniPlayerGlobalState.pipOffsetX.floatValue < 0f) {
+                            maxOf(minX, screenWidthPx - basePipWidthPx * pipScale.value.coerceIn(minScale, maxScale) - horizontalMarginPx)
+                        } else {
+                            pipOffsetX.value
+                        }
+
+                    fun resolveMiniY(): Float =
+                        if (pipOffsetY.value <= 0f && MiniPlayerGlobalState.pipOffsetY.floatValue < 0f) {
+                            maxOf(minY, screenHeightPx - basePipHeightPx * pipScale.value.coerceIn(minScale, maxScale) - bottomMarginPx)
+                        } else {
+                            pipOffsetY.value
+                        }
+
                     awaitEachGesture {
                         val down = awaitFirstDown(
                             requireUnconsumed = false,
@@ -247,15 +261,16 @@ fun MiniPlayer(
 
                         var hasMoved = false
                         var isPinching = false
+                        var wasMultiTouchInGesture = false
                         var initialSlopPan = Offset.Zero
                         var totalDragX = 0f
                         var totalDragY = 0f
-                        var isHorizontalLocked = false
-                        val touchSlop = viewConfiguration.touchSlop
+                        val touchSlop = viewConfiguration.touchSlop * 0.65f
 
                         var curScale = pipScale.value.coerceIn(minScale, maxScale)
-                        var curX = pipOffsetX.value
-                        var curY = pipOffsetY.value
+                        var curX = resolveMiniX()
+                        var curY = resolveMiniY()
+                        var dragStartY = curY
 
                         try {
                             do {
@@ -263,7 +278,9 @@ fun MiniPlayer(
                                 val zoom = event.calculateZoom()
                                 val pressedChanges = event.changes.filter { it.pressed }
                                 val pointerCount = pressedChanges.size
-                                if (pointerCount < 2) {
+                                if (pointerCount >= 2) {
+                                    wasMultiTouchInGesture = true
+                                } else {
                                     isPinching = false
                                 }
                                 val primaryChange = pressedChanges.firstOrNull { it.id == trackedPointerId } ?: pressedChanges.firstOrNull()
@@ -282,13 +299,16 @@ fun MiniPlayer(
                                     Offset.Zero
                                 }
 
+                                var justStartedMoving = false
                                 if (!hasMoved) {
                                     initialSlopPan += pan
                                     val startedPinch = pointerCount >= 2 && abs(zoom - 1f) > 0.01f
                                     if (initialSlopPan.getDistance() > touchSlop || startedPinch) {
                                         hasMoved = true
+                                        justStartedMoving = true
                                         if (startedPinch) {
                                             isPinching = true
+                                            wasMultiTouchInGesture = true
                                         }
                                         scope.launch {
                                             pipScale.stop()
@@ -296,29 +316,25 @@ fun MiniPlayer(
                                             pipOffsetY.stop()
                                         }
                                         curScale = pipScale.value.coerceIn(minScale, maxScale)
-                                        curX = pipOffsetX.value
-                                        curY = pipOffsetY.value
+                                        curX = resolveMiniX()
+                                        curY = resolveMiniY()
+                                        dragStartY = curY
                                         activeDragScale = curScale
                                         activeDragX = curX
                                         activeDragY = curY
                                         isDraggingMini = true
                                         totalDragX += initialSlopPan.x
                                         totalDragY += initialSlopPan.y
-                                        if (abs(totalDragX) > abs(totalDragY) * 1.25f) {
-                                            isHorizontalLocked = true
-                                        }
                                     }
                                 } else {
                                     totalDragX += pan.x
                                     totalDragY += pan.y
-                                    if (abs(totalDragX) > abs(totalDragY) * 1.5f) {
-                                        isHorizontalLocked = true
-                                    }
                                 }
 
                                 if (hasMoved) {
                                     event.changes.forEach { it.consume() }
 
+                                    val effectivePan = if (justStartedMoving) initialSlopPan else pan
                                     val oldW = basePipWidthPx * curScale
                                     val oldH = basePipHeightPx * curScale
                                     val newScale = com.videhub.PlayerStateManager.computeNextMiniPlayerScale(
@@ -331,6 +347,7 @@ fun MiniPlayer(
                                     )
                                     if (pointerCount >= 2 && abs(zoom - 1f) > 0.01f) {
                                         isPinching = true
+                                        wasMultiTouchInGesture = true
                                     }
                                     val newW = basePipWidthPx * newScale
                                     val newH = basePipHeightPx * newScale
@@ -342,9 +359,9 @@ fun MiniPlayer(
                                     val scaleDeltaY = (newH - oldH) / 2f
 
                                     curScale = newScale
-                                    curX = (curX - scaleDeltaX + pan.x).coerceIn(minX, dynamicMaxX)
-                                    val maxAllowedDragY = if (isHorizontalLocked || pointerCount > 1) dynamicMaxY else screenHeightPx
-                                    curY = (curY - scaleDeltaY + pan.y).coerceIn(minY, maxAllowedDragY)
+                                    curX = (curX - scaleDeltaX + effectivePan.x).coerceIn(minX, dynamicMaxX)
+                                    val maxAllowedDragY = if (pointerCount > 1) dynamicMaxY else screenHeightPx + newH * 0.35f
+                                    curY = (curY - scaleDeltaY + effectivePan.y).coerceIn(minY, maxAllowedDragY)
 
                                     activeDragScale = curScale
                                     activeDragX = curX
@@ -356,41 +373,57 @@ fun MiniPlayer(
                             } while (event.changes.any { it.pressed })
 
                             val velocity = velocityTracker.calculateVelocity()
-                            if (hasMoved) {
+                            val minFlingTravelPx = with(density) { 10.dp.toPx() }
+                            val isQuickUncommittedDownFlick =
+                                !hasMoved &&
+                                    !wasMultiTouchInGesture &&
+                                    initialSlopPan.y >= minFlingTravelPx &&
+                                    initialSlopPan.y > abs(initialSlopPan.x) &&
+                                    velocity.y >= 450f
+
+                            if (hasMoved || isQuickUncommittedDownFlick) {
                                 val currentW = basePipWidthPx * curScale
                                 val currentH = basePipHeightPx * curScale
                                 val dynamicMaxX = maxOf(minX, screenWidthPx - currentW - horizontalMarginPx)
                                 val dynamicMaxY = maxOf(minY, screenHeightPx - currentH - bottomMarginPx)
                                 val x = curX
-                                val y = curY
+                                val y = if (isQuickUncommittedDownFlick) curY + initialSlopPan.y else curY
+                                val evalDragX = if (isQuickUncommittedDownFlick) initialSlopPan.x else totalDragX
+                                val evalDragY = if (isQuickUncommittedDownFlick) initialSlopPan.y else totalDragY
 
-                                val isPredominantlyVerticalDown =
-                                    !isHorizontalLocked &&
-                                        totalDragY > 0f &&
-                                        abs(totalDragY) > abs(totalDragX) * 1.5f
+                                val dismissPullThresholdPx = minOf(with(density) { 18.dp.toPx() }, currentH * 0.18f)
+                                val nearBottomSlopPx = with(density) { 96.dp.toPx() }
 
-                                val bottomDismissZoneThreshold = screenHeightPx * 0.88f
-                                val crossedBottomZone = (y + currentH) >= bottomDismissZoneThreshold && y > dynamicMaxY + horizontalMarginPx
-                                val hasDownwardFlingVelocity =
-                                    velocity.y > 1400f &&
-                                        abs(velocity.y) > abs(velocity.x) * 1.5f
-
-                                val shouldDismissDownward =
-                                    isPredominantlyVerticalDown && (crossedBottomZone || hasDownwardFlingVelocity)
+                                val shouldDismissDownward = com.videhub.PlayerStateManager.shouldDismissMiniplayerOnDragEnd(
+                                    endY = y,
+                                    dragStartY = dragStartY,
+                                    maxY = dynamicMaxY,
+                                    pipHeightPx = currentH,
+                                    dragDeltaX = evalDragX,
+                                    dragDeltaY = evalDragY,
+                                    velocityX = velocity.x,
+                                    velocityY = velocity.y,
+                                    dismissPullThresholdPx = dismissPullThresholdPx,
+                                    nearBottomSlopPx = nearBottomSlopPx,
+                                    minFlingTravelPx = minFlingTravelPx,
+                                    wasPinch = wasMultiTouchInGesture
+                                )
 
                                 scope.launch {
                                     pipScale.snapTo(curScale)
                                     pipOffsetX.snapTo(curX)
-                                    pipOffsetY.snapTo(curY)
+                                    pipOffsetY.snapTo(y)
                                     isDraggingMini = false
                                     if (shouldDismissDownward) {
                                         pipOffsetY.animateTo(
-                                            targetValue = screenHeightPx,
+                                            targetValue = screenHeightPx + currentH * 0.25f,
                                             animationSpec = spring(
                                                 dampingRatio = Spring.DampingRatioNoBouncy,
                                                 stiffness = Spring.StiffnessMedium
                                             )
                                         )
+                                        MiniPlayerGlobalState.pipOffsetX.floatValue = -1f
+                                        MiniPlayerGlobalState.pipOffsetY.floatValue = -1f
                                         onCloseClick()
                                     } else {
                                         val currentCenterX = x + currentW / 2f

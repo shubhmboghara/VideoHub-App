@@ -486,9 +486,9 @@ object PlayerStateManager {
      * YouTube-style floating miniplayer downward dismiss decision:
      * - Rejects multi-finger pinch gestures.
      * - Dismisses when pulled below resting bottom edge into dismiss zone (unless flung back up).
-     * - Dismisses when starting near the bottom resting zone and swiped/flicked downward.
-     * - Dismisses on a fast downward throw in the lower region of the screen.
-     * - Allows moving slowly from top corners down to the bottom resting spot without accidental close.
+     * - Dismisses when starting near the bottom resting zone and swiped or pulled downward.
+     * - Dismisses on a downward flick/swipe from anywhere on screen.
+     * - Allows dragging slowly from top corners down into the bottom resting spot if stopped above the dismiss threshold.
      */
     fun shouldDismissMiniplayerOnDragEnd(
         endY: Float,
@@ -506,23 +506,32 @@ object PlayerStateManager {
     ): Boolean {
         if (wasPinch) return false
 
-        val safeThreshold = dismissPullThresholdPx.coerceAtLeast(16f)
-        if (endY >= maxY + safeThreshold && velocityY > -350f) {
+        val safeThreshold = dismissPullThresholdPx.coerceAtLeast(12f)
+        val safeMinTravel = minFlingTravelPx.coerceAtLeast(8f)
+
+        // 1. Pulled below the bottom resting line (maxY) into the bottom dismiss zone
+        if (endY >= maxY + safeThreshold && velocityY > -250f) {
             return true
         }
 
+        // 2. Started in or near the bottom resting zone: since there is no lower resting position
+        //    than maxY, any intentional downward drag or swipe from maxY closes the miniplayer.
         val startedNearBottom = dragStartY >= (maxY - nearBottomSlopPx)
-        if (startedNearBottom &&
-            dragDeltaY >= minFlingTravelPx &&
-            velocityY >= 450f &&
-            velocityY > kotlin.math.abs(velocityX) * 0.65f
-        ) {
-            return true
+        val isPredominantlyDownward = dragDeltaY >= safeMinTravel &&
+            dragDeltaY > kotlin.math.abs(dragDeltaX) * 0.75f
+        if (startedNearBottom && isPredominantlyDownward) {
+            if (velocityY >= 150f && velocityY > kotlin.math.abs(velocityX) * 0.55f) {
+                return true
+            }
+            if (endY >= maxY + safeMinTravel * 0.75f && velocityY >= -120f) {
+                return true
+            }
         }
 
-        if (velocityY >= 1050f &&
-            endY >= maxY * 0.65f &&
-            velocityY > kotlin.math.abs(velocityX)
+        // 3. Clear downward flick from anywhere on screen
+        if (dragDeltaY >= safeMinTravel &&
+            velocityY >= 550f &&
+            velocityY > kotlin.math.abs(velocityX) * 0.85f
         ) {
             return true
         }

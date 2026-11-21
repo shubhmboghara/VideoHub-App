@@ -68,4 +68,71 @@ class NetworkUtilsTest {
             NetworkUtils.getFriendlyErrorMessage(parserEx, "Could not load channel videos. Please try again.")
         )
     }
+
+    @Test
+    fun scheduledPremiereVideo_isDetectedAndExcludedFromPlayableFeeds() {
+        // Case 1: NewPipeExtractor upcoming Premiere with duration == -1L, textualUploadDate == null, viewCount == -1L
+        val upcomingPremiere = org.schabi.newpipe.extractor.stream.StreamInfoItem(
+            0,
+            "https://www.youtube.com/watch?v=scheduled123",
+            "Giant Beast Bone Cave | Secret Power Crystal Mystery | Ep 1032-1033",
+            org.schabi.newpipe.extractor.stream.StreamType.VIDEO_STREAM
+        ).apply {
+            duration = -1L
+            viewCount = -1L
+            textualUploadDate = null
+        }
+        assertTrue(com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(upcomingPremiere))
+        assertTrue(com.videhub.utils.ChannelLiveStatusManager.isEndedOrPastLiveStream(upcomingPremiere))
+        assertFalse(com.videhub.utils.ChannelLiveStatusManager.isStreamCurrentlyLive(upcomingPremiere))
+
+        // Case 2: Upcoming live event with LIVE_STREAM type but viewCount == -1L
+        val upcomingLiveEvent = org.schabi.newpipe.extractor.stream.StreamInfoItem(
+            0,
+            "https://www.youtube.com/watch?v=scheduledLive456",
+            "Red Blood Monster Rain | Secret Moon | Ep 1030-1031",
+            org.schabi.newpipe.extractor.stream.StreamType.LIVE_STREAM
+        ).apply {
+            duration = -1L
+            viewCount = -1L
+            textualUploadDate = null
+        }
+        assertTrue(com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(upcomingLiveEvent))
+        assertFalse(com.videhub.utils.ChannelLiveStatusManager.isStreamCurrentlyLive(upcomingLiveEvent))
+
+        // Case 3: Normal published video on the same channel is playable and NOT filtered out
+        val publishedVideo = org.schabi.newpipe.extractor.stream.StreamInfoItem(
+            0,
+            "https://www.youtube.com/watch?v=published789",
+            "Ep 1028-1029 | Naman Story Book",
+            org.schabi.newpipe.extractor.stream.StreamType.VIDEO_STREAM
+        ).apply {
+            duration = 1420L
+            viewCount = 15400L
+            textualUploadDate = "1 day ago"
+        }
+        assertFalse(com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(publishedVideo))
+        assertFalse(com.videhub.utils.ChannelLiveStatusManager.isEndedOrPastLiveStream(publishedVideo))
+
+        val filtered = com.videhub.utils.ChannelLiveStatusManager.filterPlayableVideos(
+            listOf(upcomingPremiere, upcomingLiveEvent, publishedVideo)
+        )
+        assertEquals(1, filtered.size)
+        assertEquals("https://www.youtube.com/watch?v=published789", filtered.first().url)
+    }
+
+    @Test
+    fun scheduledVideoException_isNotClassifiedAsNetworkError() {
+        val premiereEx = RuntimeException("org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException: Premieres in 5 days")
+        assertTrue(NetworkUtils.isScheduledVideoError(premiereEx))
+        assertFalse(NetworkUtils.isNetworkError(premiereEx))
+        assertEquals(
+            "This video is scheduled and hasn't premiered yet. Please check back when it goes live.",
+            NetworkUtils.getFriendlyErrorMessage(premiereEx)
+        )
+        assertEquals(
+            "Upcoming scheduled video",
+            NetworkUtils.getFriendlyErrorTitle(NetworkUtils.getFriendlyErrorMessage(premiereEx))
+        )
+    }
 }

@@ -277,7 +277,7 @@ fun PlayerScreen(
         } else {
             streamInfo?.relatedItems?.filterIsInstance<StreamInfoItem>() ?: emptyList()
         }
-        mutableStateOf<List<StreamInfoItem>>(initialRelated)
+        mutableStateOf<List<StreamInfoItem>>(com.videhub.utils.ChannelLiveStatusManager.filterPlayableVideos(initialRelated))
     }
     var isRelatedLoading by remember(videoUrl) {
         val isLocal = videoUrl.startsWith("/") || videoUrl.startsWith("file://") || videoUrl.startsWith("content://")
@@ -291,7 +291,10 @@ fun PlayerScreen(
         val cachedInfo = sharedViewModel.playerStreamInfoCache
         val isCachedForThisVideo = cachedInfo != null && (cachedInfo.url == videoUrl || cachedInfo.originalUrl == videoUrl)
         if (retryTrigger == 0 && isCachedForThisVideo) {
-            val cachedRelated = cachedInfo?.relatedItems?.filterIsInstance<StreamInfoItem>()?.filter { it.url != videoUrl } ?: emptyList()
+            val cachedRelated = cachedInfo?.relatedItems
+                ?.filterIsInstance<StreamInfoItem>()
+                ?.filter { it.url != videoUrl && !com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(it) }
+                ?: emptyList()
             if (cachedRelated.isNotEmpty()) {
                 relatedVideos = cachedRelated
                 isRelatedLoading = false
@@ -303,7 +306,10 @@ fun PlayerScreen(
         }
         val bgInfo = com.videhub.service.BackgroundAutoplayHandler.currentStreamInfo
         if (retryTrigger == 0 && bgInfo != null && (bgInfo.url == videoUrl || bgInfo.originalUrl == videoUrl)) {
-            val bgRelated = bgInfo.relatedItems?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()?.filter { it.url != videoUrl } ?: emptyList()
+            val bgRelated = bgInfo.relatedItems
+                ?.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+                ?.filter { it.url != videoUrl && !com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(it) }
+                ?: emptyList()
             if (bgRelated.isNotEmpty()) {
                 relatedVideos = bgRelated
                 isRelatedLoading = false
@@ -355,14 +361,14 @@ fun PlayerScreen(
 
             val directRelated = info.relatedItems
                 ?.filterIsInstance<StreamInfoItem>()
-                ?.filter { it.url != videoUrl }
+                ?.filter { it.url != videoUrl && !com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(it) }
                 ?: emptyList()
             if (directRelated.isNotEmpty()) {
                 relatedVideos = directRelated
                 isRelatedLoading = false
             }
             sharedViewModel.playerRelatedItemsCache = directRelated
-            com.videhub.service.BackgroundAutoplayHandler.relatedItemsCache = info.relatedItems ?: emptyList()
+            com.videhub.service.BackgroundAutoplayHandler.relatedItemsCache = directRelated
             com.videhub.service.BackgroundAutoplayHandler.currentStreamInfo = info
             com.videhub.service.BackgroundAutoplayHandler.markAsRecentlyPlayed(videoUrl)
             sharedViewModel.playerStreamInfoCache = info
@@ -635,7 +641,12 @@ fun PlayerScreen(
                     }
                 }
             } else {
-                errorMessage = "No suitable stream found"
+                val info = streamInfo
+                errorMessage = if (info != null && com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingStreamInfo(info)) {
+                    "This video is scheduled and hasn't premiered yet. Please check back when it goes live."
+                } else {
+                    "No suitable stream found"
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -651,7 +662,10 @@ fun PlayerScreen(
         if (isLocal || errorMessage != null) {
             isRelatedLoading = false
         } else if (streamInfo != null) {
-            val direct = streamInfo!!.relatedItems?.filterIsInstance<StreamInfoItem>()?.filter { it.url != videoUrl } ?: emptyList()
+            val direct = streamInfo!!.relatedItems
+                ?.filterIsInstance<StreamInfoItem>()
+                ?.filter { it.url != videoUrl && !com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(it) }
+                ?: emptyList()
             if (direct.isNotEmpty()) {
                 relatedVideos = direct
                 isRelatedLoading = false
@@ -672,7 +686,9 @@ fun PlayerScreen(
                                 .filterIsInstance<StreamInfoItem>()
                             extraItems.addAll(searchVids)
                         }
-                        val combined = (direct + extraItems).distinctBy { it.url }.filter { it.url != videoUrl }
+                        val combined = (direct + extraItems)
+                            .distinctBy { it.url }
+                            .filter { it.url != videoUrl && !com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(it) }
                         if (combined.isNotEmpty()) {
                             withContext(Dispatchers.Main) {
                                 relatedVideos = combined
@@ -1039,18 +1055,6 @@ fun PlayerScreen(
                     .heightIn(max = if (isSheetLandscape) 260.dp else 520.dp)
                     .safeBottomSheetPadding(extraBottom = if (isSheetLandscape) 12.dp else 16.dp)
             ) {
-                item {
-                    androidx.compose.material3.ListItem(
-                        headlineContent = { androidx.compose.material3.Text("Switch to Music Mode", style = MaterialTheme.typography.bodyLarge) },
-                        leadingContent = { Icon(androidx.compose.material.icons.Icons.Default.Audiotrack, contentDescription = null) },
-                        modifier = Modifier
-                            .height(48.dp)
-                            .clickable {
-                                showSettingsSheet = false
-                                switchToMusicMode()
-                            }
-                    )
-                }
                 item {
                     androidx.compose.material3.ListItem(
                         headlineContent = { androidx.compose.material3.Text("Video Quality", style = MaterialTheme.typography.bodyLarge) },
@@ -2001,6 +2005,20 @@ fun PlayerScreen(
 
         val miniDragModifier = if (isMiniplayerInteractive && !isDismissingMini) {
             Modifier.pointerInput(containerWidthPx, containerHeightPx, minScale, maxScale, minX, minY, bottomMarginPx) {
+                fun resolveMiniX(): Float =
+                    if (pipOffsetX.value <= 0f && MiniPlayerGlobalState.pipOffsetX.floatValue < 0f) {
+                        maxOf(minX, containerWidthPx - basePipWidthPx * pipScale.value.coerceIn(minScale, maxScale) - horizontalMarginPx)
+                    } else {
+                        pipOffsetX.value
+                    }
+
+                fun resolveMiniY(): Float =
+                    if (pipOffsetY.value <= 0f && MiniPlayerGlobalState.pipOffsetY.floatValue < 0f) {
+                        maxOf(minY, containerHeightPx - basePipHeightPx * pipScale.value.coerceIn(minScale, maxScale) - bottomMarginPx)
+                    } else {
+                        pipOffsetY.value
+                    }
+
                 awaitEachGesture {
                     val down = awaitFirstDown(
                         requireUnconsumed = false,
@@ -2020,15 +2038,12 @@ fun PlayerScreen(
                     var initialSlopPan = Offset.Zero
                     var totalDragX = 0f
                     var totalDragY = 0f
-                    val dragSlop = maxOf(
-                        viewConfiguration.touchSlop * 1.35f,
-                        with(density) { 10.dp.toPx() }
-                    )
+                    val dragSlop = viewConfiguration.touchSlop * 0.65f
 
                     var curScale = pipScale.value.coerceIn(minScale, maxScale)
-                    var curX = pipOffsetX.value
-                    var curY = pipOffsetY.value
-                    val dragStartY = curY
+                    var curX = resolveMiniX()
+                    var curY = resolveMiniY()
+                    var dragStartY = curY
 
                     try {
                         do {
@@ -2057,11 +2072,13 @@ fun PlayerScreen(
                                 Offset.Zero
                             }
 
+                            var justStartedMoving = false
                             if (!hasMoved) {
                                 initialSlopPan += pan
                                 val startedPinch = pointerCount >= 2 && abs(zoom - 1f) > 0.015f
                                 if (initialSlopPan.getDistance() > dragSlop || startedPinch) {
                                     hasMoved = true
+                                    justStartedMoving = true
                                     if (startedPinch) {
                                         isPinching = true
                                         wasMultiTouchInGesture = true
@@ -2074,8 +2091,9 @@ fun PlayerScreen(
                                         pipOffsetY.stop()
                                     }
                                     curScale = pipScale.value.coerceIn(minScale, maxScale)
-                                    curX = pipOffsetX.value
-                                    curY = pipOffsetY.value
+                                    curX = resolveMiniX()
+                                    curY = resolveMiniY()
+                                    dragStartY = curY
                                     activeMiniScale = curScale
                                     activeMiniX = curX
                                     activeMiniY = curY
@@ -2091,6 +2109,7 @@ fun PlayerScreen(
                             if (hasMoved) {
                                 event.changes.forEach { it.consume() }
 
+                                val effectivePan = if (justStartedMoving) initialSlopPan else pan
                                 val oldW = basePipWidthPx * curScale
                                 val oldH = basePipHeightPx * curScale
                                 val newScale = PlayerStateManager.computeNextMiniPlayerScale(
@@ -2115,10 +2134,10 @@ fun PlayerScreen(
                                 val scaleDeltaY = (newH - oldH) / 2f
 
                                 curScale = newScale
-                                curX = (curX - scaleDeltaX + pan.x).coerceIn(minX, dynamicMaxX)
+                                curX = (curX - scaleDeltaX + effectivePan.x).coerceIn(minX, dynamicMaxX)
                                 // Single-finger drag may always pull downward into the bottom dismiss zone without an artificial horizontal lock.
-                                val maxAllowedDragY = if (pointerCount > 1) dynamicMaxY else containerHeightPx + newH * 0.25f
-                                curY = (curY - scaleDeltaY + pan.y).coerceIn(minY, maxAllowedDragY)
+                                val maxAllowedDragY = if (pointerCount > 1) dynamicMaxY else containerHeightPx + newH * 0.35f
+                                curY = (curY - scaleDeltaY + effectivePan.y).coerceIn(minY, maxAllowedDragY)
 
                                 activeMiniScale = curScale
                                 activeMiniX = curX
@@ -2130,25 +2149,34 @@ fun PlayerScreen(
                         } while (event.changes.any { it.pressed })
 
                         val velocity = velocityTracker.calculateVelocity()
-                        if (hasMoved) {
+                        val minFlingTravelPx = with(density) { 10.dp.toPx() }
+                        val isQuickUncommittedDownFlick =
+                            !hasMoved &&
+                                !wasMultiTouchInGesture &&
+                                initialSlopPan.y >= minFlingTravelPx &&
+                                initialSlopPan.y > abs(initialSlopPan.x) &&
+                                velocity.y >= 450f
+
+                        if (hasMoved || isQuickUncommittedDownFlick) {
                             val currentW = basePipWidthPx * curScale
                             val currentH = basePipHeightPx * curScale
                             val dynamicMaxX = maxOf(minX, containerWidthPx - currentW - horizontalMarginPx)
                             val dynamicMaxY = maxOf(minY, containerHeightPx - currentH - bottomMarginPx)
                             val x = curX
-                            val y = curY
+                            val y = if (isQuickUncommittedDownFlick) curY + initialSlopPan.y else curY
+                            val evalDragX = if (isQuickUncommittedDownFlick) initialSlopPan.x else totalDragX
+                            val evalDragY = if (isQuickUncommittedDownFlick) initialSlopPan.y else totalDragY
 
-                            val dismissPullThresholdPx = minOf(with(density) { 36.dp.toPx() }, currentH * 0.30f)
-                            val nearBottomSlopPx = with(density) { 84.dp.toPx() }
-                            val minFlingTravelPx = with(density) { 14.dp.toPx() }
+                            val dismissPullThresholdPx = minOf(with(density) { 18.dp.toPx() }, currentH * 0.18f)
+                            val nearBottomSlopPx = with(density) { 96.dp.toPx() }
 
                             val shouldDismissDownward = PlayerStateManager.shouldDismissMiniplayerOnDragEnd(
                                 endY = y,
                                 dragStartY = dragStartY,
                                 maxY = dynamicMaxY,
                                 pipHeightPx = currentH,
-                                dragDeltaX = totalDragX,
-                                dragDeltaY = totalDragY,
+                                dragDeltaX = evalDragX,
+                                dragDeltaY = evalDragY,
                                 velocityX = velocity.x,
                                 velocityY = velocity.y,
                                 dismissPullThresholdPx = dismissPullThresholdPx,
@@ -2161,7 +2189,7 @@ fun PlayerScreen(
                             miniSnapJob = scope.launch {
                                 pipScale.snapTo(curScale)
                                 pipOffsetX.snapTo(curX)
-                                pipOffsetY.snapTo(curY)
+                                pipOffsetY.snapTo(y)
                                 isMiniDragging = false
                                 if (shouldDismissDownward) {
                                     isDismissingMini = true
@@ -2226,7 +2254,7 @@ fun PlayerScreen(
             Modifier
         }
 
-        val dismissVisualThresholdPx = minOf(with(density) { 36.dp.toPx() }, pipHeightPx * 0.30f).coerceAtLeast(16f)
+        val dismissVisualThresholdPx = minOf(with(density) { 24.dp.toPx() }, pipHeightPx * 0.22f).coerceAtLeast(14f)
         val dismissOvershootPx = if (isSettledMiniplayer || isMiniDragging || isDismissingMini) {
             (currentMiniY - maxY).coerceAtLeast(0f)
         } else {
@@ -2264,6 +2292,8 @@ fun PlayerScreen(
                         placeable.placeRelative(0, 0)
                     }
                 }
+                .onGloballyPositioned { miniCardCoords = it }
+                .then(miniDragModifier)
                 .graphicsLayer {
                     val frame = transitionController.computeCurrentFrame(
                         boundsHolder.bounds,
@@ -2296,8 +2326,6 @@ fun PlayerScreen(
                         )
                     }
                 }
-                .onGloballyPositioned { miniCardCoords = it }
-                .then(miniDragModifier)
                 .testTag(if (isSettledMiniplayer) "miniplayer_card" else "video_player_surface_container")
         ) {
             VideoPlayerContainer(
@@ -2674,18 +2702,34 @@ fun VideoPlayerContainer(
                 currentSpeed = currentSpeed,
                 videoScale = videoScale,
                 onPinchStateChanged = { active -> isPinchingNow = active },
-                onScaleChange = { zoomChange, panChange ->
-                    val rawScale = (videoScale * zoomChange).coerceIn(1f, 3.5f)
-                    val newScale = if (rawScale < 1.05f && zoomChange < 1f) 1f else rawScale
+                onScaleChange = { zoomChange, panChange, centroid, viewWidth, viewHeight ->
+                    val oldScale = videoScale.coerceAtLeast(1f)
+                    val rawScale = (oldScale * zoomChange).coerceIn(1f, 8.0f)
+                    val newScale = if (rawScale < 1.03f && zoomChange < 1f) 1f else rawScale
                     videoScale = newScale
                     if (newScale <= 1.01f) {
                         videoPanOffsetX = 0f
                         videoPanOffsetY = 0f
                     } else {
-                        val maxPanX = (newScale - 1f) * 450f
-                        val maxPanY = (newScale - 1f) * 300f
-                        videoPanOffsetX = (videoPanOffsetX + panChange.x).coerceIn(-maxPanX, maxPanX)
-                        videoPanOffsetY = (videoPanOffsetY + panChange.y).coerceIn(-maxPanY, maxPanY)
+                        val safeW = if (viewWidth > 0f) viewWidth else 1080f
+                        val safeH = if (viewHeight > 0f) viewHeight else 608f
+                        val ratio = newScale / oldScale
+                        val focusX = centroid.x - safeW * 0.5f
+                        val focusY = centroid.y - safeH * 0.5f
+                        val nextOffsetX = if (abs(zoomChange - 1f) > 0.0001f) {
+                            focusX + panChange.x - (focusX - videoPanOffsetX) * ratio
+                        } else {
+                            videoPanOffsetX + panChange.x
+                        }
+                        val nextOffsetY = if (abs(zoomChange - 1f) > 0.0001f) {
+                            focusY + panChange.y - (focusY - videoPanOffsetY) * ratio
+                        } else {
+                            videoPanOffsetY + panChange.y
+                        }
+                        val maxPanX = (safeW * (newScale - 1f)) * 0.5f
+                        val maxPanY = (safeH * (newScale - 1f)) * 0.5f
+                        videoPanOffsetX = nextOffsetX.coerceIn(-maxPanX, maxPanX)
+                        videoPanOffsetY = nextOffsetY.coerceIn(-maxPanY, maxPanY)
                     }
                 },
                 onResetZoom = {
@@ -2780,17 +2824,6 @@ fun VideoPlayerContainer(
                         Icon(
                             imageVector = Icons.Outlined.Settings,
                             contentDescription = "Settings",
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    IconButton(
-                        onClick = onToggleMusicMode,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Audiotrack,
-                            contentDescription = "Music Mode",
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)
                         )

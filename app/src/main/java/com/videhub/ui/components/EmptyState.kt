@@ -93,11 +93,13 @@ fun NetworkErrorState(
     onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val isNetworkIssue = isOffline || NetworkUtils.isNetworkErrorMessage(errorMessage)
-    val isTimeout = !isOffline && NetworkUtils.isTimeoutError(rawMessage = errorMessage)
+    val isScheduled = !isOffline && NetworkUtils.isScheduledVideoError(rawMessage = errorMessage)
+    val isNetworkIssue = !isScheduled && (isOffline || NetworkUtils.isNetworkErrorMessage(errorMessage))
+    val isTimeout = !isOffline && !isScheduled && NetworkUtils.isTimeoutError(rawMessage = errorMessage)
 
     val resolvedTitle = title ?: when {
         isOffline -> "You're offline"
+        isScheduled -> "Upcoming scheduled video"
         isTimeout -> "Connection timed out"
         isNetworkIssue -> "No internet connection"
         else -> "Something went wrong"
@@ -105,6 +107,7 @@ fun NetworkErrorState(
 
     val resolvedMessage = when {
         isOffline -> "Turn on mobile data or Wi-Fi to load videos and channels."
+        isScheduled -> "This video is scheduled and hasn't premiered yet. Please check back when it goes live."
         else -> NetworkUtils.sanitizeErrorMessage(
             rawMessage = errorMessage,
             fallback = "We couldn't load this content right now. Please try again."
@@ -114,6 +117,7 @@ fun NetworkErrorState(
     val resolvedIcon = when {
         isOffline || isNetworkIssue -> Icons.Default.WifiOff
         isTimeout -> Icons.Default.CloudOff
+        isScheduled -> Icons.Default.Info
         else -> Icons.Default.ErrorOutline
     }
 

@@ -109,13 +109,44 @@ object NetworkUtils {
         "at org."
     )
 
+    private val scheduledKeywords = listOf(
+        "premieres in",
+        "premiere will begin",
+        "live event will begin",
+        "scheduled for",
+        "upcoming",
+        "hasn't premiered yet",
+        "not premiered yet"
+    )
+
+    fun isScheduledVideoError(throwable: Throwable? = null, rawMessage: String? = null): Boolean {
+        if (throwable != null) {
+            val causes = generateSequence(throwable) { it.cause }.take(10)
+            for (cause in causes) {
+                val msg = cause.message?.lowercase() ?: ""
+                if (scheduledKeywords.any { msg.contains(it) }) {
+                    return true
+                }
+            }
+        }
+        if (!rawMessage.isNullOrBlank()) {
+            val lower = rawMessage.lowercase()
+            if (scheduledKeywords.any { lower.contains(it) }) {
+                return true
+            }
+        }
+        return false
+    }
+
     fun isNetworkErrorMessage(message: String?): Boolean {
         if (message.isNullOrBlank()) return false
+        if (isScheduledVideoError(rawMessage = message)) return false
         val lower = message.lowercase()
         return networkKeywords.any { lower.contains(it) }
     }
 
     fun isTimeoutError(throwable: Throwable? = null, rawMessage: String? = null): Boolean {
+        if (isScheduledVideoError(throwable, rawMessage)) return false
         if (throwable != null) {
             val causes = generateSequence(throwable) { it.cause }.take(10)
             for (cause in causes) {
@@ -137,6 +168,7 @@ object NetworkUtils {
 
     fun isNetworkError(throwable: Throwable?): Boolean {
         if (throwable == null) return false
+        if (isScheduledVideoError(throwable)) return false
         val causes = generateSequence(throwable) { it.cause }.take(10)
         for (cause in causes) {
             if (cause is UnknownHostException ||
@@ -158,6 +190,7 @@ object NetworkUtils {
 
     fun getFriendlyErrorTitle(errorMessage: String?): String {
         if (errorMessage.isNullOrBlank()) return "Something went wrong"
+        if (isScheduledVideoError(rawMessage = errorMessage)) return "Upcoming scheduled video"
         if (isTimeoutError(rawMessage = errorMessage)) return "Connection timed out"
         if (isNetworkErrorMessage(errorMessage)) return "You're offline"
         return "Something went wrong"
@@ -168,6 +201,9 @@ object NetworkUtils {
         fallback: String = "Something went wrong. Please try again."
     ): String {
         if (throwable == null) return fallback
+        if (isScheduledVideoError(throwable)) {
+            return "This video is scheduled and hasn't premiered yet. Please check back when it goes live."
+        }
         if (isTimeoutError(throwable)) {
             return "Connection timed out. Please check your internet connection and try again."
         }
@@ -182,6 +218,9 @@ object NetworkUtils {
         fallback: String = "Something went wrong. Please try again."
     ): String {
         if (rawMessage.isNullOrBlank()) return fallback
+        if (isScheduledVideoError(rawMessage = rawMessage)) {
+            return "This video is scheduled and hasn't premiered yet. Please check back when it goes live."
+        }
         if (isTimeoutError(rawMessage = rawMessage)) {
             return "Connection timed out. Please check your internet connection and try again."
         }

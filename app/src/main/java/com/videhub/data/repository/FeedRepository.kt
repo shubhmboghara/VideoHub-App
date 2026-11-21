@@ -273,6 +273,7 @@ class FeedRepository(
 
         fun addIfUnique(item: StreamInfoItem?): Boolean {
             if (item == null) return false
+            if (com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(item)) return false
             val u = item.url ?: return false
             if (u.isBlank() || seenInCurrentFeed.contains(u)) return false
             seenInCurrentFeed.add(u)
@@ -312,7 +313,7 @@ class FeedRepository(
         } else {
             // No explicit interests: rank by affinity score & freshness
             val candidatePool = (subscribedVideos + relatedVideos + trendingVideos)
-                .filter { it.url?.isNotBlank() == true }
+                .filter { it.url?.isNotBlank() == true && !com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(it) }
                 .distinctBy { it.url ?: "" }
 
             val scoredItems = candidatePool.map { video ->
@@ -380,7 +381,7 @@ class FeedRepository(
                         channelAvatarUrl = it.uploaderAvatars?.firstOrNull()?.url,
                         viewCount = it.viewCount,
                         duration = it.duration,
-                        publishedText = it.uploadDate?.toString() ?: it.textualUploadDate ?: ""
+                        publishedText = it.textualUploadDate ?: ""
                     )
                 }
                 db.feedCacheDao().clearAll()

@@ -247,7 +247,13 @@ fun SubscriptionsScreen(
                 }
                 val (info, liveStreams) = kotlinx.coroutines.coroutineScope {
                     val infoDef = async { ExtractorHelper.getChannelInfo(url) }
-                    val liveDef = async { ExtractorHelper.getChannelLiveStreams(url) }
+                    val liveDef = async {
+                        try {
+                            ExtractorHelper.getChannelLiveStreams(url)
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    }
                     Pair(infoDef.await(), liveDef.await())
                 }
 
@@ -258,12 +264,16 @@ fun SubscriptionsScreen(
                     db.channelDao().insert(selectedChannel.copy(thumbnailUrl = freshAvatar))
                 }
 
-                val verifiedActiveLive = com.videhub.utils.ChannelLiveStatusManager.verifyAndSetChannelLiveStreams(
-                    channelUrl = activeChannelId,
-                    secondaryChannelUrl = info.url,
-                    channelName = info.name ?: selectedChannel?.name,
-                    streams = liveStreams
-                )
+                val verifiedActiveLive = try {
+                    com.videhub.utils.ChannelLiveStatusManager.verifyAndSetChannelLiveStreams(
+                        channelUrl = activeChannelId,
+                        secondaryChannelUrl = info.url,
+                        channelName = info.name ?: selectedChannel?.name,
+                        streams = liveStreams
+                    )
+                } catch (_: Exception) {
+                    null
+                }
 
                 val source = ExtractorHelper.getChannelPagingSource(info)
                 pagingSource = source
@@ -276,6 +286,7 @@ fun SubscriptionsScreen(
                     }
                     for (v in rawVids) {
                         if (!com.videhub.utils.ChannelLiveStatusManager.isEndedOrPastLiveStream(v) &&
+                            !com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(v) &&
                             (verifiedActiveLive == null || v.url != verifiedActiveLive.url)
                         ) {
                             add(v)
@@ -336,7 +347,13 @@ fun SubscriptionsScreen(
         scope.launch {
             isPaginating = true
             try {
-                val items = pagingSource?.loadNextPage()?.filterIsInstance<StreamInfoItem>() ?: emptyList()
+                val items = pagingSource?.loadNextPage()
+                    ?.filterIsInstance<StreamInfoItem>()
+                    ?.filterNot {
+                        com.videhub.utils.ChannelLiveStatusManager.isEndedOrPastLiveStream(it) ||
+                                com.videhub.utils.ChannelLiveStatusManager.isScheduledOrUpcomingVideo(it)
+                    }
+                    ?: emptyList()
                 items.forEach { video ->
                     com.videhub.utils.ChannelLiveStatusManager.processStreamItem(video)
                 }
